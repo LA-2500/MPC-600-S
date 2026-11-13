@@ -41,6 +41,10 @@ make test     # the tests, on this computer
 
 The manual is `docs/manual/manual.html`; `tools/build_manual.py` makes the PDF. The arpeggiator's added presets are written in `tools/arp_presets.py`, which makes `os/arp_presets.h`.
 
+## Contact
+
+By Lanny C (LA). Questions and bug reports: doctorbnetwork@gmail.com
+
 ## Licence
 
 MIT: see [LICENSE](LICENSE).
