@@ -45,6 +45,8 @@ The manual is `docs/manual/manual.html`; `tools/build_manual.py` makes the PDF. 
 
 By Lanny C (LA). Questions and bug reports: doctorbnetwork@gmail.com
 
+Videos: [youtube.com/@DoctorbNetwork](https://www.youtube.com/@DoctorbNetwork)
+
 ## Licence
 
 MIT: see [LICENSE](LICENSE).
