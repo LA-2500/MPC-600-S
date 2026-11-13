@@ -1141,7 +1141,6 @@ static void preview_schedule(struct os *s, const struct ui *u);
 #define SETTING_NOTES "pad_notes="
 #define SETTING_INPUT "input_mic=" // the name kept: 0 LINE, 1 MIC, 2 USB
 #define SETTING_FX "input_fx="
-#define SETTING_MASTER "master="
 #define SETTING_PREFS "prefs="
 #define SETTING_ARP "arp_user="
 
@@ -1163,7 +1162,6 @@ void os_load_settings(struct os *s) {
             if (n == 17 || n == 19) s->midi = m; // 17: saved before USB MIDI, which keeps its default
         }
         if (strncmp(line, SETTING_FX, strlen(SETTING_FX)) == 0) infx_load_line(s, line + strlen(SETTING_FX));
-        if (strncmp(line, SETTING_MASTER, strlen(SETTING_MASTER)) == 0) master_load_line(&s->master, line + strlen(SETTING_MASTER));
         if (strncmp(line, SETTING_PREFS, strlen(SETTING_PREFS)) == 0) prefs_load_line(s, line + strlen(SETTING_PREFS));
         if (strncmp(line, SETTING_INPUT, strlen(SETTING_INPUT)) == 0) {
             int src = atoi(line + strlen(SETTING_INPUT));
@@ -1202,8 +1200,6 @@ static int save_settings(const struct os *s) {
     char fx[1600];
     infx_save_line(s, fx, sizeof fx);
     fprintf(f, "\n%s%s", SETTING_FX, fx);
-    master_save_line(&s->master, fx, sizeof fx);
-    fprintf(f, "\n%s%s", SETTING_MASTER, fx);
     prefs_save_line(s, fx, sizeof fx);
     fprintf(f, "\n%s%s", SETTING_PREFS, fx);
     for (int a = 0; a < ARP_USER; a++) {
@@ -2187,7 +2183,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
     recorder_service(&s->rec); // a take keeps going while other pages are shown
     atomic_store_explicit(&s->fx.bpm10, s->seq.sequence[s->seq.current].tempo10, memory_order_relaxed); // synced delays
     infx_follow_input(s); // LINE/MIC set on a record page
-    if (s->master_dirty) s->master_dirty = 0, s->fx_save_at = now_ms(u) + 2000; // Master Effects, kept too
+    s->master_dirty = 0; // Master Effects go with a project (and Autoload), not the settings: a blank start has them off
     if (s->fx_save_at && now_ms(u) >= s->fx_save_at) { // the Input Effects chain, a moment after the last change
         s->fx_save_at = 0;
         save_settings(s);

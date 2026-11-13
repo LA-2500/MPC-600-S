@@ -3403,6 +3403,12 @@ static void test_midi_settings(const char *shot_dir) {
     seq_default_pad_notes();
     os_load_settings(&os);
     CHECK(os.midi.base == 9 && os.midi.cc[MCC_PAN] == 77 && os.midi.sync_in == 1 && seq_pad_note(5) == 60);
+    // Master Effects are not settings: they go with a project or Autoload, so a blank start has them off.
+    atomic_store(&os.master.eq_on, 1), atomic_store(&os.master.comp, 1);
+    CHECK(os_save_settings(&os) == 0);
+    master_defaults(&os.master);
+    os_load_settings(&os);
+    CHECK(atomic_load(&os.master.eq_on) == 0 && atomic_load(&os.master.comp) == MCOMP_OFF);
     unlink(path);
     os.settings_path = 0;
     seq_default_pad_notes();
