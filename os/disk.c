@@ -1,0 +1,1229 @@
+// Save/Load (Shift + Pad 16; Shift + SAMPLE SELECT opens it on SAVE SAMPLE). Everything lives
+// in MPC600S on the card:
+//   projects/NAME/   project.bin and samples/NNN.wav: everything (programs, sounds, memory,
+//                    sequences, songs, effects, master, settings that go with a project)
+//   programs/NAME/   program.bin and samples/: one program and its sounds
+//   samples/NAME.wav one sound (24-bit, for other gear too)
+//   settings/NAME.txt  the MPC's settings and preferences
+//   fx/NAME.fxc      an Input Effects chain (INPUT, or PAD while in use)
+//   trackfx/NAME.tfx the Track/Mixer chain: the nine send effects
+//   s600/NAME.wav    the S600 waveforms (put there at power-on), and sounds saved as S600 WAVE
+//   arp/NAME.arp     a USER step pattern of the arpeggiator
+//   autoload/        a project loaded at power-on
+//   exports/NAME/    a sequence or song as WAVs: each track, and the stereo mix (with Master FX)
+//
+// Each type opens in its own folder, but SAVE, LOAD and EXPORT browse anywhere on the card
+// (.. goes up as far as the card itself), and SAVE and EXPORT's <New Dir> makes a folder.
+//
+// project.bin and program.bin: a tag, then numbers and strings, each list with its length,
+// so a file saved now still loads after more settings are added (what it lacks stays default).
+#include "lcd.h"
+#include "os.h"
+#include "s600_waves.h"
+#include "wav.h"
+#include <dirent.h>
+#include <pthread.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#define NAME_MAX_LEN 16
+static const char CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+static const char *const MODES[DISK_MODES] = {"SAVE", "LOAD", "EXPORT"};
+static const char *const TYPES[DISK_TYPES] = {"PROJECT", "PROGRAM", "SAMPLE", "SETTINGS", "AUTOLOAD", "FX CHAIN", "ARP PATTERN",
+                                              "TRACK FX", "S600 WAVE", "SEQUENCE", "SONG", "MIXDOWN SEQ", "MIXDOWN SONG"};
+static const char *const DIRS[DISK_TYPES] = {"projects", "programs", "samples", "settings", "autoload", "fx", "arp", "trackfx",
+                                             "s600", "exports", "exports", "exports", "exports"};
+static const char *const EXT[DISK_TYPES] = {"", "", ".wav", ".txt", "", ".fxc", ".arp", ".tfx", ".wav", "", "", ".wav", ".wav"};
+// Inside a saved project or program's folder, the file that makes it one (not a folder of yours).
+static const char *const MARK[DISK_TYPES] = {"project.bin", "program.bin", "", "", "", "", "", "", "", "", "", "", ""};
+
+static int is_sound(int type) { // a sound on the selected pad, as a WAV
+    return type == DISK_SAMPLE || type == DISK_WAVE;
+}
+
+static int is_song(int type) {
+    return type == DISK_SONG || type == DISK_MIX_SONG;
+}
+
+static int is_mixdown(int type) {
+    return type == DISK_MIX_SEQ || type == DISK_MIX_SONG;
+}
+
+static int clampi(int v, int lo, int hi) {
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+// ---- Writing and reading the binary files ----
+
+struct bin {
+    FILE *f;
+    int ok;
+};
+
+static void w32(struct bin *b, int32_t v) {
+    if (b->ok && fwrite(&v, 4, 1, b->f) != 1) b->ok = 0;
+}
+
+static void wstr(struct bin *b, const char *s) {
+    int32_t n = (int32_t)strlen(s);
+    w32(b, n);
+    if (b->ok && n && fwrite(s, 1, (size_t)n, b->f) != (size_t)n) b->ok = 0;
+}
+
+static void wints(struct bin *b, const void *p, int n) { // a list of int32s, its length first
+    w32(b, n);
+    if (b->ok && n && fwrite(p, 4, (size_t)n, b->f) != (size_t)n) b->ok = 0;
+}
+
+static int32_t r32(struct bin *b) {
+    int32_t v = 0;
+    if (b->ok && fread(&v, 4, 1, b->f) != 1) b->ok = 0;
+    return v;
+}
+
+static void rstr(struct bin *b, char *dst, size_t cap) {
+    int32_t n = r32(b);
+    if (n < 0 || n > 4096) b->ok = 0;
+    if (!b->ok) {
+        if (cap) dst[0] = 0;
+        return;
+    }
+    char tmp[4097];
+    if (n && fread(tmp, 1, (size_t)n, b->f) != (size_t)n) b->ok = 0;
+    tmp[b->ok ? n : 0] = 0;
+    snprintf(dst, cap, "%s", tmp);
+}
+
+static void rints(struct bin *b, void *dst, int cap) { // what fits; the rest of the list skipped
+    int32_t n = r32(b);
+    if (n < 0 || n > 1 << 20) b->ok = 0;
+    if (!b->ok) return;
+    int take = n < cap ? n : cap;
+    if (take && fread(dst, 4, (size_t)take, b->f) != (size_t)take) b->ok = 0;
+    if (n > take) fseek(b->f, (long)(n - take) * 4, SEEK_CUR);
+}
+
+// ---- Paths ----
+
+static int make_dirs(const char *path) { // like mkdir -p
+    char p[600];
+    snprintf(p, sizeof p, "%s", path);
+    for (char *c = p + 1; *c; c++)
+        if (*c == '/') {
+            *c = 0;
+            mkdir(p, 0755);
+            *c = '/';
+        }
+    return mkdir(p, 0755) == 0 || errno == EEXIST ? 0 : -1;
+}
+
+static void type_dir(const struct os *s, int type, char *b, size_t n) {
+    if (s->disk_at[0] && type != DISK_AUTOLOAD) snprintf(b, n, "%s", s->disk_at);
+    else snprintf(b, n, "%s/%s", s->data_dir, DIRS[type]);
+}
+
+// The top of the card: the folder MPC600S is in. As far up as .. goes.
+static void card_root(const struct os *s, char *b, size_t n) {
+    char up[600];
+    snprintf(up, sizeof up, "%s/..", s->data_dir);
+    char *real = realpath(up, 0);
+    snprintf(b, n, "%s", real ? real : up);
+    free(real);
+}
+
+// A folder as a clean path, for comparing and showing.
+static void clean_path(const char *in, char *b, size_t n) {
+    char *real = realpath(in, 0);
+    snprintf(b, n, "%s", real ? real : in);
+    free(real);
+}
+
+static void item_path(const struct os *s, int type, const char *name, char *b, size_t n) {
+    if (type == DISK_AUTOLOAD) {
+        snprintf(b, n, "%s/autoload", s->data_dir);
+        return;
+    }
+    char dir[600];
+    type_dir(s, type, dir, sizeof dir);
+    snprintf(b, n, "%s/%s%s", dir, name, EXT[type]);
+}
+
+// A USER step pattern on its own: "M6A1", then the line the settings keep it as.
+static int arp_save(const struct os *s, int slot, const char *path) {
+    FILE *f = fopen(path, "w");
+    if (!f) return -1;
+    char line[80];
+    seq_arp_steps_save(&s->seq.arp_user[slot], line, sizeof line);
+    fprintf(f, "M6A1\n%s\n", line);
+    fflush(f);
+    fsync(fileno(f));
+    return fclose(f) == 0 ? 0 : -1;
+}
+
+static int arp_load(struct os *s, int slot, const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+    char tag[16], line[128];
+    int ok = fgets(tag, sizeof tag, f) && strncmp(tag, "M6A1", 4) == 0 && fgets(line, sizeof line, f);
+    fclose(f);
+    if (!ok) return -1;
+    line[strcspn(line, "\r\n")] = 0;
+    struct seq_arp_steps p;
+    if (seq_arp_steps_load(&p, line) != 0) return -1;
+    pthread_mutex_lock(&s->seq.lock);
+    s->seq.arp_user[slot] = p;
+    pthread_mutex_unlock(&s->seq.lock);
+    return os_save_settings(s) == 0 || !s->settings_path ? 0 : -1; // kept with the settings, as one edited
+}
+
+static int remove_tree(const char *path) {
+    struct stat st;
+    if (lstat(path, &st) != 0) return -1;
+    if (S_ISDIR(st.st_mode)) {
+        DIR *d = opendir(path);
+        struct dirent *e;
+        while (d && (e = readdir(d))) {
+            if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+            char sub[700];
+            snprintf(sub, sizeof sub, "%s/%s", path, e->d_name);
+            remove_tree(sub);
+        }
+        if (d) closedir(d);
+        return rmdir(path);
+    }
+    return unlink(path);
+}
+
+// ---- Sounds, programs, sequences ----
+
+struct sound_list {
+    struct sample **s;
+    int n, cap;
+};
+
+static int sound_index(struct sound_list *l, struct sample *x) {
+    for (int i = 0; i < l->n; i++)
+        if (l->s[i] == x) return i;
+    if (l->n == l->cap) {
+        int cap = l->cap ? l->cap * 2 : 64;
+        struct sample **g = realloc(l->s, (size_t)cap * sizeof *g);
+        if (!g) return -1;
+        l->s = g, l->cap = cap;
+    }
+    l->s[l->n] = x;
+    return l->n++;
+}
+
+static int write_sounds(const struct sound_list *l, const char *dir) {
+    char p[700];
+    snprintf(p, sizeof p, "%s/samples", dir);
+    make_dirs(p);
+    for (int i = 0; i < l->n; i++) {
+        snprintf(p, sizeof p, "%s/samples/%03d.wav", dir, i);
+        if (wav_save(p, l->s[i], 32) != 0) return -1;
+    }
+    return 0;
+}
+
+static struct sample **read_sounds(const char *dir, int n) {
+    struct sample **out = calloc((size_t)(n > 0 ? n : 1), sizeof *out);
+    char p[700];
+    for (int i = 0; out && i < n; i++) {
+        snprintf(p, sizeof p, "%s/samples/%03d.wav", dir, i);
+        out[i] = wav_load(p); // a missing sound leaves its pads empty
+    }
+    return out;
+}
+
+static void write_program(struct bin *b, struct sound_list *l, const struct os_program *g) {
+    wstr(b, g->name);
+    w32(b, g->s600);
+    w32(b, OS_PADS);
+    for (int i = 0; i < OS_PADS; i++) {
+        const struct os_pad *p = &g->pads[i];
+        w32(b, p->s ? sound_index(l, p->s) : -1);
+        wstr(b, p->name);
+        wints(b, &p->p, (int)(sizeof p->p / 4));
+        wints(b, &p->sp, (int)(sizeof p->sp / 4));
+    }
+}
+
+// Into program `to`, emptied first. Pads whose sound is missing stay empty.
+static void read_program(struct os *s, struct bin *b, struct sample **sounds, int nsounds, int to) {
+    char name[64];
+    rstr(b, name, sizeof name);
+    int s600 = r32(b), npads = r32(b);
+    if (!b->ok) return;
+    int keep = s->program;
+    os_program_clear(s, to);
+    os_set_program(s, to);
+    snprintf(s->programs[to].name, sizeof s->programs[to].name, "%s", name);
+    for (int i = 0; i < npads && b->ok; i++) {
+        int idx = r32(b);
+        char pname[40];
+        rstr(b, pname, sizeof pname);
+        struct pad_params p;
+        struct s600_params sp;
+        memset(&p, 0, sizeof p);
+        s600_defaults(&sp);
+        rints(b, &p, (int)(sizeof p / 4));
+        rints(b, &sp, (int)(sizeof sp / 4));
+        if (i >= OS_PADS || idx < 0 || idx >= nsounds || !sounds[idx]) continue;
+        os_pad_load(s, i, sounds[idx], pname);
+        s->pads[i].p = p;
+        s->pads[i].sp = sp;
+        os_pad_push(s, i);
+    }
+    os_program_set_s600(s, to, s600 != 0);
+    os_set_program(s, keep);
+}
+
+static void write_track(struct bin *b, const struct seq_track *k) {
+    int32_t f[] = {k->type, k->on, k->channel, k->vel_pct, k->level, k->pan, k->mute, k->solo, k->program, k->kit};
+    wints(b, f, (int)(sizeof f / 4));
+    wints(b, &k->eq, (int)(sizeof k->eq / 4));
+    int32_t send[9];
+    for (int i = 0; i < 9; i++) send[i] = k->send[i];
+    wints(b, send, 9);
+    wstr(b, k->name);
+    w32(b, k->count);
+    for (int i = 0; i < k->count; i++) {
+        const struct seq_note *n = &k->notes[i];
+        int32_t v[5] = {(int32_t)n->tick, n->dur, n->note, n->vel, n->tune};
+        wints(b, v, 5);
+    }
+    w32(b, k->nauto);
+    for (int i = 0; i < k->nauto; i++) {
+        const struct seq_auto *a = &k->autos[i];
+        int32_t v[4] = {(int32_t)a->tick, a->pad, a->param, a->value};
+        wints(b, v, 4);
+    }
+}
+
+static void read_track(struct bin *b, struct seq_track *k) {
+    int32_t f[10] = {TRACK_DRUM, 1, 0, 100, 100, 0, 0, 0, 0, 0};
+    rints(b, f, 10);
+    k->type = f[0], k->on = f[1], k->channel = f[2], k->vel_pct = f[3], k->level = f[4], k->pan = f[5];
+    k->mute = f[6], k->solo = f[7], k->program = f[8], k->kit = clampi(f[9], 0, OS_PROGRAMS - 1);
+    rints(b, &k->eq, (int)(sizeof k->eq / 4));
+    int32_t send[9] = {0};
+    rints(b, send, 9);
+    for (int i = 0; i < 9; i++) k->send[i] = (unsigned char)clampi(send[i], 0, 100);
+    rstr(b, k->name, sizeof k->name);
+    int n = r32(b);
+    if (!b->ok || n < 0 || n > 1 << 22) {
+        b->ok = 0;
+        return;
+    }
+    k->notes = n ? calloc((size_t)n, sizeof *k->notes) : 0;
+    k->cap = k->notes ? n : 0;
+    for (int i = 0; i < n && b->ok; i++) {
+        int32_t v[5] = {0};
+        rints(b, v, 5);
+        if (k->notes)
+            k->notes[k->count++] = (struct seq_note){.tick = (uint32_t)v[0], .dur = (uint16_t)v[1], .note = (uint8_t)v[2],
+                                                     .vel = (uint8_t)v[3], .tune = (int8_t)v[4]};
+    }
+    n = r32(b);
+    if (!b->ok || n < 0 || n > 1 << 22) {
+        b->ok = 0;
+        return;
+    }
+    k->autos = n ? calloc((size_t)n, sizeof *k->autos) : 0;
+    k->capauto = k->autos ? n : 0;
+    for (int i = 0; i < n && b->ok; i++) {
+        int32_t v[4] = {0};
+        rints(b, v, 4);
+        if (k->autos)
+            k->autos[k->nauto++] = (struct seq_auto){.tick = (uint32_t)v[0], .pad = (uint8_t)v[1], .param = (uint8_t)v[2],
+                                                     .value = (uint8_t)v[3]};
+    }
+}
+
+// ---- Projects ----
+
+int disk_project_save(struct os *s, const char *dir) {
+    if (make_dirs(dir) != 0) return -1;
+    char p[700];
+    snprintf(p, sizeof p, "%s/project.bin", dir);
+    struct bin b = {fopen(p, "wb"), 1};
+    if (!b.f) return -1;
+    struct sound_list l = {0};
+    // The sounds first: every one on a pad or in memory, listed once.
+    for (int g = 0; g < OS_PROGRAMS; g++)
+        for (int i = 0; i < OS_PADS; i++)
+            if (s->programs[g].pads[i].s) sound_index(&l, s->programs[g].pads[i].s);
+    for (int m = 0; m < s->nmemory; m++) sound_index(&l, s->memory[m].s);
+    fwrite("M6P1", 1, 4, b.f);
+    w32(&b, l.n);
+    w32(&b, OS_PROGRAMS);
+    for (int g = 0; g < OS_PROGRAMS; g++) write_program(&b, &l, &s->programs[g]);
+    w32(&b, s->nmemory);
+    for (int m = 0; m < s->nmemory; m++) w32(&b, sound_index(&l, s->memory[m].s)), wstr(&b, s->memory[m].name);
+    struct seq *sq = &s->seq;
+    pthread_mutex_lock(&sq->lock);
+    w32(&b, SEQ_COUNT);
+    for (int n = 0; n < SEQ_COUNT; n++) {
+        const struct seq_sequence *q = &sq->sequence[n];
+        wstr(&b, q->name);
+        int32_t f[] = {q->bars, q->sig_num, q->sig_den, q->tempo10, q->loop_bar};
+        wints(&b, f, 5);
+        w32(&b, SEQ_TRACKS);
+        for (int t = 0; t < SEQ_TRACKS; t++) write_track(&b, &q->track[t]);
+    }
+    w32(&b, SEQ_SONGS);
+    for (int g = 0; g < SEQ_SONGS; g++) {
+        const struct seq_song *song = &sq->song[g];
+        w32(&b, song->nsteps);
+        for (int i = 0; i < song->nsteps; i++) w32(&b, song->step[i].seq), w32(&b, song->step[i].reps);
+    }
+    int32_t state[] = {sq->current, sq->track, sq->tc, sq->swing, sq->shift_later, sq->shift_ticks, sq->metronome,
+                       sq->click_rate, sq->click_volume, sq->count_in, sq->count_bars, sq->count_wait, sq->rep_rate,
+                       sq->arp, sq->arp_pattern, sq->res};
+    wints(&b, state, (int)(sizeof state / 4));
+    for (int g = 0; g < OS_PROGRAMS; g++) { // Pad Mute and Pad Solo, as bytes in ints
+        int32_t m[128], so[128];
+        for (int i = 0; i < 128; i++) m[i] = sq->pad_mute[g][i], so[i] = sq->pad_solo[g][i];
+        wints(&b, m, 128);
+        wints(&b, so, 128);
+    }
+    pthread_mutex_unlock(&sq->lock);
+    char line[1600];
+    infx_save_line(s, line, sizeof line);
+    wstr(&b, line);
+    master_save_line(&s->master, line, sizeof line);
+    wstr(&b, line);
+    int ok = b.ok;
+    if (fclose(b.f) != 0) ok = 0;
+    if (ok && write_sounds(&l, dir) != 0) ok = 0;
+    free(l.s);
+    return ok ? 0 : -1;
+}
+
+int disk_project_load(struct os *s, const char *dir) {
+    char p[700];
+    snprintf(p, sizeof p, "%s/project.bin", dir);
+    struct bin b = {fopen(p, "rb"), 1};
+    if (!b.f) return -1;
+    char tag[4];
+    if (fread(tag, 1, 4, b.f) != 4 || memcmp(tag, "M6P1", 4) != 0) {
+        fclose(b.f);
+        return -1;
+    }
+    int nsounds = r32(&b);
+    if (!b.ok || nsounds < 0 || nsounds > 100000) {
+        fclose(b.f);
+        return -1;
+    }
+    struct sample **sounds = read_sounds(dir, nsounds);
+    // The old project goes: playing stopped, every pad and sound let go, undo forgotten.
+    seq_stop(&s->seq, 1);
+    engine_kill_all(s->engine);
+    os_undo_clear(s);
+    for (int m = 0; m < s->nmemory; m++) os_sample_release(s, s->memory[m].s);
+    s->nmemory = 0;
+    int nprog = r32(&b);
+    for (int g = 0; g < OS_PROGRAMS; g++) os_program_clear(s, g);
+    for (int g = 0; g < nprog && b.ok; g++) read_program(s, &b, sounds, nsounds, g < OS_PROGRAMS ? g : OS_PROGRAMS - 1);
+    int nmem = r32(&b);
+    for (int m = 0; m < nmem && b.ok; m++) {
+        int idx = r32(&b);
+        char name[40];
+        rstr(&b, name, sizeof name);
+        if (idx >= 0 && idx < nsounds && sounds[idx]) os_memory_add(s, sounds[idx], name);
+    }
+    struct seq *sq = &s->seq;
+    pthread_mutex_lock(&sq->lock);
+    int nseq = r32(&b);
+    for (int n = 0; n < SEQ_COUNT; n++) // the old sequences' notes go
+        for (int t = 0; t < SEQ_TRACKS; t++) {
+            struct seq_track *k = &sq->sequence[n].track[t];
+            free(k->notes), free(k->autos);
+            k->notes = 0, k->autos = 0, k->count = k->cap = k->nauto = k->capauto = 0;
+        }
+    for (int n = 0; n < nseq && b.ok && n < SEQ_COUNT; n++) {
+        struct seq_sequence *q = &sq->sequence[n];
+        rstr(&b, q->name, sizeof q->name);
+        int32_t f[5] = {2, 4, 4, 900, 0};
+        rints(&b, f, 5);
+        q->bars = clampi(f[0], 1, SEQ_MAX_BARS), q->sig_num = clampi(f[1], 1, 16), q->sig_den = f[2] == 8 || f[2] == 16 ? f[2] : 4;
+        q->tempo10 = clampi(f[3], 300, 3000), q->loop_bar = clampi(f[4], 0, q->bars);
+        int ntr = r32(&b);
+        for (int t = 0; t < ntr && b.ok; t++) {
+            struct seq_track spare = {0};
+            read_track(&b, t < SEQ_TRACKS ? &q->track[t] : &spare);
+            free(spare.notes), free(spare.autos);
+        }
+    }
+    int nsongs = r32(&b);
+    for (int g = 0; g < nsongs && b.ok; g++) {
+        struct seq_song tmp = {0}, *song = g < SEQ_SONGS ? &sq->song[g] : &tmp;
+        int n = r32(&b);
+        song->nsteps = 0;
+        for (int i = 0; i < n && b.ok; i++) {
+            int a = r32(&b), r = r32(&b);
+            if (i < SONG_STEPS) song->step[i].seq = (unsigned char)clampi(a, 0, SEQ_COUNT - 1), song->step[i].reps = (unsigned char)clampi(r, 1, 99), song->nsteps = i + 1;
+        }
+    }
+    int32_t st[16] = {0, 0, TC_16, 50, 0, 0, METRO_REC, CLICK_4, 80, 1, 1, 0, REP_16, 0, 0, SEQ_RES_MPC3000};
+    rints(&b, st, 16);
+    sq->current = clampi(st[0], 0, SEQ_COUNT - 1), sq->track = clampi(st[1], 0, SEQ_TRACKS - 1);
+    sq->tc = clampi(st[2], 0, TC_COUNT - 1), sq->swing = clampi(st[3], 50, 75), sq->shift_later = st[4];
+    sq->shift_ticks = clampi(st[5], 0, SEQ_PPQ / 2 - 1), sq->metronome = clampi(st[6], 0, 2), sq->click_rate = clampi(st[7], 0, CLICK_RATES - 1);
+    sq->click_volume = clampi(st[8], 0, 100), sq->count_in = st[9] != 0, sq->count_bars = clampi(st[10], 1, SEQ_COUNT_BARS_MAX);
+    sq->count_wait = st[11] != 0, sq->rep_rate = clampi(st[12], 0, REP_RATES - 1), sq->arp = st[13] != 0;
+    sq->arp_pattern = clampi(st[14], 0, seq_arp_patterns() - 1), sq->res = clampi(st[15], 0, SEQ_RES_COUNT - 1);
+    sq->pos = 0, sq->next = -1;
+    for (int g = 0; g < OS_PROGRAMS && b.ok; g++) {
+        int32_t m[128] = {0}, so[128] = {0};
+        rints(&b, m, 128);
+        rints(&b, so, 128);
+        for (int i = 0; i < 128; i++) sq->pad_mute[g][i] = m[i] != 0, sq->pad_solo[g][i] = so[i] != 0;
+    }
+    pthread_mutex_unlock(&sq->lock);
+    char line[1600];
+    rstr(&b, line, sizeof line);
+    if (b.ok) infx_load_line(s, line);
+    rstr(&b, line, sizeof line);
+    if (b.ok) master_load_line(&s->master, line);
+    fclose(b.f);
+    for (int i = 0; i < nsounds; i++) // a sound nothing took (a pad that no longer exists)
+        if (sounds[i] && sounds[i]->refs == 0) sample_free(sounds[i]);
+    free(sounds);
+    s->eq_seq = -1; // every track's EQ and sends to the engine, next frame
+    s->selected = 0;
+    return 0;
+}
+
+int disk_program_save(struct os *s, int program, const char *dir) {
+    if (make_dirs(dir) != 0) return -1;
+    char p[700];
+    snprintf(p, sizeof p, "%s/program.bin", dir);
+    struct bin b = {fopen(p, "wb"), 1};
+    if (!b.f) return -1;
+    struct sound_list l = {0};
+    for (int i = 0; i < OS_PADS; i++)
+        if (s->programs[program].pads[i].s) sound_index(&l, s->programs[program].pads[i].s);
+    fwrite("M6G1", 1, 4, b.f);
+    w32(&b, l.n);
+    write_program(&b, &l, &s->programs[program]);
+    int ok = b.ok;
+    if (fclose(b.f) != 0) ok = 0;
+    if (ok && write_sounds(&l, dir) != 0) ok = 0;
+    free(l.s);
+    return ok ? 0 : -1;
+}
+
+int disk_program_load(struct os *s, int program, const char *dir) {
+    char p[700];
+    snprintf(p, sizeof p, "%s/program.bin", dir);
+    struct bin b = {fopen(p, "rb"), 1};
+    if (!b.f) return -1;
+    char tag[4];
+    int n = 0;
+    if (fread(tag, 1, 4, b.f) != 4 || memcmp(tag, "M6G1", 4) != 0 || (n = r32(&b)) < 0 || n > 100000) {
+        fclose(b.f);
+        return -1;
+    }
+    struct sample **sounds = read_sounds(dir, n);
+    os_undo_save(s, "Load Program");
+    read_program(s, &b, sounds, n, program);
+    fclose(b.f);
+    for (int i = 0; i < n; i++)
+        if (sounds[i] && sounds[i]->refs == 0) sample_free(sounds[i]);
+    free(sounds);
+    return b.ok ? 0 : -1;
+}
+
+// ---- Exports: a sequence or song rendered apart from what is playing ----
+
+// An export running in the background, and how far it has got, for the page to show.
+struct disk_job {
+    pthread_t thread;
+    atomic_int done, file, files;
+    atomic_long frames; // of the file being rendered
+    char label[40];     // "Mix", "T03 Hats"
+    struct os *s;
+    int song, which, tracks, mix, mixdown, rc;
+    char dir[700]; // an export's folder; a mixdown's file
+};
+
+// One render of the sequence (or song) into a WAV: one track alone (track >= 0, no Master FX),
+// or the whole mix with the Track FX and the Master FX. Ends 2 s after the music.
+static int render(struct os *s, int song, int which, int track, int mono, const char *path, struct disk_job *j) {
+    struct engine *e = calloc(1, sizeof *e);
+    struct seq *q = malloc(sizeof *q);
+    struct master *m = calloc(1, sizeof *m);
+    float *out = 0;
+    long n = 0, cap = 0;
+    int rc = -1;
+    struct fx_chain c;
+    memset(&c, 0, sizeof c);
+    if (!e || !q || !m) goto done;
+    engine_init(e);
+    memcpy(e->pad, s->engine->pad, sizeof e->pad); // every pad as the engine has it now
+    memcpy(e->bus, s->engine->bus, sizeof e->bus); // the track EQs
+    for (int i = 0; i < ENGINE_BUSES; i++) memset(e->bus[i].z, 0, sizeof e->bus[i].z);
+    pthread_mutex_lock(&s->seq.lock);
+    memcpy(q, &s->seq, sizeof *q);
+    pthread_mutex_unlock(&s->seq.lock);
+    pthread_mutex_init(&q->lock, 0);
+    q->mode = SEQ_STOPPED, q->npending = 0, q->nrecq = 0, q->repeat = 0, q->rec_arm = REC_ARM_OFF, q->count_in = 0;
+    q->metronome = METRO_OFF, q->sync_send = 0, q->midi_send = 0, q->midi_off = 1, q->next = -1, q->song_on = 0;
+    q->stop_flush = 0, q->missed = 0, q->abs = 0, q->pos = 0, q->erase_note = -1;
+    for (int i = 0; i < 16; i++) q->rep[i].on = 0;
+    for (int n2 = 0; n2 < SEQ_COUNT; n2++) q->sequence[n2].loop_bar = 0; // once through, not round and round
+    for (int n2 = 0; n2 < SEQ_COUNT; n2++) // only the track asked for, or all as mixed
+        for (int t = 0; t < SEQ_TRACKS; t++)
+            if (track >= 0) q->sequence[n2].track[t].mute = t != track, q->sequence[n2].track[t].solo = 0;
+    e->hook = seq_audio_block, e->hook_ctx = q;
+    if (track < 0) { // the mix: its sends and Track FX, then Master FX
+        if (fx_chain_init(&c) != 0) goto done;
+        for (int i = 0; i < FX_SLOTS; i++) {
+            atomic_store(&c.type[i], atomic_load(&s->fx.type[i]));
+            for (int k = 0; k < 3; k++) atomic_store(&c.p[i][k], atomic_load(&s->fx.p[i][k]));
+        }
+        atomic_store(&c.mode, atomic_load(&s->fx.mode));
+        atomic_store(&c.on, atomic_load(&s->fx.on));
+        atomic_store(&c.bpm10, atomic_load(&s->fx.bpm10));
+        memcpy(e->send, s->engine->send, sizeof e->send);
+        atomic_store(&e->sends_on, atomic_load(&s->engine->sends_on));
+        atomic_store(&e->fx_pad, atomic_load(&s->engine->fx_pad));
+        e->fx_hook = fx_engine_hook, e->fx_ctx = &c;
+        master_init(m);
+        char line[256];
+        master_save_line(&s->master, line, sizeof line);
+        master_load_line(m, line);
+    }
+    if (song >= 0) seq_song_play(q, song, 0);
+    else q->current = which, seq_play(q, 1);
+    long tail = 0, limit = 44100L * 60 * 20; // twenty minutes at most
+    float block[2048];
+    while (tail < 44100 * 2 && n < limit) {
+        engine_render(e, block, 1024);
+        if (track < 0 && m->vfx) master_process(m, block, 1024);
+        if (n + 1024 > cap) {
+            long nc = cap ? cap * 2 : 44100 * 30;
+            float *g = realloc(out, (size_t)nc * 2 * sizeof(float));
+            if (!g) goto done;
+            out = g, cap = nc;
+        }
+        memcpy(out + n * 2, block, sizeof block);
+        n += 1024;
+        if (j) atomic_store_explicit(&j->frames, n, memory_order_relaxed);
+        if (q->mode == SEQ_STOPPED) tail += 1024;
+    }
+    struct sample *w = sample_new((int32_t)n, mono ? 1 : 2, 44100);
+    if (!w) goto done;
+    for (long i = 0; i < n; i++) {
+        if (mono) w->data[i] = 0.5f * (out[i * 2] + out[i * 2 + 1]);
+        else w->data[i * 2] = out[i * 2], w->data[i * 2 + 1] = out[i * 2 + 1];
+    }
+    rc = wav_save(path, w, 24);
+    sample_free(w);
+done:
+    if (c.slot[0])
+        for (int i = 0; i < FX_SLOTS; i++) fx_free(c.slot[i]);
+    if (m && m->vfx) fx_free(m->vfx);
+    free(out), free(m), free(q), free(e);
+    return rc;
+}
+
+// Tracks with notes in the sequence, or in any of the song's.
+static void tracks_used(struct os *s, int song, int which, unsigned char *used) {
+    memset(used, 0, SEQ_TRACKS);
+    pthread_mutex_lock(&s->seq.lock);
+    if (song >= 0) {
+        const struct seq_song *g = &s->seq.song[song];
+        for (int i = 0; i < g->nsteps; i++)
+            for (int t = 0; t < SEQ_TRACKS; t++) used[t] |= s->seq.sequence[g->step[i].seq].track[t].count > 0;
+    } else {
+        for (int t = 0; t < SEQ_TRACKS; t++) used[t] = s->seq.sequence[which].track[t].count > 0;
+    }
+    pthread_mutex_unlock(&s->seq.lock);
+}
+
+static void safe_name(const char *in, char *out, size_t n) {
+    size_t j = 0;
+    for (size_t i = 0; in[i] && j + 1 < n; i++) out[j++] = strchr("/\\:*?\"<>|", in[i]) ? '_' : in[i];
+    out[j] = 0;
+}
+
+// tracks: 0 none, 1 mono, 2 stereo. mix: the stereo mix with Master FX. Returns files written.
+static int export_files(struct os *s, int song, int which, int tracks, int mix, const char *dir, struct disk_job *j) {
+    if (make_dirs(dir) != 0) return -1;
+    int written = 0, n = mix != 0, at = 0;
+    char p[700], nm[40];
+    unsigned char used[SEQ_TRACKS];
+    tracks_used(s, song, which, used);
+    for (int t = 0; tracks && t < SEQ_TRACKS; t++) n += used[t];
+    if (j) atomic_store(&j->files, n);
+    if (mix) {
+        snprintf(p, sizeof p, "%s/Mix.wav", dir);
+        if (j) snprintf(j->label, sizeof j->label, "Mix (with Master FX)"), atomic_store(&j->file, ++at);
+        if (render(s, song, which, -1, 0, p, j) == 0) written++;
+    }
+    for (int t = 0; tracks && t < SEQ_TRACKS; t++) {
+        if (!used[t]) continue;
+        const struct seq_track *k = &s->seq.sequence[song >= 0 ? s->seq.song[song].step[0].seq : which].track[t];
+        safe_name(k->name[0] ? k->name : "Track", nm, sizeof nm);
+        snprintf(p, sizeof p, "%s/T%02d %s.wav", dir, t + 1, nm);
+        if (j) snprintf(j->label, sizeof j->label, "Track %02d %.14s", t + 1, nm), atomic_store(&j->file, ++at);
+        if (render(s, song, which, t, tracks == 1, p, j) == 0) written++;
+    }
+    return written;
+}
+
+int disk_export(struct os *s, int song, int which, int tracks, int mix, const char *dir) {
+    return export_files(s, song, which, tracks, mix, dir, 0);
+}
+
+static void *export_run(void *arg) {
+    struct disk_job *j = arg;
+    if (j->mixdown) { // the stereo mix alone, with the Track and Master FX
+        atomic_store(&j->files, 1);
+        snprintf(j->label, sizeof j->label, "Mixdown (with Master FX)");
+        atomic_store(&j->file, 1);
+        j->rc = render(j->s, j->song, j->which, -1, 0, j->dir, j) == 0 ? 1 : 0;
+    } else {
+        j->rc = export_files(j->s, j->song, j->which, j->tracks, j->mix, j->dir, j);
+    }
+    atomic_store(&j->done, 1);
+    return 0;
+}
+
+// Tests: whether an export is still running.
+int disk_busy(const struct os *s) {
+    return s->disk_job != 0;
+}
+
+// ---- Power-on ----
+
+// The S600 waveforms (built into the OS) into MPC600S/s600 as WAVs, each only if it is not
+// there: deleted ones come back, but edited ones are kept.
+void disk_install_waves(struct os *s) {
+    if (!s->data_dir) return;
+    char dir[600], p[700];
+    snprintf(dir, sizeof dir, "%s/s600", s->data_dir);
+    make_dirs(dir);
+    for (int w = 0; w < S600_WAVES; w++) {
+        snprintf(p, sizeof p, "%s/%s.wav", dir, S600_WAVE_NAMES[w]);
+        if (access(p, F_OK) == 0) continue;
+        struct sample *x = sample_new(S600_WAVE_POINTS, 1, 44100);
+        if (!x) return;
+        for (int i = 0; i < S600_WAVE_POINTS; i++) x->data[i] = S600_WAVE_DATA[w][i] / 32768.0f;
+        wav_save(p, x, 16);
+        sample_free(x);
+    }
+}
+
+void disk_autoload(struct os *s) {
+    if (!s->data_dir) return;
+    char p[700];
+    snprintf(p, sizeof p, "%s/autoload/project.bin", s->data_dir);
+    if (access(p, F_OK) != 0) return;
+    snprintf(p, sizeof p, "%s/autoload", s->data_dir);
+    disk_project_load(s, p);
+}
+
+// ---- The page ----
+
+enum { DF_MODE, DF_TYPE, DF_WHICH, DF_TRACKS, DF_MIX, DF_NAME, DF_FILE, DF_FIELDS };
+
+static int field_shown(const struct os *s, int f) {
+    int t = s->disk_type, m = s->disk_mode;
+    switch (f) {
+    case DF_WHICH: return t == DISK_PROGRAM || is_sound(t) || t == DISK_ARP || m == DISK_EXPORT;
+    case DF_TRACKS: case DF_MIX: return m == DISK_EXPORT && !is_mixdown(t);
+    case DF_NAME: return (m == DISK_SAVE && t != DISK_AUTOLOAD) || m == DISK_EXPORT || s->disk_renaming;
+    case DF_FILE: return (m != DISK_SAVE || t != DISK_AUTOLOAD) && !s->disk_renaming && !s->disk_newdir;
+    default: return 1;
+    }
+}
+
+// What is in the folder: ".." when inside one of your folders, your folders, then the saved
+// items of the type (folders holding a project or program, or files by extension), A to Z.
+static void list_files(struct os *s) {
+    s->disk_nfiles = 0;
+    if (!s->data_dir) return;
+    if (s->disk_type == DISK_AUTOLOAD) {
+        char p[700];
+        snprintf(p, sizeof p, "%s/autoload/project.bin", s->data_dir);
+        if (access(p, F_OK) == 0) snprintf(s->disk_files[s->disk_nfiles], sizeof s->disk_files[0], "AUTOLOAD"),
+                                  s->disk_isdir[s->disk_nfiles++] = 0;
+        return;
+    }
+    char dir[700], here[700], root[700];
+    type_dir(s, s->disk_type, dir, sizeof dir);
+    clean_path(dir, here, sizeof here);
+    card_root(s, root, sizeof root);
+    if (strcmp(here, root) != 0) snprintf(s->disk_files[0], sizeof s->disk_files[0], ".."), s->disk_isdir[0] = 2, s->disk_nfiles = 1;
+    int top = s->disk_nfiles;
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    const char *ext = EXT[s->disk_type], *mark = MARK[s->disk_type];
+    while ((e = readdir(d)) && s->disk_nfiles < DISK_FILES_MAX) {
+        if (e->d_name[0] == '.') continue;
+        char sub[800];
+        struct stat st;
+        snprintf(sub, sizeof sub, "%s/%s", dir, e->d_name);
+        if (stat(sub, &st) != 0) continue;
+        size_t len = strlen(e->d_name), el = strlen(ext);
+        int folder = S_ISDIR(st.st_mode), item;
+        if (folder) { // a saved project or program, or a folder of yours
+            char m[900];
+            snprintf(m, sizeof m, "%s/%s", sub, mark);
+            item = mark[0] && access(m, F_OK) == 0;
+            if (!mark[0] && !el) item = 1; // the exports: each is a folder of WAVs
+            el = 0;
+        } else {
+            if (!el || len <= el || strcasecmp(e->d_name + len - el, ext) != 0) continue;
+            item = 1;
+        }
+        snprintf(s->disk_files[s->disk_nfiles], sizeof s->disk_files[0], "%.*s", (int)(len - el), e->d_name);
+        s->disk_isdir[s->disk_nfiles++] = item ? 0 : 1;
+    }
+    closedir(d);
+    for (int i = top + 1; i < s->disk_nfiles; i++) // folders first, then items; each A to Z
+        for (int j = i; j > top; j--) {
+            int a = s->disk_isdir[j - 1], b = s->disk_isdir[j];
+            if (a > b || (a == b && strcmp(s->disk_files[j - 1], s->disk_files[j]) <= 0)) break;
+            char tmp[sizeof s->disk_files[0]];
+            memcpy(tmp, s->disk_files[j], sizeof tmp);
+            memcpy(s->disk_files[j], s->disk_files[j - 1], sizeof tmp);
+            memcpy(s->disk_files[j - 1], tmp, sizeof tmp);
+            s->disk_isdir[j - 1] = (unsigned char)b, s->disk_isdir[j] = (unsigned char)a;
+        }
+    s->disk_file = clampi(s->disk_file, 0, s->disk_nfiles > 0 ? s->disk_nfiles - 1 : 0);
+    if (s->disk_file == 0 && top == 1 && s->disk_nfiles > 1) s->disk_file = 1; // the first thing here, not ..
+}
+
+// Into a folder of the list, or ".." back up.
+static void open_folder(struct os *s, int i) {
+    if (i < 0 || i >= s->disk_nfiles || !s->disk_isdir[i]) return;
+    char dir[700], here[700], root[700];
+    type_dir(s, s->disk_type, dir, sizeof dir);
+    clean_path(dir, here, sizeof here);
+    card_root(s, root, sizeof root);
+    if (s->disk_isdir[i] == 2) { // up, but not past the card
+        if (strcmp(here, root) == 0) return;
+        char *slash = strrchr(here, '/');
+        if (slash && slash != here) *slash = 0;
+        snprintf(s->disk_at, sizeof s->disk_at, "%s", here);
+    } else {
+        snprintf(s->disk_at, sizeof s->disk_at, "%.400s/%s", here, s->disk_files[i]);
+    }
+    s->disk_file = 0;
+    list_files(s);
+}
+
+static void default_name(struct os *s) {
+    const char *base = s->disk_mode == DISK_EXPORT ? (is_mixdown(s->disk_type) ? "MIX" : is_song(s->disk_type) ? "SONG" : "SEQ")
+                                                   : TYPES[s->disk_type];
+    if (is_sound(s->disk_type) && s->pads[s->selected].s) base = s->pads[s->selected].name;
+    if (s->disk_type == DISK_PROGRAM) base = s->programs[s->disk_which].name;
+    if (s->disk_type == DISK_ARP) base = "PATTERN";
+    char clean[NAME_MAX_LEN + 1];
+    int j = 0;
+    for (int i = 0; base[i] && j < NAME_MAX_LEN; i++) clean[j++] = strchr(CHARS, base[i]) && base[i] != ' ' ? base[i] : '_';
+    clean[j] = 0;
+    if (s->disk_type == DISK_FX || (s->disk_mode == DISK_EXPORT) || s->disk_type == DISK_PROJECT || s->disk_type == DISK_SETTINGS ||
+        s->disk_type == DISK_ARP)
+        snprintf(s->disk_name, sizeof s->disk_name, "%.*s%02d", NAME_MAX_LEN - 2, clean[0] == 'F' && clean[1] == 'X' ? "CHAIN" : clean,
+                 (s->disk_mode == DISK_EXPORT ? s->disk_which : 0) + 1);
+    else
+        snprintf(s->disk_name, sizeof s->disk_name, "%s", clean);
+    s->disk_pos = 0;
+}
+
+void disk_open(struct os *s, int mode, int type) {
+    if (s->screen != OS_DISK) s->disk_return = s->screen;
+    s->screen = OS_DISK;
+    s->disk_mode = mode, s->disk_type = type;
+    s->disk_cursor = s->disk_mode == DISK_SAVE ? DF_NAME : DF_MODE;
+    s->disk_ask = 0, s->disk_renaming = 0, s->disk_pending = 0, s->disk_newdir = 0;
+    s->disk_which = type == DISK_PROGRAM ? s->program : 0;
+    s->disk_at[0] = 0; // each type's own folder to start with
+    default_name(s);
+    list_files(s);
+}
+
+static void trimmed(const char *in, char *out, size_t n) { // the name without trailing spaces
+    snprintf(out, n, "%s", in);
+    for (size_t l = strlen(out); l > 0 && out[l - 1] == ' '; l--) out[l - 1] = 0;
+}
+
+// The action itself, a frame after its key, so "Working..." shows first.
+static void perform(struct os *s, struct ui *u, int action) {
+    char name[64], path[700], msg[48];
+    trimmed(s->disk_name, name, sizeof name);
+    int rc = -1, t = s->disk_type;
+    if (action == 'S') { // save
+        if (t != DISK_AUTOLOAD) {
+            char dir[700];
+            type_dir(s, t, dir, sizeof dir);
+            make_dirs(dir);
+        }
+        item_path(s, t, name, path, sizeof path);
+        if (!is_sound(t) && t != DISK_SETTINGS && t != DISK_FX) remove_tree(path); // replaced whole
+        switch (t) {
+        case DISK_PROJECT: case DISK_AUTOLOAD: rc = disk_project_save(s, path); break;
+        case DISK_PROGRAM: rc = disk_program_save(s, s->disk_which, path); break;
+        case DISK_SAMPLE: case DISK_WAVE: rc = s->pads[s->selected].s ? wav_save(path, s->pads[s->selected].s, 24) : -1; break;
+        case DISK_SETTINGS: {
+            const char *keep = s->settings_path;
+            s->settings_path = path;
+            rc = os_save_settings(s);
+            s->settings_path = keep;
+            break;
+        }
+        case DISK_FX: rc = infx_chain_save(s, path, 0); break;
+        case DISK_TRACKFX: rc = infx_chain_save(s, path, 1); break;
+        case DISK_ARP: rc = arp_save(s, clampi(s->disk_which, 0, ARP_USER - 1), path); break;
+        }
+        snprintf(msg, sizeof msg, rc == 0 ? "Saved: %.16s" : "Could not save %.10s", t == DISK_AUTOLOAD ? "AUTOLOAD" : name);
+    } else if (action == 'L') { // load
+        const char *file = s->disk_files[s->disk_file];
+        item_path(s, t, file, path, sizeof path);
+        switch (t) {
+        case DISK_PROJECT: case DISK_AUTOLOAD: rc = disk_project_load(s, path); break;
+        case DISK_PROGRAM: rc = disk_program_load(s, s->disk_which, path); break;
+        case DISK_SAMPLE: case DISK_WAVE: { // onto the selected pad (an S600 waveform: turn its loop on)
+            struct sample *x = wav_load(path);
+            if (x) {
+                os_undo_save(s, "Load Sample");
+                os_pad_assign(s, s->selected, x, file);
+                rc = 0;
+            }
+            break;
+        }
+        case DISK_SETTINGS: {
+            const char *keep = s->settings_path;
+            s->settings_path = path;
+            os_load_settings(s);
+            s->settings_path = keep;
+            rc = os_save_settings(s) == 0 || !keep ? 0 : -1; // and kept as the settings now
+            break;
+        }
+        case DISK_FX: rc = infx_chain_load(s, path, 0); break;
+        case DISK_TRACKFX: rc = infx_chain_load(s, path, 1); break;
+        case DISK_ARP: rc = arp_load(s, clampi(s->disk_which, 0, ARP_USER - 1), path); break;
+        }
+        snprintf(msg, sizeof msg, rc == 0 ? "Loaded: %.16s" : "Could not load %.10s", file);
+    } else if (action == 'E') { // export
+        char dir[700], here[600];
+        type_dir(s, t, here, sizeof here);
+        make_dirs(here);
+        // A mixdown is one WAV here; an export, a folder here of the tracks and the mix.
+        if (is_mixdown(t)) snprintf(dir, sizeof dir, "%s/%s.wav", here, name);
+        else snprintf(dir, sizeof dir, "%s/%s", here, name);
+        // In the background: the page shows how far it has got until it is done.
+        struct disk_job *j = calloc(1, sizeof *j);
+        if (j) {
+            j->s = s, j->song = is_song(t) ? s->disk_which : -1, j->which = s->disk_which;
+            j->tracks = s->disk_tracks, j->mix = s->disk_mix, j->mixdown = is_mixdown(t);
+            snprintf(j->dir, sizeof j->dir, "%s", dir);
+            snprintf(j->label, sizeof j->label, "Starting");
+            if (pthread_create(&j->thread, 0, export_run, j) == 0) {
+                s->disk_job = j;
+                return;
+            }
+            free(j);
+        }
+        snprintf(msg, sizeof msg, "Could not export");
+    } else if (action == 'N') { // a new folder, here, and into it
+        char dir[700];
+        type_dir(s, t, dir, sizeof dir);
+        snprintf(path, sizeof path, "%s/%s", dir, name);
+        rc = !name[0] || access(path, F_OK) == 0 ? -1 : make_dirs(path);
+        snprintf(msg, sizeof msg, rc == 0 ? "Folder: %.16s" : "Name taken or no card", name);
+        if (rc == 0) snprintf(s->disk_at, sizeof s->disk_at, "%s", path), s->disk_file = 0;
+        snprintf(s->disk_name, sizeof s->disk_name, "%s", s->disk_keep); // the item's name back
+    } else if (action == 'D') { // delete, once confirmed
+        item_path(s, t, s->disk_files[s->disk_file], path, sizeof path);
+        rc = remove_tree(path);
+        snprintf(msg, sizeof msg, rc == 0 ? "Deleted" : "Could not delete");
+    } else if (action == 'R') { // rename
+        char to[700];
+        item_path(s, t, s->disk_files[s->disk_file], path, sizeof path);
+        item_path(s, t, name, to, sizeof to);
+        rc = access(to, F_OK) == 0 ? -1 : rename(path, to);
+        snprintf(msg, sizeof msg, rc == 0 ? "Renamed: %.16s" : "Name taken or no card", name);
+    }
+    os_toast(s, u, msg);
+    list_files(s);
+}
+
+// The export's progress, over the whole page, until it is done.
+static int export_progress(struct os *s, struct ui *u) {
+    struct disk_job *j = s->disk_job;
+    if (!j) return 0;
+    if (atomic_load(&j->done)) {
+        pthread_join(j->thread, 0);
+        char msg[48];
+        snprintf(msg, sizeof msg, j->rc > 0 ? "Exported %d files" : "Nothing to export", j->rc);
+        free(j);
+        s->disk_job = 0;
+        os_toast(s, u, msg);
+        list_files(s);
+        ui_wake(u, 1);
+        return 0;
+    }
+    char line[48];
+    int file = atomic_load(&j->file), files = atomic_load(&j->files);
+    long secs = atomic_load(&j->frames) / 44100;
+    lcd_rule(u, TITLE_ROW, "Exporting");
+    snprintf(line, sizeof line, "File %d of %d", file, files);
+    lcd_center(u, 4, line);
+    lcd_center(u, 6, j->label);
+    snprintf(line, sizeof line, "%ld:%02ld rendered", secs / 60, secs % 60);
+    lcd_center(u, 8, line);
+    int w = files > 0 ? (UI_W - 40) * (file > 0 ? file - 1 : 0) / files : 0; // a bar for the files done
+    lcd_fill(u, 20, 10 * CELL_H + 2, UI_W - 40, 1, LCD_FG), lcd_fill(u, 20, 10 * CELL_H + 13, UI_W - 40, 1, LCD_FG);
+    lcd_fill(u, 20, 10 * CELL_H + 2, 1, 12, LCD_FG), lcd_fill(u, UI_W - 21, 10 * CELL_H + 2, 1, 12, LCD_FG);
+    if (w > 0) lcd_fill(u, 22, 10 * CELL_H + 4, w, 8, LCD_FG);
+    lcd_center(u, 12, "Please wait...");
+    lcd_rule(u, BOTTOM_ROW, 0);
+    ui_wake(u, 100);
+    return 1;
+}
+
+void disk_frame(struct os *s, struct ui *u, const struct input *in) {
+    if (export_progress(s, u)) return;
+    if (s->disk_pending) { // drawn "Working..." last frame: now it happens
+        int a = s->disk_pending;
+        s->disk_pending = 0;
+        perform(s, u, a);
+    }
+    if (!s->data_dir) {
+        lcd_rule(u, TITLE_ROW, "Save/Load");
+        lcd_center(u, 6, "No card folder");
+        lcd_rule(u, BOTTOM_ROW, 0);
+        return;
+    }
+    if (s->disk_ask) { // a question first: replacing or deleting
+        if (input_down(in, IN_B1)) s->disk_ask = 0;
+        if (input_down(in, IN_B3)) s->disk_pending = s->disk_ask, s->disk_ask = 0;
+        lcd_text(u, 0, KEY_ROW, "<No>");
+        lcd_text(u, 21, KEY_ROW, "<Yes>");
+        lcd_rule(u, TITLE_ROW, "Save/Load");
+        char q[48];
+        if (s->disk_ask == 'D') snprintf(q, sizeof q, "Delete %.16s?", s->disk_files[s->disk_file]);
+        else snprintf(q, sizeof q, "Replace %.16s?", s->disk_name);
+        lcd_center(u, 6, q);
+        if (s->disk_ask == 'D') lcd_center(u, 8, "This cannot be undone");
+        lcd_rule(u, BOTTOM_ROW, 0);
+        ui_wake(u, 1);
+        return;
+    }
+    int m = s->disk_mode;
+    // Keys.
+    int on_item = s->disk_nfiles && !s->disk_isdir[s->disk_file], on_folder = s->disk_nfiles && s->disk_isdir[s->disk_file];
+    if (s->disk_newdir) { // naming a new folder
+        if (input_down(in, IN_B1)) { // <Cancel>
+            s->disk_newdir = 0, s->disk_cursor = DF_FILE;
+            snprintf(s->disk_name, sizeof s->disk_name, "%s", s->disk_keep);
+        }
+        if (input_down(in, IN_B3)) s->disk_pending = 'N', s->disk_newdir = 0, s->disk_cursor = DF_FILE; // <OK>
+    } else if (s->disk_renaming) {
+        if (input_down(in, IN_B1)) s->disk_renaming = 0, s->disk_cursor = DF_FILE; // <Cancel>
+        if (input_down(in, IN_B3)) s->disk_pending = 'R', s->disk_renaming = 0, s->disk_cursor = DF_FILE; // <OK>
+    } else if (m == DISK_LOAD) {
+        if (input_down(in, IN_B1) && on_item) { // <Rename>
+            snprintf(s->disk_name, sizeof s->disk_name, "%s", s->disk_files[s->disk_file]);
+            s->disk_renaming = 1, s->disk_cursor = DF_NAME, s->disk_pos = 0;
+        }
+        if (input_down(in, IN_B2) && on_item) s->disk_ask = 'D'; // <Delete>
+        if (input_down(in, IN_B3) && on_folder) open_folder(s, s->disk_file); // <Open>
+        else if (input_down(in, IN_B3) && on_item) s->disk_pending = 'L'; // <Load>
+    } else if (m != DISK_LOAD && s->disk_type != DISK_AUTOLOAD && input_down(in, IN_B1)) { // <New Dir>
+        snprintf(s->disk_keep, sizeof s->disk_keep, "%s", s->disk_name);
+        snprintf(s->disk_name, sizeof s->disk_name, "FOLDER");
+        s->disk_newdir = 1, s->disk_cursor = DF_NAME, s->disk_pos = 0;
+    } else if (m != DISK_LOAD && s->disk_type != DISK_AUTOLOAD && input_down(in, IN_B2) && s->disk_nfiles) { // <Open>
+        if (on_folder) open_folder(s, s->disk_file);
+        else snprintf(s->disk_name, sizeof s->disk_name, "%s", s->disk_files[s->disk_file]); // its name, to save over it
+    } else if (input_down(in, IN_B3)) { // <Save>, <Export>
+        char name[64], path[700];
+        trimmed(s->disk_name, name, sizeof name);
+        item_path(s, s->disk_type, name, path, sizeof path);
+        if (m == DISK_EXPORT && !name[0]) os_toast(s, u, "Name it first");
+        else if (m == DISK_EXPORT) s->disk_ask = access(path, F_OK) == 0 ? 'E' : 0, s->disk_pending = s->disk_ask ? 0 : 'E';
+        else if (!name[0] && s->disk_type != DISK_AUTOLOAD) os_toast(s, u, "Name it first");
+        else if (access(path, F_OK) == 0) s->disk_ask = 'S'; // already there: replace it?
+        else s->disk_pending = 'S';
+    }
+    // The cursor, over the fields shown.
+    if (!field_shown(s, s->disk_cursor)) s->disk_cursor = DF_MODE;
+    if (in->encoder_press)
+        for (int g = 0; g < DF_FIELDS; g++) {
+            s->disk_cursor = (s->disk_cursor + (in->shift ? DF_FIELDS - 1 : 1)) % DF_FIELDS;
+            if (field_shown(s, s->disk_cursor)) break;
+        }
+    int d = in->encoder, pm = input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
+    if (s->disk_cursor != DF_NAME) d += pm;
+    if (d || pm) {
+        switch (s->disk_cursor) {
+        case DF_MODE:
+            s->disk_mode = clampi(m + d, 0, DISK_MODES - 1);
+            if (s->disk_mode == DISK_EXPORT && s->disk_type < DISK_SEQUENCE) s->disk_type = DISK_SEQUENCE;
+            if (s->disk_mode != DISK_EXPORT && s->disk_type >= DISK_SEQUENCE) s->disk_type = DISK_PROJECT;
+            s->disk_at[0] = 0;
+            default_name(s), list_files(s);
+            break;
+        case DF_TYPE:
+            if (m == DISK_EXPORT) s->disk_type = clampi(s->disk_type + d, DISK_SEQUENCE, DISK_MIX_SONG);
+            else s->disk_type = clampi(s->disk_type + d, 0, DISK_WAVE);
+            s->disk_which = s->disk_type == DISK_PROGRAM ? s->program : 0;
+            s->disk_at[0] = 0;
+            default_name(s), list_files(s);
+            break;
+        case DF_WHICH:
+            if (is_sound(s->disk_type)) s->selected = clampi(s->selected + d, 0, OS_PADS - 1);
+            else s->disk_which = clampi(s->disk_which + d, 0, (s->disk_type == DISK_PROGRAM ? OS_PROGRAMS : is_song(s->disk_type) ? SEQ_SONGS
+                                                              : s->disk_type == DISK_ARP ? ARP_USER : SEQ_COUNT) - 1);
+            if (m != DISK_LOAD) default_name(s);
+            break;
+        case DF_TRACKS: s->disk_tracks = clampi(s->disk_tracks + d, 0, 2); break;
+        case DF_MIX: s->disk_mix = d > 0; break;
+        case DF_FILE: s->disk_file = clampi(s->disk_file + d, 0, s->disk_nfiles > 0 ? s->disk_nfiles - 1 : 0); break;
+        case DF_NAME: { // the wheel the character, - and + the place in the name
+            s->disk_pos = clampi(s->disk_pos + pm, 0, NAME_MAX_LEN - 1);
+            int len = (int)strlen(s->disk_name);
+            while (len <= s->disk_pos) s->disk_name[len++] = ' ', s->disk_name[len] = 0;
+            if (in->encoder) {
+                const char *at = strchr(CHARS, s->disk_name[s->disk_pos]);
+                int i = at ? (int)(at - CHARS) : 0, n = (int)strlen(CHARS);
+                s->disk_name[s->disk_pos] = CHARS[((i + in->encoder) % n + n) % n];
+            }
+            break;
+        }
+        }
+    }
+
+    // ---- Drawing ----
+    char v[48];
+    on_item = s->disk_nfiles && !s->disk_isdir[s->disk_file], on_folder = s->disk_nfiles && s->disk_isdir[s->disk_file];
+    if (s->disk_renaming || s->disk_newdir) {
+        lcd_text(u, 0, KEY_ROW, "<Cancel>");
+        lcd_text(u, 22, KEY_ROW, "<OK>");
+    } else if (m == DISK_LOAD) {
+        if (on_item) lcd_text(u, 0, KEY_ROW, "<Rename>"), lcd_text(u, 9, KEY_ROW, "<Delete>");
+        if (on_folder) lcd_text(u, 20, KEY_ROW, "<Open>");
+        else if (on_item) lcd_text(u, 20, KEY_ROW, "<Load>");
+    } else if (s->disk_type != DISK_AUTOLOAD) {
+        lcd_text(u, 0, KEY_ROW, "<New Dir>");
+        if (s->disk_nfiles) lcd_text(u, 10, KEY_ROW, "<Open>");
+        lcd_text(u, m == DISK_EXPORT ? 18 : 20, KEY_ROW, m == DISK_EXPORT ? "<Export>" : "<Save>");
+    } else {
+        lcd_text(u, 18, KEY_ROW, m == DISK_EXPORT ? "<Export>" : "<Save>");
+    }
+    lcd_rule(u, TITLE_ROW, s->disk_pending ? "Working..." : "Save/Load");
+    struct {
+        int f, row, col;
+        const char *label;
+    } rows[] = {{DF_MODE, 3, 6, "Mode:"}, {DF_TYPE, 4, 6, "Type:"}};
+    snprintf(v, sizeof v, " %s ", MODES[m]);
+    lcd_text(u, 0, 3, rows[0].label);
+    if (s->disk_cursor == DF_MODE) lcd_inverse(u, 6, 3, v);
+    else lcd_text(u, 6, 3, v);
+    snprintf(v, sizeof v, " %s ", TYPES[s->disk_type]);
+    lcd_text(u, 0, 4, rows[1].label);
+    if (s->disk_cursor == DF_TYPE) lcd_inverse(u, 6, 4, v);
+    else lcd_text(u, 6, 4, v);
+    if (field_shown(s, DF_WHICH)) {
+        const char *label = s->disk_type == DISK_PROGRAM ? (m == DISK_LOAD ? "Into:" : "Pgm:") : is_sound(s->disk_type) ? "Pad:"
+                          : is_song(s->disk_type) ? "Song:" : s->disk_type == DISK_ARP ? "User:" : "Seq:";
+        if (is_sound(s->disk_type))
+            snprintf(v, sizeof v, " %c%02d %.12s ", 'A' + s->selected / 16, s->selected % 16 + 1,
+                     s->pads[s->selected].s ? s->pads[s->selected].name : "(empty)");
+        else if (s->disk_type == DISK_PROGRAM) snprintf(v, sizeof v, " %02d-%.12s ", s->disk_which + 1, s->programs[s->disk_which].name);
+        else if (is_song(s->disk_type)) snprintf(v, sizeof v, " %02d (%d steps) ", s->disk_which + 1, s->seq.song[s->disk_which].nsteps);
+        else if (s->disk_type == DISK_ARP) snprintf(v, sizeof v, " USER %d ", s->disk_which + 1);
+        else snprintf(v, sizeof v, " %02d-%.12s ", s->disk_which + 1, s->seq.sequence[s->disk_which].name);
+        lcd_text(u, 0, 5, label);
+        if (s->disk_cursor == DF_WHICH) lcd_inverse(u, 6, 5, v);
+        else lcd_text(u, 6, 5, v);
+    }
+    if (m == DISK_EXPORT && !is_mixdown(s->disk_type)) {
+        static const char *const TR[3] = {"NONE", "MONO", "STEREO"};
+        lcd_text(u, 0, 6, "Tracks:");
+        snprintf(v, sizeof v, " %s ", TR[s->disk_tracks]);
+        if (s->disk_cursor == DF_TRACKS) lcd_inverse(u, 7, 6, v);
+        else lcd_text(u, 7, 6, v);
+        lcd_text(u, 16, 6, "Mix:");
+        snprintf(v, sizeof v, " %s ", s->disk_mix ? "ON" : "OFF");
+        if (s->disk_cursor == DF_MIX) lcd_inverse(u, 20, 6, v);
+        else lcd_text(u, 20, 6, v);
+    }
+    if (field_shown(s, DF_NAME)) { // the name, the character being set lit
+        int row = s->disk_renaming ? 8 : m == DISK_EXPORT ? 7 : 6; // the folder's list under it
+        lcd_text(u, 0, row, s->disk_newdir ? "Folder:" : s->disk_renaming ? "New name:" : "Name:");
+        int col = s->disk_renaming ? 10 : s->disk_newdir ? 8 : 6;
+        char nm[NAME_MAX_LEN + 1];
+        snprintf(nm, sizeof nm, "%-16s", s->disk_name);
+        lcd_text(u, col, row, nm);
+        if (s->disk_cursor == DF_NAME) {
+            char one[2] = {nm[s->disk_pos], 0};
+            lcd_inverse(u, col + s->disk_pos, row, one);
+            lcd_text(u, 0, row + 1, "Wheel: letter  -/+: move");
+        }
+    } else if (m == DISK_SAVE && s->disk_type == DISK_AUTOLOAD) {
+        lcd_text(u, 0, 8, "Saves this project to");
+        lcd_text(u, 0, 9, "load at power-on");
+    }
+    if (field_shown(s, DF_FILE)) { // the folder's contents, a window round the selected
+        int top = m == DISK_SAVE ? 8 : m == DISK_EXPORT ? 9 : 7, rows = 13 - top;
+        if (s->disk_cursor == DF_NAME && m != DISK_LOAD) top++, rows--; // under the name's hint
+        if (!s->disk_nfiles) lcd_text(u, 0, top, "(empty)");
+        int first = s->disk_file - rows / 2 < 0 ? 0 : s->disk_file - rows / 2;
+        for (int r = 0; r < rows && first + r < s->disk_nfiles; r++) {
+            int i = first + r;
+            char nm[30];
+            if (s->disk_isdir[i] == 2) snprintf(nm, sizeof nm, ".. (up)");
+            else if (s->disk_isdir[i]) snprintf(nm, sizeof nm, "/%.21s", s->disk_files[i]); // a folder
+            else snprintf(nm, sizeof nm, "%.22s", s->disk_files[i]);
+            snprintf(v, sizeof v, " %-22.22s ", nm);
+            if (i == s->disk_file && s->disk_cursor == DF_FILE) lcd_inverse(u, 0, top + r, v);
+            else if (i == s->disk_file) lcd_text(u, 0, top + r, ">"), lcd_text(u, 1, top + r, v + 1);
+            else lcd_text(u, 0, top + r, v);
+        }
+    }
+    { // where: the folder, from the top of the card
+        char dir[700], here[700], root[700];
+        type_dir(s, s->disk_type, dir, sizeof dir);
+        clean_path(dir, here, sizeof here);
+        card_root(s, root, sizeof root);
+        size_t rl = strlen(root);
+        const char *where = strncmp(here, root, rl) == 0 ? here + rl : here;
+        if (!*where) where = "/";
+        size_t len = strlen(where);
+        if (len > 18) snprintf(v, sizeof v, "Folder: ..%s", where + len - 16); // the end of a long path
+        else snprintf(v, sizeof v, "Folder: %s", where);
+        lcd_text(u, 0, 13, v);
+    }
+    lcd_rule(u, BOTTOM_ROW, 0);
+    if (s->disk_pending) { // what is about to happen, plainly, while it does
+        static const char *const WHAT[DISK_TYPES] = {"project", "program", "sample", "settings", "autoload", "FX chain", "arp pattern",
+                                                     "track FX", "S600 wave", "", "", "", ""};
+        char a[40];
+        int act = s->disk_pending;
+        if (act == 'E') snprintf(a, sizeof a, "Starting export");
+        else if (act == 'S') snprintf(a, sizeof a, "Saving %s", WHAT[s->disk_type]);
+        else if (act == 'L') snprintf(a, sizeof a, "Loading %s", WHAT[s->disk_type]);
+        else if (act == 'D') snprintf(a, sizeof a, "Deleting");
+        else if (act == 'N') snprintf(a, sizeof a, "Making folder");
+        else snprintf(a, sizeof a, "Renaming");
+        lcd_fill(u, LCD_X, 5 * CELL_H - 4, UI_W - 2 * LCD_X, 3 * CELL_H + 8, LCD_FG);
+        char b[48];
+        snprintf(b, sizeof b, "%.24s", a);
+        lcd_inverse(u, (LCD_COLS - (int)strlen(b)) / 2, 5, b);
+        lcd_inverse(u, (LCD_COLS - 14) / 2, 7, "Please wait...");
+        ui_wake(u, 1);
+    }
+}

@@ -1,0 +1,959 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MPC 600 S Operator's Manual</title>
+<style>
+  /* The MPC3000 manual's faces: New Century Schoolbook for the text, Helvetica Bold for the
+     headings and Bookman Old Style Bold for the model name; the nearest each system has. */
+  :root {
+    --text: "New Century Schoolbook", "Century Schoolbook", "Century Schoolbook L", "TeX Gyre Schola", Georgia, serif;
+    --head: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
+    --model: "Bookman Old Style", "Bookman", "URW Bookman", "URW Bookman L", "TeX Gyre Bonum", Georgia, serif;
+    --ink: #111;
+    --rule: #222;
+    --soft: #555;
+    --tint: #f3f3f0;
+  }
+  html { background: #fff; color: var(--ink); }
+  body { font-family: var(--text); font-size: 11.5pt; line-height: 1.5; max-width: 7.4in; margin: 0 auto; padding: 0 0.4in 1in; }
+  h1, h2, h3, h4 { font-family: var(--head); font-weight: 700; line-height: 1.2; }
+  h1.chapter { font-size: 26pt; margin: 0 0 0.2in; padding-top: 0.6in; border-bottom: 3px solid var(--rule); }
+  h1.chapter small { display: block; font-size: 12pt; letter-spacing: 0.12em; text-transform: uppercase; color: var(--soft); }
+  h2 { font-size: 16pt; margin: 0.45in 0 0.1in; border-bottom: 1px solid var(--rule); padding-bottom: 2px; }
+  h3 { font-size: 12.5pt; margin: 0.28in 0 0.06in; }
+  h4 { font-size: 11pt; margin: 0.2in 0 0.04in; }
+  p { margin: 0 0 0.11in; }
+  ul, ol { margin: 0 0 0.12in 0.25in; padding-left: 0.15in; }
+  li { margin-bottom: 0.04in; }
+  em { font-style: italic; }
+  .key { font-family: var(--head); font-weight: 700; font-size: 9.5pt; letter-spacing: 0.03em; white-space: nowrap; }
+  .lcd { font-family: "Consolas", "DejaVu Sans Mono", monospace; font-size: 10pt; background: var(--tint); padding: 0 3px; }
+  table { border-collapse: collapse; margin: 0.08in 0 0.18in; font-size: 10.5pt; width: 100%; }
+  th, td { border: 1px solid #999; padding: 3px 7px; text-align: left; vertical-align: top; }
+  th { font-family: var(--head); font-size: 9.5pt; background: var(--tint); }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .note { border-left: 4px solid var(--rule); background: var(--tint); padding: 0.08in 0.14in; margin: 0.12in 0 0.18in; }
+  .note strong { font-family: var(--head); font-size: 10pt; }
+  figure { margin: 0.12in 0 0.2in; text-align: center; break-inside: avoid; }
+  figure img { width: 320px; max-width: 100%; image-rendering: pixelated; border: 6px solid #2a2a2a; border-radius: 3px; }
+  figcaption { font-size: 9.5pt; color: var(--soft); margin-top: 3px; font-style: italic; }
+  .toc ol { list-style: none; padding: 0; margin-left: 0; }
+  .toc li { display: flex; gap: 6px; font-family: var(--head); font-size: 11pt; margin: 3px 0; }
+  .toc li a { color: inherit; text-decoration: none; }
+  .toc li .dots { flex: 1; border-bottom: 1px dotted #888; margin-bottom: 5px; }
+
+  /* The title page, as the MPC3000's: the product line in Helvetica Bold, the model in Bookman. */
+  .title { min-height: 9.4in; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .title .line { font-family: var(--head); font-weight: 700; font-size: 20pt; letter-spacing: 0.32em; }
+  .title .model { font-family: var(--model); font-weight: 700; font-size: 64pt; letter-spacing: 0.02em; margin: 0.3in 0 0.18in; }
+  .title .ver { font-family: var(--head); font-weight: 700; font-size: 13pt; }
+  .title .book { font-family: var(--head); font-weight: 700; font-size: 22pt; margin-top: 0.5in; }
+  .title .by { font-family: var(--text); font-style: italic; font-size: 12pt; margin-top: 1.2in; }
+  .title .rule { width: 60%; border-top: 4px solid var(--rule); margin: 0.12in 0; }
+  .page-break { break-before: page; }
+  .toc li .pg { font-variant-numeric: tabular-nums; min-width: 2em; text-align: right; }
+  @page { size: letter; margin: 0.6in 0.5in 0.7in;
+    @bottom-center { content: counter(page); font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 9pt; color: #555; } }
+  @page :first { @bottom-center { content: none; } }
+  @media print {
+    body { max-width: none; padding: 0; }
+    h1.chapter { break-before: page; padding-top: 0; }
+    a { color: inherit; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+
+<section class="title">
+  <div class="line">MIDI PRODUCTION CENTER</div>
+  <div class="rule"></div>
+  <div class="model">MPC 600 S</div>
+  <div class="ver">LA Version 1.1 &middot; for the Akai MPC Sample</div>
+  <div class="book">Operator&rsquo;s Manual</div>
+  <div class="by">Copyright 1987&ndash;2027</div>
+</section>
+
+<section class="toc page-break">
+<h2>Contents</h2>
+<ol>
+  <li><a href="#ch1">Chapter 1: Introduction</a><span class="dots"></span></li>
+  <li><a href="#ch2">Chapter 2: The Basics</a><span class="dots"></span></li>
+  <li><a href="#ch3">Chapter 3: Recording Sequences</a><span class="dots"></span></li>
+  <li><a href="#ch4">Chapter 4: Timing Correct and the Swing Algorithms</a><span class="dots"></span></li>
+  <li><a href="#ch5">Chapter 5: Note Repeat and the Arpeggiator</a><span class="dots"></span></li>
+  <li><a href="#ch6">Chapter 6: Editing Sequences</a><span class="dots"></span></li>
+  <li><a href="#ch7">Chapter 7: Song Mode</a><span class="dots"></span></li>
+  <li><a href="#ch8">Chapter 8: Programs and Pad Sounds</a><span class="dots"></span></li>
+  <li><a href="#ch9">Chapter 9: S600 Programs</a><span class="dots"></span></li>
+  <li><a href="#ch10">Chapter 10: Sampling: Sample Rate and Bit Depth</a><span class="dots"></span></li>
+  <li><a href="#ch11">Chapter 11: Editing Sounds</a><span class="dots"></span></li>
+  <li><a href="#ch12">Chapter 12: Warp and the S-Series Timestretch</a><span class="dots"></span></li>
+  <li><a href="#ch13">Chapter 13: The Mixer and Effects</a><span class="dots"></span></li>
+  <li><a href="#ch14">Chapter 14: Saving, Loading and Exporting</a><span class="dots"></span></li>
+  <li><a href="#ch15">Chapter 15: MIDI and Additional Settings</a><span class="dots"></span></li>
+  <li><a href="#appx">Appendix: Specifications and Quick Reference</a><span class="dots"></span></li>
+</ol>
+</section>
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch1"><small>Chapter 1</small>Introduction</h1>
+
+<h2>Welcome</h2>
+<p>The MPC 600 S is a pad-based sampler and sequencer for the Akai MPC Sample, built around sequences, tracks, programs and sounds. It has S600 programs based on Akai&rsquo;s S-series samplers, an arpeggiator with step patterns, warping and timestretching, effects for the input, the tracks and the master output, stem separation, and a sampler that records at low sample rates and bit depths.</p>
+<p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
+
+<h2>Installing and Starting</h2>
+<p>The MPC 600 S comes as <strong>mpc-os.zip</strong>, an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<ol>
+  <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
+  <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
+  <li>To go back to the stock MPC Sample, turn it off and take the card out. To update, replace the <span class="lcd">autorun</span> folder with the new one.</li>
+</ol>
+<p>The separate <em>Quick Start</em> guide has these steps in full, with what to check if it does not start.</p>
+<p>The OS keeps everything it saves in a folder named <span class="lcd">MPC600S</span> at the top of the card, outside the autorun package, so updating the OS never touches your work:</p>
+<table>
+  <tr><th>Folder</th><th>What is in it</th></tr>
+  <tr><td class="lcd">settings.txt</td><td>Your settings and preferences, written whenever they change.</td></tr>
+  <tr><td class="lcd">projects/</td><td>Saved projects: everything, with all their sounds.</td></tr>
+  <tr><td class="lcd">programs/</td><td>Saved programs, each with its sounds.</td></tr>
+  <tr><td class="lcd">samples/</td><td>Single sounds saved as WAV files.</td></tr>
+  <tr><td class="lcd">settings/</td><td>Named copies of your settings.</td></tr>
+  <tr><td class="lcd">fx/</td><td>Saved Input Effects chains.</td></tr>
+  <tr><td class="lcd">autoload/</td><td>A project loaded automatically at power-on.</td></tr>
+  <tr><td class="lcd">exports/</td><td>Sequences and songs rendered to WAV files.</td></tr>
+  <tr><td class="lcd">stems/</td><td>The models for stem separation (installed once).</td></tr>
+</table>
+{{shot:title|The title screen}}
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch2"><small>Chapter 2</small>The Basics</h1>
+
+<h2>The Controls</h2>
+<table>
+  <tr><th>Control</th><th>What it does</th></tr>
+  <tr><td class="key">B1 B2 B3</td><td>The three soft keys under the display. Each page shows what they do on its top line, in angle brackets: <span class="lcd">&lt;Back&gt;</span>, <span class="lcd">&lt;Play&gt;</span> and so on.</td></tr>
+  <tr><td>The wheel</td><td>Changes the value under the cursor. Pushing the wheel (ENTER) moves the cursor to the next field; with <span class="key">SHIFT</span>, to the one before.</td></tr>
+  <tr><td class="key">&minus; &nbsp; +</td><td>Step the value under the cursor down or up by one. On some pages they do more (Step Edit uses them to step through the sequence).</td></tr>
+  <tr><td class="key">K1 K2 K3</td><td>The knobs. Each page labels the fields they control with <span class="lcd">K1</span>, <span class="lcd">K2</span>, <span class="lcd">K3</span>.</td></tr>
+  <tr><td>The slider</td><td>Moves the field the cursor is on, or a page&rsquo;s own slider value (the mixer&rsquo;s level, the wah pedal).</td></tr>
+  <tr><td>The pads</td><td>Play sounds, and on some pages pick things (a track on the mixer, a sequence on the Song page).</td></tr>
+  <tr><td class="key">PAD BANK</td><td>Steps the pads through banks A to H (with <span class="key">SHIFT</span>, backwards). On the mixer it steps through tracks 1&ndash;16, 17&ndash;32 and on.</td></tr>
+</table>
+<h3>Knobs and the Slider Catch Up</h3>
+<p>The knobs and slider are absolute: each has a position. When you turn one, it does not change the value until it reaches the value&rsquo;s own position; from there it takes over. Nothing jumps when you first touch a control.</p>
+<p>Zoomed in on a waveform (hold <span class="key">SAMPLE</span> and press <span class="key">B1</span> or <span class="key">B2</span>), the Zone and Loop point knobs change behaviour: they move the point from where it is, in fine steps of 1/127 of what is on screen. The zoomed view follows the point you moved last (Start or End, Loop St or Loop End) and keeps it in the middle of the screen, even at the very beginning or end of the sound, where the view runs on past it.</p>
+<h3>Pressing a Page&rsquo;s Button Again</h3>
+<p>On every page, pressing the button that opened it again puts the cursor back on the page&rsquo;s first field (on a few pages, on the field you will want most, such as Effect # on Input Effects).</p>
+
+<h2>Help</h2>
+<p>Press <span class="key">SHIFT + SAMPLE REC</span> on any page to see that page&rsquo;s help, and <span class="key">SHIFT + SEQ REC</span> to see its second page. Where there are more, <span class="key">B1 &lt;Prev&gt;</span> and <span class="key">B3 &lt;Next&gt;</span> turn the pages and <span class="key">B2 &lt;Exit&gt;</span> goes back. The help tells you what the page does, the keys you cannot see (the <span class="key">SHIFT</span> combinations), and tips. A small helper stands at the side of the help pages, tapping her foot and pointing at the text with her stick.</p>
+<p>The main sequence page has no help: there, the same two buttons move the play position back and forward a bar.</p>
+{{shot:help|A help page}}
+
+<h2>Undo and Redo</h2>
+<p><span class="key">SHIFT + &minus;</span> undoes and <span class="key">SHIFT + +</span> redoes, up to two steps. Undo covers audio commands (Discard, Convert, Print Effects, Warp and the like) and changes to the sequences (recording, erasing, editing bars). It does not undo settings such as a pad&rsquo;s volume.</p>
+
+<h2>Definitions</h2>
+<ul>
+  <li><strong>Sound</strong>: a recording in memory: a sample.</li>
+  <li><strong>Pad</strong>: one of 128 places in a program (16 pads in each of 8 banks), each with a sound and that sound&rsquo;s settings.</li>
+  <li><strong>Program</strong>: a whole set of 128 pads. There are 24. A program is MPC (drums) or S600 (a playable synth instrument, Chapter 9).</li>
+  <li><strong>Memory</strong>: up to 64 sounds kept without being on a pad. A sound that leaves its last pad goes here instead of being lost.</li>
+  <li><strong>Sequence</strong>: a piece of music up to 999 bars long. There are 99.</li>
+  <li><strong>Track</strong>: one part of a sequence. Each sequence has 99 tracks, DRUM (plays a program) or MIDI (sends notes out).</li>
+  <li><strong>Song</strong>: a list of sequences played in order. There are 20.</li>
+</ul>
+
+<h2>The Buttons and SHIFT + Pads</h2>
+<h3>Buttons</h3>
+<table>
+  <tr><th>Button</th><th>Alone</th><th>With SHIFT</th></tr>
+  <tr><td class="key">SEQ</td><td>The main sequence page</td><td>Step Edit</td></tr>
+  <tr><td class="key">SAMPLE</td><td>The sound&rsquo;s settings (or the S600 pages on an S600 program)</td><td>Program Config</td></tr>
+  <tr><td class="key">SAMPLE SELECT</td><td>Load WAV files</td><td>Save/Load, ready to save the pad&rsquo;s sound</td></tr>
+  <tr><td class="key">SAMPLE REC</td><td>Sample New Sound, then Audiotrack Record, Convert Sample, Stems</td><td>Help (main page: back a bar)</td></tr>
+  <tr><td class="key">SEQ REC</td><td>Arm recording: OVERDUB, REC, off</td><td>Help page 2 (main page: on a bar)</td></tr>
+  <tr><td class="key">PLAY</td><td>Play from the start</td><td>Continue from where it stopped</td></tr>
+  <tr><td class="key">STOP</td><td>Stop; twice quickly stops every sound</td><td>Stop and return to the start</td></tr>
+  <tr><td class="key">TAP TEMPO</td><td>Tap the tempo</td><td>The metronome page</td></tr>
+  <tr><td class="key">NOTE REPEAT</td><td>Hold for Note Repeat / the arpeggiator</td><td>The Note Repeat / Arpeggiator page</td></tr>
+  <tr><td class="key">LEVELS</td><td>16 Levels: Velocity, Tune, off</td><td>The 16 Levels page</td></tr>
+  <tr><td class="key">LOOP</td><td>The Loop page</td><td>Reverse on or off</td></tr>
+  <tr><td class="key">CHOP</td><td>Zone Assign</td><td>Note On on or off</td></tr>
+  <tr><td class="key">MUTE</td><td>Track Mute</td><td></td></tr>
+  <tr><td class="key">PAD FX</td><td>Print Effects</td><td></td></tr>
+  <tr><td class="key">KNOB FX</td><td>Input Effects</td><td></td></tr>
+  <tr><td class="key">ERASE</td><td>Tap: the Erase page. Hold with pads while playing: erase those notes</td><td></td></tr>
+</table>
+<h3>SHIFT + Pads</h3>
+<table>
+  <tr><th class="n">Pad</th><th>Function</th><th class="n">Pad</th><th>Function</th></tr>
+  <tr><td class="n">1</td><td>Full Level on/off</td><td class="n">9</td><td>Track Mixer</td></tr>
+  <tr><td class="n">2</td><td>Half the sequence (asks first)</td><td class="n">10</td><td>Timing Correct on/off</td></tr>
+  <tr><td class="n">3</td><td>Double the sequence (asks first)</td><td class="n">11</td><td>Resample</td></tr>
+  <tr><td class="n">4</td><td>Count-in on/off</td><td class="n">12</td><td>Song</td></tr>
+  <tr><td class="n">5</td><td>Master Effects</td><td class="n">13</td><td>Trim</td></tr>
+  <tr><td class="n">6</td><td>Half speed (BPM &divide; 2)</td><td class="n">14</td><td>Timing Correct page</td></tr>
+  <tr><td class="n">7</td><td>Double speed (BPM &times; 2)</td><td class="n">15</td><td>Warp (again: S-Series Timestretch)</td></tr>
+  <tr><td class="n">8</td><td>MIDI Settings</td><td class="n">16</td><td>Save/Load</td></tr>
+</table>
+
+<h2>Playing the Pads</h2>
+<p>Pads play the active track&rsquo;s program, through that track&rsquo;s mixer channel. <strong>Full Level</strong> (<span class="key">SHIFT + Pad 1</span>) plays every hit at full velocity.</p>
+<h3>16 Levels</h3>
+<p><span class="key">LEVELS</span> lays one sound across the 16 pads: <strong>Velocity</strong> (pad 1 softest to pad 16 hardest), then <strong>Tune</strong> (a chromatic scale, the root pad playing the sound&rsquo;s own pitch), then off. <span class="key">SHIFT + LEVELS</span> opens its page, where you choose the type, the sound and the root (D13 by default). In Tune, <span class="key">PAD BANK</span> reaches further up and down: 128 tunings in all.</p>
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch3"><small>Chapter 3</small>Recording Sequences</h1>
+
+<h2>The Main Page</h2>
+<p><span class="key">SEQ</span> opens the main page: <strong>Play/Record</strong> at the top (sequence, tempo, bars, time signature, loop) and <strong>Track Data</strong> under it (track, type, on/off, MIDI channel, velocity %, program). The <span class="lcd">Now:</span> line shows the position as bar.beat.tick.</p>
+<p>The knobs are labelled at the bottom: <span class="key">K1</span> the track, <span class="key">K2</span> the tempo (whole BPM), <span class="key">K3</span> the track&rsquo;s program. The slider steps through the tracks. <span class="key">B1</span> turns the track on or off; <span class="key">B2</span> and <span class="key">B3</span> step to the track before and after. <span class="key">SHIFT + B3</span> opens Copy Sequence (Chapter 6).</p>
+<h3>Renaming</h3>
+<p>Put the cursor on <strong>Seq</strong>, <strong>Trk</strong> or <strong>Pgm</strong> and press <span class="key">SHIFT + B2</span> to rename the sequence, the track or the track&rsquo;s program. The wheel sets the highlighted letter, <span class="key">&minus;</span> and <span class="key">+</span> move along the name (up to 16 letters), <span class="key">B3 &lt;OK&gt;</span> keeps it and <span class="key">B1 &lt;Cancel&gt;</span> leaves the old name. A MIDI track&rsquo;s Pgm is a program number, so it has no name to change.</p>
+{{shot:seq_main_knobs|The main page}}
+
+<h2>Recording</h2>
+<ol>
+  <li>Choose the sequence and the track to record on, on the main page.</li>
+  <li>Press <span class="key">SEQ REC</span> to arm a recording mode (see below). The light flashes while armed, and the display shows the mode.</li>
+  <li>Press <span class="key">PLAY</span>. If Count-in is on, the count-in comes first.</li>
+  <li>Play the pads, or a MIDI keyboard. Each note goes onto the active track, placed by Timing Correct (Chapter 4), with its velocity and how long you held it.</li>
+  <li>Press <span class="key">STOP</span>. <span class="key">SHIFT + &minus;</span> undoes the whole recording.</li>
+</ol>
+
+<h3>The Recording Modes</h3>
+<p>Pressed while stopped, <span class="key">SEQ REC</span> steps through three settings: <strong>OVERDUB</strong>, then <strong>REC</strong>, then off. OVERDUB comes first because it never erases anything.</p>
+<table>
+  <tr><th>Mode</th><th>What happens to the active track</th><th>Use it for</th></tr>
+  <tr><td>OVERDUB</td><td>New notes are added; everything already there stays and plays.</td><td>Building a beat up pass by pass: kick, then snare, then hats.</td></tr>
+  <tr><td>REC</td><td>As the sequence plays, the notes already on the active track are erased as it passes them, and your new notes take their place. From the second pass of a looping sequence it turns into OVERDUB on its own, so you can play the part once and then add to it.</td><td>Replacing a part completely.</td></tr>
+  <tr><td>Off</td><td>PLAY just plays.</td><td>&nbsp;</td></tr>
+</table>
+<p>Only the active track is recorded or erased. Other tracks play as usual.</p>
+
+<h3>Punching In and Out</h3>
+<p>While the sequence is playing, press <span class="key">SEQ REC</span> to punch in: recording starts there and then, in OVERDUB, without stopping or erasing anything. Press it again to punch out: the sequence keeps playing and recording stops. Undo covers a punch-in too.</p>
+
+<h3>Count-in and the Metronome</h3>
+<p><span class="key">SHIFT + Pad 4</span> turns Count-in on and off. <span class="key">SHIFT + TAP TEMPO</span> opens the metronome page:</p>
+<table>
+  <tr><th>Field</th><th>What it does</th></tr>
+  <tr><td>Click</td><td>The metronome on or off.</td></tr>
+  <tr><td>In Play</td><td>ON: it clicks whenever the sequence plays. OFF: only while recording.</td></tr>
+  <tr><td>Volume, Rate</td><td>How loud, and how often: 1/4 to 1/32, with triplets.</td></tr>
+  <tr><td>Count-in</td><td>On or off.</td></tr>
+  <tr><td>Type</td><td>COUNT IN: count the bars in. WAIT KEY: the recording starts the moment you press a pad or play a MIDI note, so a part can begin on its own first hit.</td></tr>
+  <tr><td>Bars</td><td>How many bars to count in.</td></tr>
+</table>
+
+<h3>Looping, Erasing and Holding Notes</h3>
+<ul>
+  <li><strong>Loop</strong> on the main page sends the sequence back to a bar at the end, so you can keep recording pass after pass.</li>
+  <li>Hold <span class="key">ERASE</span> and hold pads while recording or playing: those pads&rsquo; notes are erased as the sequence passes them. Let go to stop erasing.</li>
+  <li>Hold <span class="key">NOTE REPEAT</span> while recording: the repeats or the arpeggio are recorded as notes (Chapter 5).</li>
+  <li>A note&rsquo;s length is how long you held the pad. With a sustain pedal set to it on MIDI Settings, the pedal holds notes on.</li>
+</ul>
+
+<h3>Recording Knobs and the Slider</h3>
+<p>While recording, moves of the knobs and slider on Volume, Pan, Cutoff, Resonance, Semi and Fine are recorded as well, on drum sounds and on S600 programs. They play back with the sequence, so a filter sweep or a pitch drop becomes part of the part. Holding ERASE with a pad also erases that pad&rsquo;s recorded moves as the sequence passes them.</p>
+
+<h2>Tempo, Bars and Length</h2>
+<ul>
+  <li><strong>Tap Tempo</strong>: tap the button in time. <span class="key">SHIFT + TAP TEMPO</span> opens the metronome page (click on/off, in play, volume, rate, count-in bars and type).</li>
+  <li><strong>Bars</strong>: changing Bars on the main page asks first when it matters. Adding bars to a sequence with notes asks <span class="lcd">Duplicate sequence data?</span>: <em>Yes</em> repeats the existing bars from bar 1 into the new ones, <em>No</em> leaves them empty. Taking bars away when the removed bars have notes asks <span class="lcd">Delete bars x-y?</span> first.</li>
+  <li><strong>Double and half the sequence</strong>: <span class="key">SHIFT + Pad 3</span> and <span class="key">SHIFT + Pad 2</span> do the same with one press.</li>
+  <li><strong>Double and half speed</strong>: <span class="key">SHIFT + Pad 7</span> and <span class="key">SHIFT + Pad 6</span> double or halve the BPM, asking <span class="lcd">Apply note-value compensation?</span>. <em>No</em> changes only the BPM, so the music plays faster or slower. <em>Yes</em> keeps it playing at the same speed: doubling moves every note twice as far along and doubles the bars; halving squeezes the music into the first half and repeats it in the second.</li>
+</ul>
+{{shot:seq_ask_bpm|Double speed asks about compensation}}
+
+<h2>Audio Tracks</h2>
+<p>The MPC 600 S records audio onto a pad in time with the sequence, so a vocal, a guitar or a synth part plays back with the music as an audio track. The take is an ordinary sound on a pad, started by a note at the beginning of a track, so it can be edited, effected, warped and mixed like any other.</p>
+<h3>Recording an Audio Track</h3>
+<ol>
+  <li>Press <span class="key">SAMPLE REC</span> twice for the <strong>Audiotrack Record</strong> page.</li>
+  <li>Set the Input (LINE or MIC), the Mode (stereo or one of the mono choices), Count In (2 bars by default, or 1) and Length.</li>
+  <li>Select the track the take should go on, on the main page beforehand (a DRUM track).</li>
+  <li>Press <span class="key">&lt;Rec&gt;</span>. The sequence plays from its start after the count-in, and the take begins exactly on the first beat of bar 1.</li>
+  <li>When it ends (or you press <span class="key">STOP</span> or <span class="key">&lt;Stop&gt;</span>), press an <strong>empty</strong> pad. It gets the take, and a note at the very start of the active track, as long as the take, starts it whenever the sequence plays from the top.</li>
+</ol>
+{{shot:audiotrack|Audiotrack Record}}
+<table>
+  <tr><th>Field</th><th>What it does</th></tr>
+  <tr><td>Input, Mode</td><td>As on Sample New Sound: LINE or MIC; STEREO, MONO LFT, MONO RGT or MONO LR.</td></tr>
+  <tr><td>Count In</td><td>2 bars (the default) or 1 bar of clicks before the sequence starts.</td></tr>
+  <tr><td>Length</td><td><strong>SEQ</strong>: the length of the sequence. <strong>x2</strong>: twice it. <strong>STOP</strong>: until you stop it. A take of SEQ or x2 is trimmed to that length exactly.</td></tr>
+  <tr><td>Pitch, Bit Rate, Sample Rate, Anti-Aliasing, Normalize</td><td>As on Sample New Sound (Chapter 10). An audio track can be recorded at 26.04 kHz and 12 bits like any sample.</td></tr>
+</table>
+<h3>How It Stays in Time</h3>
+<ul>
+  <li>The take is lined up with the sequence&rsquo;s first tick, not with the moment you pressed &lt;Rec&gt;: the count-in is cut off.</li>
+  <li>The time the sound takes to get through the MPC Sample&rsquo;s input is measured and taken out, so a part you played along to the click lands where you played it.</li>
+  <li>The pad needs to be empty: the take never overwrites a sound. A full pad asks you to choose again.</li>
+  <li>On a MIDI track the take still goes on the pad, but no note is added: select a DRUM track to have it play with the sequence.</li>
+</ul>
+<h3>Working With Audio Tracks</h3>
+<ul>
+  <li>Record several takes onto different pads, and mute or solo them on Track Mute (PAD MUTE) to pick the best.</li>
+  <li>Put each take on a separate track to give it a mixer channel, EQ and effect sends.</li>
+  <li>Use Warp (Chapter 12) to fit a take to a new tempo, and Print Effects to commit an effect to it.</li>
+  <li>If the sequence plays from the middle, the take does not start: it is started by its note at the beginning, as any one-shot sound would be.</li>
+</ul>
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch4"><small>Chapter 4</small>Timing Correct and the Swing Algorithms</h1>
+
+<h2>Timing Correct</h2>
+<p><span class="key">SHIFT + Pad 14</span> opens the Timing Correct page; <span class="key">SHIFT + Pad 10</span> turns it off and back on. As you record, each note moves to the nearest step of the <strong>Note value</strong>: 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T, 1/64, 1/64T, or OFF. <strong>Shift timing</strong> then moves every note a few ticks earlier or later. <strong>Move Existing</strong> applies all of this to notes already recorded, over a range of bars, for all notes or the pads you press.</p>
+{{shot:timing_correct|The Timing Correct page}}
+
+<h2>How Swing Works</h2>
+<p>Swing works on pairs of steps. With a 1/16 note value, each pair of 1/16 notes makes an 1/8 note; the first note of the pair stays where it is and the second is moved later. The <strong>Swing %</strong> says how far through the pair the second note lands: 50% is straight (half-way), 66% is a triplet feel (two thirds of the way), and 75% is the most.</p>
+<p>Swing applies to the straight note values <strong>1/8, 1/16 and 1/32</strong>. The triplet values are never swung. It applies to notes as they are recorded, to Move Existing, and to Note Repeat and the arpeggiator as they play.</p>
+<p>The sequencer counts 96 ticks per quarter note (96 PPQN). A 1/16 note is 24 ticks, an 1/8 is 48, a 1/32 is 12. At 90 BPM one tick lasts about 6.9 milliseconds.</p>
+<p>The MPC 600 S has four swing timings, because the way a Swing % becomes a delay differs from machine to machine, and the difference is audible. <strong>Sequencer Res</strong> on Additional Settings (Chapter 15) chooses which: <strong>MPC 3000</strong>, <strong>MPC60</strong>, <strong>MPC 2000</strong> or <strong>SP12</strong>.</p>
+
+<h3>MPC 3000: Fixed Steps</h3>
+<p>The MPC 3000 setting moves in fixed steps: the swung 1/32 note moves a whole number of ticks, from 0 to 6, and the delay doubles for each larger note value.</p>
+<p class="lcd" style="padding:6px">1/32 delay = (Swing &minus; 50) &times; 12 &divide; 50, rounded to the nearest whole tick (0 to 6)<br>1/16 delay = 2 &times; the 1/32 delay &nbsp;&nbsp; 1/8 delay = 4 &times; the 1/32 delay</p>
+<p>So at 1/16 every setting lands on an even number of ticks, and 66% gives exactly 8 ticks: a perfect 2:1 triplet. Settings in between snap to the nearest step: 52% is still straight at 1/16, for example.</p>
+
+<h3>MPC60: As Measured</h3>
+<p>The MPC60 setting places notes where grooves recorded from a real MPC60 put them, at every setting from 50 to 75. At 1/16 it moves one tick at a time, where the MPC 3000 moves two, so the two part by a tick at 11 of the 26 settings. Its one surprise is 64, which lands on 6 ticks, the same as 63, where an even progression would give 7. It was measured that way, and it plays that way.</p>
+<table>
+  <tr><th class="n">Swing</th><th class="n">50</th><th class="n">51</th><th class="n">52</th><th class="n">53</th><th class="n">54</th><th class="n">55</th><th class="n">56</th><th class="n">57</th><th class="n">58</th><th class="n">59</th><th class="n">60</th><th class="n">61</th><th class="n">62</th></tr>
+  <tr><td>MPC60, 1/16</td><td class="n">0</td><td class="n">0</td><td class="n"><b>1</b></td><td class="n"><b>1</b></td><td class="n">2</td><td class="n">2</td><td class="n"><b>3</b></td><td class="n"><b>3</b></td><td class="n">4</td><td class="n">4</td><td class="n"><b>5</b></td><td class="n"><b>5</b></td><td class="n">6</td></tr>
+  <tr><td>MPC 3000, 1/16</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">2</td><td class="n">2</td><td class="n">2</td><td class="n">2</td><td class="n">4</td><td class="n">4</td><td class="n">4</td><td class="n">4</td><td class="n">6</td><td class="n">6</td></tr>
+  <tr><th class="n">Swing</th><th class="n">63</th><th class="n">64</th><th class="n">65</th><th class="n">66</th><th class="n">67</th><th class="n">68</th><th class="n">69</th><th class="n">70</th><th class="n">71</th><th class="n">72</th><th class="n">73</th><th class="n">74</th><th class="n">75</th></tr>
+  <tr><td>MPC60, 1/16</td><td class="n">6</td><td class="n">6</td><td class="n"><b>7</b></td><td class="n">8</td><td class="n">8</td><td class="n"><b>9</b></td><td class="n"><b>9</b></td><td class="n">10</td><td class="n">10</td><td class="n"><b>11</b></td><td class="n"><b>11</b></td><td class="n">12</td><td class="n">12</td></tr>
+  <tr><td>MPC 3000, 1/16</td><td class="n">6</td><td class="n">6</td><td class="n">8</td><td class="n">8</td><td class="n">8</td><td class="n">8</td><td class="n">10</td><td class="n">10</td><td class="n">10</td><td class="n">10</td><td class="n">12</td><td class="n">12</td><td class="n">12</td></tr>
+</table>
+<p style="font-size:10pt;color:var(--soft)">The delay of the swung 1/16 in ticks (96 PPQN); where they differ, the MPC60 in bold. One tick is 5.2 ms at 120 BPM, 6.9 ms at 90. The grooves measured every note within a few hundredths of a tick of these. The grooves are all 1/16: at 1/8 the MPC60 setting doubles these, and at 1/32 halves them (rounding up), an assumption rather than a measurement.</p>
+
+<h3>MPC 2000: Rounded Down</h3>
+<p>The MPC2000 calculates the delay for the grid in use and throws the fraction away:</p>
+<p class="lcd" style="padding:6px">delay = (Swing &minus; 50) &times; grid &divide; 50, the fraction dropped (grid: 12, 24 or 48 ticks)</p>
+<p>At 1/16, 66% gives 7.68 ticks, which becomes 7. Most settings land up to a tick early compared with the MPC3000: about 7 ms at 90 BPM. That small difference is a large part of why the two machines feel different.</p>
+
+<table>
+  <tr><th class="n">Swing</th><th class="n">1/16 MPC 3000</th><th class="n">1/16 MPC 2000</th><th class="n">1/8 MPC 3000</th><th class="n">1/8 MPC 2000</th><th class="n">1/32 MPC 3000</th></tr>
+  <tr><td class="n">50%</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td></tr>
+  <tr><td class="n">54%</td><td class="n">2</td><td class="n">1</td><td class="n">4</td><td class="n">3</td><td class="n">1</td></tr>
+  <tr><td class="n">58%</td><td class="n">4</td><td class="n">3</td><td class="n">8</td><td class="n">7</td><td class="n">2</td></tr>
+  <tr><td class="n">62%</td><td class="n">6</td><td class="n">5</td><td class="n">12</td><td class="n">11</td><td class="n">3</td></tr>
+  <tr><td class="n">66%</td><td class="n">8</td><td class="n">7</td><td class="n">16</td><td class="n">15</td><td class="n">4</td></tr>
+  <tr><td class="n">71%</td><td class="n">10</td><td class="n">10</td><td class="n">20</td><td class="n">20</td><td class="n">5</td></tr>
+  <tr><td class="n">75%</td><td class="n">12</td><td class="n">12</td><td class="n">24</td><td class="n">24</td><td class="n">6</td></tr>
+</table>
+<p style="font-size:10pt;color:var(--soft)">The delay of the swung step in ticks (96 PPQN), as given in Akai&rsquo;s documentation for the MPC2000, from which this timing is taken. These are tested in the OS against this table.</p>
+
+<h3>SP12: Six Settings on a 24 PPQN Clock</h3>
+<p>The SP12 setting takes its timing from the E-mu SP-1200&rsquo;s sequencer, which runs at 24 PPQN and offers six swing settings: 50, 54, 58, 63, 67 and 71. Its timing was measured from grooves recorded from an SP-1200: for each setting, where the off-beat 1/16 note actually lands.</p>
+<table>
+  <tr><th class="n">Setting</th><th class="n">Measured (24 PPQN ticks)</th><th class="n">Exactly</th><th class="n">96 PPQN ticks</th><th class="n">Delay (96)</th><th class="n">True swing</th></tr>
+  <tr><td class="n">50</td><td class="n">5.975</td><td class="n">6</td><td class="n">24</td><td class="n">0</td><td class="n">50.0%</td></tr>
+  <tr><td class="n">54</td><td class="n">6.482</td><td class="n">6&frac12;</td><td class="n">26</td><td class="n">2</td><td class="n">54.2%</td></tr>
+  <tr><td class="n">58</td><td class="n">6.980</td><td class="n">7</td><td class="n">28</td><td class="n">4</td><td class="n">58.3%</td></tr>
+  <tr><td class="n">63</td><td class="n">7.489</td><td class="n">7&frac12;</td><td class="n">30</td><td class="n">6</td><td class="n">62.5%</td></tr>
+  <tr><td class="n">67</td><td class="n">7.984</td><td class="n">8</td><td class="n">32</td><td class="n">8</td><td class="n">66.7%</td></tr>
+  <tr><td class="n">71</td><td class="n">8.488</td><td class="n">8&frac12;</td><td class="n">34</td><td class="n">10</td><td class="n">70.8%</td></tr>
+</table>
+<ul>
+  <li><strong>Half steps.</strong> Each setting moves the swung 1/16 exactly half a tick of the 24 PPQN clock later than the one before: 1/48 of a beat, 2 ticks at 96 PPQN. Every measurement sat within 0.03 of a tick of these.</li>
+  <li><strong>The labels are rounded.</strong> The true amounts are 54.2, 58.3, 62.5, 66.7 and 70.8%. 67 is an exact triplet.</li>
+  <li><strong>A steady clock.</strong> The straight notes landed within half a thousandth of a beat of the grid, so no timing variation is added.</li>
+  <li><strong>Triplets</strong> were measured exact as well.</li>
+  <li><strong>In SP12 mode</strong> the Swing field offers only the six settings, and notes recorded with Timing Correct OFF land on the 24 PPQN grid (every 4 ticks), as the SP&rsquo;s own sequencer records them.</li>
+  <li><strong>1/8 and 1/32.</strong> The grooves measured 1/16 swing. For 1/8 the delay is doubled and for 1/32 halved, as the MPC timings do: an assumption, not a measurement.</li>
+</ul>
+<div class="note"><strong>Why this matters.</strong> Two swing settings with the same number can sit a few milliseconds apart on different machines. The MPC 600 S does not average them into one &ldquo;swing&rdquo;: each setting places notes exactly where that machine does.</div>
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch5"><small>Chapter 5</small>Note Repeat and the Arpeggiator</h1>
+
+<h2>Note Repeat</h2>
+<p>Hold <span class="key">NOTE REPEAT</span> and hold pads: they repeat at the Rate (1/4 to 1/32T), swung at 1/8, 1/16 and 1/32. Press harder for louder. While NOTE REPEAT is held, <span class="key">B1</span>&ndash;<span class="key">B3</span> switch to another rate (the page shows which); <strong>B Keys</strong> sets whether they work while held (HOLD) or stay on until pressed again (TOGGLE). <span class="key">SHIFT + NOTE REPEAT</span> opens the page; <span class="key">B2 &lt;Rate&gt;</span> steps the rate.</p>
+
+<h2>The Arpeggiator</h2>
+<p>Set <strong>Type</strong> to ARPEGGIATOR and the held pads play one at a time in a pattern instead. Hold NOTE REPEAT and the pads as before.</p>
+<p>The knobs work from where they are, a step for each small turn: <span class="key">K1</span> the Rate, <span class="key">K2</span> the Category, <span class="key">K3</span> the Pattern. <span class="key">B2 &lt;Rate&gt;</span> still steps the rate, and <span class="key">B3 &lt;Edit&gt;</span> opens Pattern Edit.</p>
+{{shot:arpeggiator|The Arpeggiator page}}
+<table>
+  <tr><th>Field</th><th>What it does</th></tr>
+  <tr><td>Rate</td><td>The step length. Each pattern starts at its own rate; change it afterwards if you like.</td></tr>
+  <tr><td>Category</td><td>STANDARD, VARIATION, SYNTH, BASSLINES, CHORD, GAME, FAMOUS, CLASSICAL, JAZZ, STEP, USER.</td></tr>
+  <tr><td>Pattern</td><td>The pattern, within its category.</td></tr>
+  <tr><td>Octaves</td><td>1 to 4: chord patterns climb up through the octaves.</td></tr>
+  <tr><td>Gate</td><td>How long each note sounds, 10&ndash;100% of a step.</td></tr>
+  <tr><td>Latch</td><td>ON: the notes go on after you let go of the pads, until you play a new chord.</td></tr>
+  <tr><td>Trans</td><td>Transposes everything, &plusmn;12 semitones.</td></tr>
+</table>
+<h3>Kinds of Pattern</h3>
+<ul>
+  <li><strong>Chord patterns</strong> (Standard, Variation) go through the held pads, lowest first: Up, Down, Up/Down, Down/Up, Up/Down Incl, As Played, Random, Chord, and variations such as Thumb, Pinky, Converge, Up + Octave, Stutter and 3-Step.</li>
+  <li><strong>Riffs</strong> (Synth, Bass, Game, Famous, Classical) play a melody from the lowest pad held, retuning it note by note, so they work on any sound.</li>
+  <li><strong>Chord rhythms</strong> (Chord) play the held chord in a groove: Offbeat, Charleston, Tresillo, Clave 3-2, House Stab, Skank, Push, Gated Pad.</li>
+  <li><strong>Step patterns</strong> (Step, User) play from the lowest pad held, step by step, with accents, slides and ties (below).</li>
+</ul>
+<h3>Basslines, Jazz, Famous and Game</h3>
+<table>
+  <tr><th>Category</th><th>Patterns</th></tr>
+  <tr><td>BASSLINES</td><td>One-bar basslines from the lowest pad held, with accents, ties and slides. <strong>Pop:</strong> Pop Eighths, Pop Pulse, Pop Octave, Root Fifth, Pop Ballad, Pop Syncopate, Pop Anthem, Pop Walk-Up, Pop Minor, Pop Stab. <strong>Funk:</strong> Funk One, Funk Octaves, Funk Ghost, Funk Slide, Funk Minor, Funk Sync, Funk Dirty, Funk Strut, Funk Bounce, Funk Tight. <strong>Disco:</strong> Disco Octaves, Disco Walk, Disco Minor, Disco Gallop, Disco Pump, Disco Run, Disco Funky, Disco Night, Disco Sync, Disco Strings. <strong>R&amp;B:</strong> R&amp;B Smooth, R&amp;B Slide, R&amp;B 90s, Neo Soul, R&amp;B Groove, R&amp;B Ballad, R&amp;B Skip, R&amp;B Sub, R&amp;B Hook, R&amp;B Late. <strong>Rap:</strong> Boom Bap, Boom Bap 2, 808 Glide, 808 Trap, 808 Slides, G-Funk, West Coast, Drill, Lo-Fi, Old School, Bounce, Dirty South, Golden Era, Jazz Hop, Memphis, Crunk, Bay Slap, NY Grit, Soul Chop, Trap Slide. <strong>Producers&rsquo; styles:</strong> Dilla Feel 1&ndash;8 (lazy, late and chromatic) and Pete Rock Feel 1&ndash;8 (jazzy and walking): original lines in their manner, not their records. And the riffs Funk Bass, Walking Bass, Reggae Bass, Electro Bass, DnB Roller, Rock 8ths, Boogie, House Bass.</td></tr>
+  <tr><td>JAZZ</td><td>Maj7 Arp, Min9 Arp, Dom13 Shell, II-V-I Line, Bebop Dom, Bebop Major, Walking II-V, Blues Walk (a 12-bar walking bass), Minor Blues, Altered, Diminished, Whole Tone, Quartal, Bossa Arp, Waltz Arp, Tritone Sub, Enclosures, Penta Run, 3-Tonic Cycle. At 1/8 they take the swing.</td></tr>
+  <tr><td>FAMOUS</td><td>I Feel Love, Stranger Things, Halloween, Tubular Bells, Popcorn, Sweet Child, Billie Jean, Crazy Train, Smoke on Water, Seven Nation, Mario Theme (the main melody), Mission: Imp, Funkytown, Peter Gunn, Satisfaction</td></tr>
+  <tr><td>GAME</td><td>Chip Major, Chip Minor, Fanfare, Chip Bass, Power Up, Dungeon, Pac-Man Start, Mario Undergrnd, FF Prelude, Secret Found, 1-Up</td></tr>
+  <tr><td>CLASSICAL</td><td>Canon in D, Air on G String, Toccata D Minor, Moonlight, Bolero, Prelude in C, Fantaisie-Imp, Nachtmusik, Summer: Presto, Fur Elise, Mountain King, Ode to Joy, 5th Symphony, Rondo Turca, Invention 1, Greensleeves, Korobeiniki, Spring, Morning Mood, Brahms Lullaby, Bumblebee, Jesu Joy, Gymnopedie 1</td></tr>
+</table>
+<p>The Synth, Bass, Chord and Game patterns are original. The Classical ones are public-domain tunes, simplified to one note a step. Famous riffs are included only where their notes are known exactly.</p>
+<p><em>Tip:</em> hold pads in 16 Levels Tune to play riffs and chord patterns on one sound.</p>
+
+<h2>Step Patterns</h2>
+<p>A step pattern is up to 16 steps, each played at the Rate from the lowest pad held. Each step is a note, an octave, an accent, a slide, a tie or a rest: enough for basslines, sequenced leads and the squelching, sliding lines of acid house.</p>
+<table>
+  <tr><th>Step setting</th><th>What it does</th></tr>
+  <tr><td>Note</td><td>C to B, counted up from the pitch of the lowest pad held: C is that pad&rsquo;s own pitch.</td></tr>
+  <tr><td>Oct</td><td>&minus;1, 0 or +1: the note an octave down or up.</td></tr>
+  <tr><td>Time</td><td><strong>NOTE</strong> plays the step. <strong>TIE</strong> plays nothing and holds the note before on through this step. <strong>REST</strong> is silence.</td></tr>
+  <tr><td>Accent</td><td>The step at full velocity (the pad&rsquo;s pressure). Steps without an accent play at 70% of it, so accents stand out.</td></tr>
+  <tr><td>Slide</td><td>The note holds on and glides into the next note over about 60 ms, without starting again: its envelopes carry on. A slide works on any sound, drum pads included; over MIDI it overlaps the notes (legato) for the synth to glide.</td></tr>
+</table>
+<p>A note without a slide sounds for the Gate&rsquo;s share of its step (and of any ties after it). Patterns can be any length from 1 to 16 steps; a pattern of 12 steps against the 16 of a bar shifts every pass.</p>
+<h3>STEP Presets</h3>
+<p>Squelch, Rubber Bounce, Jackin, Deep Ties, Phrygian, Roller, 3 Over 4 (12 steps), Sunny, Slider, Robot, Stairs, Off Kilter (15 steps), Ping, Snake, Siren, Hypno (10 steps). They are written from C; play them from any pad and Trans moves them.</p>
+<h3>USER Patterns and Pattern Edit</h3>
+<p>There are eight USER patterns, saved on the card with your settings. To open <strong>Pattern Edit</strong>, press <span class="key">SHIFT + NOTE REPEAT</span>, then <span class="key">B3 &lt;Edit&gt;</span>. B3 works from anywhere on that page:</p>
+<ul>
+  <li>On a USER pattern, it edits that pattern.</li>
+  <li>On a STEP preset, it copies the preset into the first empty USER pattern and opens it there, ready to change.</li>
+  <li>Anywhere else (another category, or Type set to NOTE REPEAT), it switches to the arpeggiator on the USER pattern you edited last (USER 1 the first time) and opens it.</li>
+</ul>
+{{shot:arp_edit|Pattern Edit}}
+<p>The top of the page shows the steps, eight to a row: the note (<span class="lcd">--</span> a rest, <span class="lcd">~~</span> a tie), and under it <span class="lcd">+</span> or <span class="lcd">-</span> for the octave, <span class="lcd">A</span> for an accent and <span class="lcd">S</span> for a slide. The selected step is highlighted. Steps past the pattern&rsquo;s length show as dots.</p>
+<table>
+  <tr><th>Control</th><th>What it does</th></tr>
+  <tr><td>Pads 1&ndash;12</td><td>Enter C to B into the selected step, as a NOTE, play it, and move to the next step.</td></tr>
+  <tr><td>Pads 13, 14</td><td>Octave down, octave up, for the selected step.</td></tr>
+  <tr><td>Pads 15, 16</td><td>Accent, Slide on or off, for the selected step.</td></tr>
+  <tr><td>B2 &lt;Rest&gt;, B3 &lt;Tie&gt;</td><td>Enter a rest or a tie, and move on.</td></tr>
+  <tr><td>K1</td><td>Moves the selected step, one step for each small turn, round past the end.</td></tr>
+  <tr><td>K2, K3</td><td>Turned right, put an accent (K2) or a slide (K3) on the selected step; turned left, take it off. The knobs work from where they are: nothing to catch up.</td></tr>
+  <tr><td>ENTER, wheel, &minus;/+</td><td>Step, Len (1&ndash;16), and the selected step&rsquo;s Note, Oct, Time, Accent and Slide.</td></tr>
+  <tr><td>SHIFT + B2 &lt;Play&gt;</td><td>Plays the pattern on the selected pad while you edit; again to stop.</td></tr>
+  <tr><td>SHIFT + B1 &lt;Clear&gt;</td><td>Every step back to C, after asking.</td></tr>
+  <tr><td>B1 &lt;Back&gt;</td><td>Back to the Arpeggiator page.</td></tr>
+</table>
+<p>To write a step the quick way: set its octave, accent and slide with pads 13&ndash;16 first, then press its note. The note goes in and the next step is selected, ready for the next.</p>
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch6"><small>Chapter 6</small>Editing Sequences</h1>
+
+<h2>Erase</h2>
+<p>While playing, hold <span class="key">ERASE</span> and press pads: those pads&rsquo; notes are erased as the sequence passes them. Stopped, a tap of ERASE opens the Erase page: a sequence, a track (or all), a range of bars, and the pads to erase (none pressed is all). <span class="key">K1</span> picks the sequence and <span class="key">K2</span> the track (all the way left: every track), once each reaches the value shown.</p>
+
+<h2>Step Edit</h2>
+<p><span class="key">SHIFT + SEQ</span> opens Step Edit: the active track&rsquo;s notes at one position (Now), one at a time.</p>
+<ul>
+  <li><span class="key">&minus;</span> and <span class="key">+</span> step Now back and on by the <strong>Step</strong> note value, playing what is there.</li>
+  <li><span class="key">B2 &lt;&lt;Note</span> and <span class="key">B3 Note&gt;&gt;</span> jump to the previous and next notes.</li>
+  <li>A pad puts a note in at Now, a step long. <span class="key">B1 &lt;Delete&gt;</span> deletes the selected note.</li>
+  <li>ENTER moves through Now, Step and each note&rsquo;s pad, velocity and length; the wheel changes it.</li>
+</ul>
+{{shot:step_edit|Step Edit}}
+
+<h2>Copy Sequence</h2>
+<p>Hold <span class="key">SHIFT</span> on the main page and B3 shows <span class="lcd">&lt;Copy&gt;</span>: <span class="key">SHIFT + B3</span> opens Copy Sequence. It copies a whole sequence over another: every track with its notes, fader moves and mixer settings, and the sequence&rsquo;s bars, tempo, time signature, loop and name.</p>
+<ul>
+  <li><strong>From</strong> opens on the current sequence, <strong>To</strong> on the first empty one after it. ENTER moves between them; the wheel and <span class="key">&minus;</span>/<span class="key">+</span> change them.</li>
+  <li>A pad picks To, as on the Song page: A01 is sequence 1, B01 sequence 17.</li>
+  <li><span class="key">B3 &lt;Copy&gt;</span> copies. If To already has notes it asks <span class="lcd">Replace Seq n?</span> first. <span class="key">SHIFT + &minus;</span> undoes a copy.</li>
+</ul>
+<p>Copy a verse to make a chorus from, or keep a version of a sequence before you change it.</p>
+{{shot:seq_copy|Copy Sequence}}
+
+<h2>Track Mute</h2>
+<p><span class="key">MUTE</span> opens Track Mute: the 16 pads become a 4 &times; 4 grid. <strong>Type</strong> chooses what they do: TRACK MUTE, TRACK SOLO, PAD MUTE, PAD SOLO, or SEQUENCE (a pad queues that sequence to play next). <span class="key">B2 &lt;All Off&gt;</span> clears the type shown. <strong>Next Seq</strong> is on every type, set with the wheel.</p>
+{{shot:track_mute|Track Mute}}
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch7"><small>Chapter 7</small>Song Mode</h1>
+<p><span class="key">SHIFT + Pad 12</span> opens the Song page. A song is a list of steps; each step is a sequence and how many times it plays (Reps). The song ends after its last step.</p>
+<ul>
+  <li><strong>Type a song with the pads.</strong> Pad A01 adds sequence 1, A02 sequence 2, B01 sequence 17 and so on. Each goes in at the selected step and the selection moves on.</li>
+  <li>The wheel and <span class="key">&minus;</span>/<span class="key">+</span> change the selected step&rsquo;s sequence or Reps; on <span class="lcd">(end)</span> the wheel adds a step.</li>
+  <li><span class="key">B1 &lt;Delete&gt;</span> removes a step, <span class="key">B2 &lt;Insert&gt;</span> adds another of the selected step.</li>
+  <li><span class="key">PLAY</span> on this page plays the song from the selected step.</li>
+  <li><span class="key">B3 &lt;Convert&gt;</span> makes the whole song into one sequence, in the first empty one. It asks <span class="lcd">Convert to Sequence nn?</span> first: <span class="key">&lt;Convert&gt;</span> again to go ahead, <span class="key">&lt;Cancel&gt;</span> to leave it. Undo takes it back.</li>
+</ul>
+{{shot:song|The Song page}}
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch8"><small>Chapter 8</small>Programs and Pad Sounds</h1>
+
+<h2>Program Config</h2>
+<p><span class="key">SHIFT + SAMPLE</span> opens Program Config: the program&rsquo;s pads and their sounds, a bank at a time. <strong>Type</strong> is MPC (drums) or S600 (Chapter 9). <span class="key">B1 &lt;Copy&gt;</span>, <span class="key">B2 &lt;Swap&gt;</span> and <span class="key">B3 &lt;Delete&gt;</span> work on single pads; with <span class="key">SHIFT</span> they copy or clear the whole program. <strong>Snd:</strong> gives the selected pad any sound in memory.</p>
+{{shot:program|Program Config}}
+
+<h2>A Pad&rsquo;s Settings</h2>
+<p><span class="key">SAMPLE</span> opens the settings of the pad last played (on an MPC program). The page opens on <strong>Vol</strong>. <span class="key">B1</span> steps Trim and Vol, <span class="key">B2</span> Tune, Poly, Envel and Vel Mod, <span class="key">B3</span> Filter and Flt Env; <span class="key">K1</span>&ndash;<span class="key">K3</span> set the three values shown. <strong>Sample:</strong> at the top swaps the pad&rsquo;s sound for any in memory.</p>
+<ul>
+  <li><strong>Trim</strong>: Zone Start, Zone End, and <strong>Do</strong> (on <span class="key">K3</span>): Discard, Normalize, Extract, Silence Zone, Reverse Zone, Delete Zone, Copy Zone&rarr;Temp, Insert Temp at Zone Start or End, Convert 44.1k. <span class="key">B3</span> does it. On Trim the slider steps Zone Start through the hits found in the sound. <span class="key">SHIFT + Pad 13</span> opens Trim from anywhere.</li>
+  <li><strong>Vol</strong>: Volume, Pan. <strong>Tune</strong>: Semi, Fine. <strong>Poly</strong>: Poly/Mono, Mute Group, Also Play. <strong>Envel</strong>: Attack, Decay, Decay Mode. <strong>Vel Mod</strong>: velocity to level, attack and start.</li>
+  <li><strong>Filter</strong>: Type, Cutoff, Resonance. <strong>Flt Env</strong>: Attack, Decay, Depth.</li>
+  <li>Hidden keys: <span class="key">SHIFT + B1</span> Loop Lock, <span class="key">SHIFT + B2</span> Normalize, <span class="key">SHIFT + B3</span> Edit All Pads (an edit goes to every pad; <span class="lcd">ALL PADS</span> shows on the bottom line while it is on). Hold <span class="key">SAMPLE</span> and press <span class="key">B1</span>/<span class="key">B2</span> to zoom.</li>
+</ul>
+{{shot:trim_do|The Trim page}}
+<h3>Filter Types</h3>
+<p>Off, <strong>LPF</strong>, <strong>HPF</strong>, <strong>BPF</strong> (2-pole), <strong>LPF 4</strong>, <strong>HPF 4</strong>, <strong>BPF 4</strong> (4-pole), and <strong>S600 LPF</strong> (Chapter 9). LPF is on by default and, fully open with no envelope, changes nothing.</p>
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch9"><small>Chapter 9</small>S600 Programs</h1>
+
+<h2>What an S600 Program Is</h2>
+<p>An S600 program plays its pads as instruments rather than as drums. Set a program&rsquo;s <strong>Type</strong> to S600 on Program Config and every pad in it gets a second set of settings, its S600 settings, kept apart from its drum settings. The pad&rsquo;s sound, trim, loop, volume and tuning are shared; everything else is the S600&rsquo;s own. Switch the program back to MPC and its drum settings are exactly as you left them.</p>
+<p>On an S600 program, <span class="key">SAMPLE</span> opens the S600 pages instead of the drum pages, MIDI keys play the selected pad chromatically from note 60, and 16 Levels Tune plays it across the pads.</p>
+
+<h2>Structure</h2>
+<p>An S600 program makes a sample into a playable instrument, laid out the way Akai&rsquo;s S-series samplers did it. A sample feeds a filter; an amplitude envelope and a separate filter envelope shape it; an LFO adds vibrato and movement; velocity, pitch bend and modulation respond; it plays polyphonically or monophonically with portamento; and more than one sample can sound on each note.</p>
+
+<h2>The Pages</h2>
+<p><span class="key">B1</span>: Env1, Env2, Trim &nbsp;&middot;&nbsp; <span class="key">B2</span>: Filter, LFO &nbsp;&middot;&nbsp; <span class="key">B3</span>: Main, Layer. <span class="key">SHIFT + B3</span> is Edit All Pads. <span class="key">SHIFT + CHOP</span> turns Note On on and off.</p>
+<table>
+  <tr><th>Page</th><th>Settings</th></tr>
+  <tr><td>Env1 (level)</td><td>Template, Attack, Decay, Sustain, Release.</td></tr>
+  <tr><td>Env2 (filter)</td><td>Template, Attack, Decay, Sustain, Release.</td></tr>
+  <tr><td>Trim</td><td>The same Trim page as an MPC program.</td></tr>
+  <tr><td>Filter</td><td>Type, Cutoff, Resonance, Env2 Depth.</td></tr>
+  <tr><td>LFO</td><td>Shape (Triangle, Sine, Square, Saw Up, Saw Down, Random), Rate, Pitch, Filter, Level, Delay.</td></tr>
+  <tr><td>Main</td><td>Volume, Semi, Fine (on K1&ndash;K3), Poly/Mono, Note On, Legato, Portamento, Bend Up, Bend Down, Mod&gt;Pitch.</td></tr>
+  <tr><td>Layer</td><td>Layers (1 or 2); layer 1&rsquo;s level and tuning; layer 2&rsquo;s sound, level and tuning.</td></tr>
+</table>
+{{shot:s600_env1|S600 Env1}}
+<h3>Envelope Templates</h3>
+<p>Each envelope has templates, ready shapes (an idea taken from the S-series&rsquo; envelope presets): MPC Bass (the default), Piano, Synth Brass, Synth Lead, Bell, Elec. Piano, Guitar/Bass, three Synth Basses, Clav/Harpsi, Elec. Organ, Pipe Organ, String/Vox, Slow String, Woodwind, Panpipe, Brass, Brass Swell, Short Perc, Dry Drum, Long Drum, Ambient Drum, Cymbal/Gong, Tuned Perc. Choose one, then adjust.</p>
+<h3>Playing</h3>
+<ul>
+  <li><strong>Note On</strong> ON: the note holds while the pad or key is held, then releases. OFF: the envelope plays through on its own.</li>
+  <li><strong>Mono</strong> with <strong>Legato</strong>: a note played while another is held changes pitch without restarting the envelopes, gliding if <strong>Portamento</strong> is set.</li>
+  <li><strong>Bend Up/Down</strong> set the pitch bend range; <strong>Mod&gt;Pitch</strong> how much vibrato the mod wheel adds.</li>
+  <li><strong>Layer 2</strong> sounds another pad&rsquo;s sample on every note, through the same envelopes, filter and LFO, with its own level and tuning: layering, an idea taken from the S-series.</li>
+</ul>
+
+<h2>The S600 Waveforms</h2>
+<p>Four single-cycle oscillator waveforms come with the MPC 600 S: <strong>SINE</strong>, <strong>SAW</strong>, <strong>SQUARE</strong> and <strong>PULSE</strong>. Each is one cycle, 674 points at 44.1 kHz, which plays at C2. At power-on the MPC 600 S puts them on the card in <span class="lcd">MPC600S/s600</span> (any that are missing; ones you have changed are kept).</p>
+<ol>
+  <li>Select a pad. On Save/Load set Mode LOAD and Type <strong>S600 WAVE</strong>: it opens in <span class="lcd">MPC600S/s600</span>. Choose a waveform and press <span class="key">&lt;Load&gt;</span>.</li>
+  <li><strong>Turn its loop on</strong>: <span class="key">LOOP</span>, then Loop ON, with Loop St at the start of the sound. A single cycle is only a few milliseconds long: looped, it plays as a held note.</li>
+  <li>On an S600 program it then plays through the S600 filter, envelopes and LFO: a classic synth sound. Layer two (Layer page) for a thicker one.</li>
+</ol>
+<p>Save your own single cycles with Type S600 WAVE too, and they sit beside them.</p>
+
+<h2>The S600 LPF</h2>
+<p>The default filter on an S600 program is the <strong>S600 LPF</strong>, a four-pole low-pass modelled on the transistor ladder of the Minimoog Model D: 24 dB per octave, a resonant peak that grows steadily (about +14 dB at 80% resonance and +17 dB at 95%), self-oscillation at the top of the range, low end that holds up as resonance rises, and saturation that thickens and squashes loud signals. This is deliberately not an S-series filter: it is there because it sounds good on synth basses and leads. LPF to BPF 4 on an S600 program are the same filters as on an MPC program.</p>
+{{shot:s600_filter|S600 Filter}}
+
+
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch10"><small>Chapter 10</small>Sampling: Sample Rate and Bit Depth</h1>
+
+<h2>The Recording Pages</h2>
+<p><span class="key">SAMPLE REC</span> steps through four pages: <strong>Sample New Sound</strong>, <strong>Audiotrack Record</strong>, <strong>Convert Sample</strong> and <strong>Stems</strong>. <span class="key">SHIFT + Pad 11</span> opens <strong>Resample</strong>.</p>
+{{shot:record|Sample New Sound}}
+<table>
+  <tr><th>Field</th><th>What it does</th></tr>
+  <tr><td>Input</td><td>LINE (the input jack), INST L (a guitar or bass in the left input, mono: see Guitar and Bass below), MIC (the built-in mic) or USB (a computer&rsquo;s audio, over the USB cable). One at a time; the same choice on every recording page and in Input Effects.</td></tr>
+  <tr><td>Mode</td><td>STEREO, MONO LFT, MONO RGT, MONO LR (both sides mixed).</td></tr>
+  <tr><td>Pitch</td><td>0 to +24 semitones (see below).</td></tr>
+  <tr><td>Thres</td><td>The level that starts the recording; OFF starts at once. A moment before the threshold is kept so attacks are whole.</td></tr>
+  <tr><td>Bit Rate</td><td>16, 12, 8 or 4 bits.</td></tr>
+  <tr><td>Sample Rate</td><td>7.0 to 44.1 kHz in half-kHz steps, with 11.02, 22.05, 26.04 and 29.76 kHz among them.</td></tr>
+  <tr><td>Anti-Aliasing</td><td>ON or OFF (see below).</td></tr>
+  <tr><td>Normalize</td><td>Brings the take up to full level before it is cut to its bits.</td></tr>
+  <tr><td>Monitor</td><td>Input Thru: hear the input through the outputs.</td></tr>
+</table>
+<p>When a take is done: press a pad to put it there, ENTER (or <span class="key">&lt;Keep&gt;</span>) to keep it in memory, <span class="key">&lt;Play&gt;</span> to hear it, <span class="key">&lt;Cancel&gt;</span> to let it go.</p>
+
+<h2>Sample Rate and Bit Depth</h2>
+<div class="note"><strong>The rate and depth are the sound itself.</strong> A sound recorded at 26.04 kHz and 12 bits is stored as 26,040 twelve-bit samples a second. There is no full-quality copy underneath with an effect on top: what you hear is what was sampled. Nor is any particular sampler&rsquo;s circuitry modelled. The character comes from the rate and the depth.</div>
+
+<h3>How a Take Is Made</h3>
+<ol>
+  <li><strong>Capture.</strong> The MPC Sample&rsquo;s converter digitises the input at 44.1 kHz, 16 bits. The OS holds the take as 32-bit floating point from here on, so nothing is lost between steps.</li>
+  <li><strong>Pitch</strong> (if set). The input is sped up by 2<sup>p/12</sup> for p semitones (0 to +24) before it is sampled.</li>
+  <li><strong>Sampling at your rate.</strong> The new sound&rsquo;s samples are taken at the exact moments a converter running at your chosen rate would take them. The input&rsquo;s value at each of those moments, which falls between the 44.1 kHz samples, is reconstructed from the samples around it by band-limited interpolation (see the table below).</li>
+  <li><strong>Anti-Aliasing.</strong> With it <strong>ON</strong>, the interpolation&rsquo;s cutoff is set to 45% of the new sample rate, so it is also a steep low-pass in front of the new rate. With it <strong>OFF</strong>, the cutoff stays at 45% of 44.1 kHz: everything the capture holds up to about 19 kHz is sampled, and whatever lies above half the new rate folds back down as aliasing, as it does in a sampler without an input filter.</li>
+  <li><strong>Normalize</strong> (if on). The take is scaled so its peak sits at the full scale of the new bit depth, as you would set the input gain on a sampler.</li>
+  <li><strong>Bit depth.</strong> Each sample is rounded to the nearest step of the depth: 2<sup>b</sup> steps across the full range, so 65,536 at 16 bits, 4,096 at 12, 256 at 8 and 16 at 4. The rounding is mid-tread (silence stays exactly zero) and the top is clipped at one step under full scale. There is no dither and no noise shaping. Quiet parts of a 12-bit or 8-bit sound carry the steps in them.</li>
+</ol>
+
+<h3>Technical Specifications: Sampling</h3>
+<table>
+  <tr><th>Item</th><th>Specification</th></tr>
+  <tr><td>Capture</td><td>44.1 kHz, 16-bit, from LINE or MIC; processed as 32-bit float</td></tr>
+  <tr><td>Sample rates</td><td>7.0&ndash;44.1 kHz in 0.5 kHz steps, plus 11.02, 22.05, 26.04 and 29.76 kHz</td></tr>
+  <tr><td>Bit depths</td><td>16, 12, 8, 4 bits; uniform PCM, rounded to nearest, no dither</td></tr>
+  <tr><td>Theoretical quantization SNR (full-scale sine, 6.02b + 1.76 dB)</td><td>16 bits 98.1 dB; 12 bits 74.0 dB; 8 bits 49.9 dB; 4 bits 25.8 dB</td></tr>
+  <tr><td>Interpolation kernel</td><td>Windowed sinc, Blackman window (0.42 &minus; 0.5 cos + 0.08 cos), linear-phase. Half-width &lceil;4 / f<sub>c</sub>&rceil; input samples, where f<sub>c</sub> is the cutoff in cycles per input sample; tabulated at 256 phases per sample with linear interpolation between phases; normalised to unity gain at DC at every position</td></tr>
+  <tr><td>Anti-Aliasing ON, cutoff (&minus;6 dB)</td><td>0.45 &times; the new sample rate (90% of its Nyquist frequency)</td></tr>
+  <tr><td>Anti-Aliasing OFF, cutoff (&minus;6 dB)</td><td>0.45 &times; 44.1 kHz = 19.8 kHz (18 taps; &minus;0.1 dB at 15.0 kHz, &minus;3 dB at 18.6 kHz)</td></tr>
+  <tr><td>At exactly 44.1 kHz with no Pitch</td><td>No conversion: the capture is used sample for sample</td></tr>
+</table>
+<p>The Anti-Aliasing ON response at the common rates, measured from the kernel itself (averaged over sample positions):</p>
+<table>
+  <tr><th class="n">Rate</th><th class="n">Taps</th><th class="n">&minus;0.1 dB</th><th class="n">&minus;3 dB</th><th class="n">&minus;6 dB</th><th class="n">At Nyquist</th><th class="n">&minus;60 dB from</th><th class="n">&minus;70 dB from</th></tr>
+  <tr><td class="n">7.00 kHz</td><td class="n">112</td><td class="n">2.37 kHz</td><td class="n">2.95 kHz</td><td class="n">3.15 kHz</td><td class="n">&minus;15.3 dB</td><td class="n">4.13 kHz</td><td class="n">4.21 kHz</td></tr>
+  <tr><td class="n">11.02 kHz</td><td class="n">72</td><td class="n">3.74 kHz</td><td class="n">4.64 kHz</td><td class="n">4.96 kHz</td><td class="n">&minus;15.5 dB</td><td class="n">6.49 kHz</td><td class="n">6.60 kHz</td></tr>
+  <tr><td class="n">22.05 kHz</td><td class="n">36</td><td class="n">7.49 kHz</td><td class="n">9.29 kHz</td><td class="n">9.92 kHz</td><td class="n">&minus;15.5 dB</td><td class="n">12.98 kHz</td><td class="n">13.21 kHz</td></tr>
+  <tr><td class="n">26.04 kHz</td><td class="n">32</td><td class="n">8.99 kHz</td><td class="n">11.01 kHz</td><td class="n">11.72 kHz</td><td class="n">&minus;16.1 dB</td><td class="n">15.16 kHz</td><td class="n">15.41 kHz</td></tr>
+  <tr><td class="n">29.76 kHz</td><td class="n">28</td><td class="n">10.27 kHz</td><td class="n">12.58 kHz</td><td class="n">13.39 kHz</td><td class="n">&minus;16.1 dB</td><td class="n">17.33 kHz</td><td class="n">17.62 kHz</td></tr>
+</table>
+<p>So the filter is a gentle one. It is flat to about a third of the new rate and &minus;6 dB at 90% of Nyquist. It reaches &minus;60 dB about 18% above Nyquist. Content in that last band (for 26.04 kHz, 13.0&ndash;15.2 kHz) still folds back, much reduced, into the top octave of the sound. A steeper filter would cost more of the top end. This one keeps the top end and lets a trace of aliasing through, as many vintage input filters did. The numbers move with Pitch: the cutoff is set in the pitched-up signal, so with Pitch at +12 the cutoff in the original input is half as high.</p>
+
+<h3>Playing Back</h3>
+<p>Sounds below 44.1 kHz play back by zero-order hold (sample-and-hold). At the 44.1 kHz output, each sample of the sound is held until the next one is due, never blended into it. This keeps the stepped waveform and its images above the sound&rsquo;s Nyquist frequency, as early samplers&rsquo; converters did. The hold&rsquo;s own response is sin(&pi;f/f<sub>s</sub>)/(&pi;f/f<sub>s</sub>): &minus;3.9 dB at the sound&rsquo;s Nyquist frequency. Sounds at 44.1 kHz played at another pitch are interpolated linearly between samples. All voices are mixed in 32-bit float.</p>
+<h3>Pitch</h3>
+<p>Pitch speeds the input up by 0 to 24 semitones before it is sampled, and the pad it lands on is tuned down by the same amount, so it plays at its own pitch. This is the old trick of sampling a record at 45 instead of 33 and tuning it down: more sound fits in the same memory, and the lower effective rate and the tuning down change its character. With Pitch at +12 and a rate of 26.04 kHz, the sound is effectively sampled at 13.02 kHz.</p>
+
+<h2>Guitar and Bass: the INST L Input</h2>
+<p>A guitar or bass can plug straight into the MPC Sample. Plug it into the <strong>left input</strong> (on a stereo jack, a mono cable&rsquo;s tip is the left side) and set Input to <strong>INST L</strong>, on Sample New Sound, Audiotrack Record or Input Effects.</p>
+<p>INST L takes the left input alone, so the instrument is <strong>mono</strong>: it is sent to both sides, and anything sampled from it is saved as a mono sound, whatever the Mode field says. Before anything else (Input Effects, Input Thru and the recording all come after it), it goes through the instrument stage:</p>
+<table>
+  <tr><th>Stage</th><th>What it does</th></tr>
+  <tr><td>High-pass</td><td>40 Hz, 12 dB per octave: below a bass&rsquo;s low B, it only takes out rumble and handling noise.</td></tr>
+  <tr><td>Bright (Brt)</td><td>0&ndash;100: a resonant lift centred at 3.5 kHz, up to +9 dB. It puts back some of the sparkle a passive pickup loses into a line input (see below). Default 50.</td></tr>
+  <tr><td>Gain</td><td>0 to +30 dB of clean digital gain, to bring the instrument up to line level. Default +12 dB.</td></tr>
+  <tr><td>Soft limit</td><td>Clean up to 80% of full scale, then rounded off, never past 98%: a hard-played note does not clip.</td></tr>
+</table>
+<p>Gain and Bright are on the Input Effects page, beside Input, when it is INST L (in place of the CPU reading). They are kept with your settings.</p>
+<h3>Why a Buffer Helps</h3>
+<p>A guitar amp&rsquo;s input presents about 1 M&Omega; to the guitar (&ldquo;Hi-Z&rdquo;). A line input like the MPC Sample&rsquo;s presents much less, and a <strong>passive</strong> pickup loads into it: its resonant peak drops and flattens, and the sound comes out duller and weaker. This happens in the analog circuit before the converter. Software cannot undo it; Bright gets part of the way back, and Gain makes up the level, but a hardware buffer fixes it completely:</p>
+<ul>
+  <li><strong>A buffered pedal</strong> between guitar and MPC. Most Boss pedals (a DS-1, an OD-1, a TU-3 tuner and so on) have a buffer that works even when the pedal is switched off. Plug the guitar into the pedal and the pedal&rsquo;s output into the MPC.</li>
+  <li><strong>A dedicated buffer pedal, or a DI box</strong> with a high-impedance input: the same result.</li>
+  <li><strong>Active pickups</strong> (and basses with an active preamp) already have a low-impedance output, so they plug straight in with nothing lost.</li>
+</ul>
+<p>With a buffer or active pickups, turn <strong>Bright down to 0</strong>: nothing needs putting back. Keep Gain to taste. Into the Input Effects chain, the amp models (Bassman, AC30, JTM45, DC30, JC-120, B-15) and the Speaker Sim then make a complete guitar or bass rig.</p>
+
+<h2>The Other Recording Pages</h2>
+<ul>
+  <li><strong>Audiotrack Record</strong>: <span class="key">&lt;Rec&gt;</span> plays the sequence from the start after a count-in; the take begins exactly on its first beat and lasts the sequence, twice it, or until STOP. Press an empty pad: it gets the take and a note at the start of the active track. Pitch works here too.</li>
+  <li><strong>Convert Sample</strong>: the selected pad&rsquo;s sound sampled again at a new rate, depth and pitch, as if it were played into the input. It replaces the sound on the pad; the original stays in memory.</li>
+  <li><strong>Stems</strong>: separates a pad&rsquo;s sound (up to 20 seconds) into drums, bass, vocals or music, with Open-Unmix. EXTRACT keeps only that stem; REMOVE keeps the rest.</li>
+  <li><strong>Resample</strong> (<span class="key">SHIFT + Pad 11</span>): records the main output, live or the whole sequence. It is taken after the Input and Track effects but before Master Effects. Input Thru: MUTE keeps the input out of the take, RECORD puts it in.</li>
+</ul>
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch11"><small>Chapter 11</small>Editing Sounds</h1>
+<h2>Loop</h2>
+<p><span class="key">LOOP</span> opens the Loop page: Loop on/off, <span class="key">K1</span> Loop Start, <span class="key">K2</span> Loop End, <span class="key">K3</span> a Do: Find St and Find End search for where the loop joins most smoothly; X-Fade blends the join; Discard keeps Zone Start to Loop End. <span class="key">SHIFT + LOOP</span> turns Reverse on and off.</p>
+{{shot:loop|The Loop page}}
+<h2>Zone Assign</h2>
+<p><span class="key">CHOP</span> divides a sound into zones, each on a separate pad. PAD: play the sound and press pads where each zone starts; REGIONS: 1 to 32 equal zones. Snap moves each mark to the nearest hit. Then assign them to a new program or to empty banks.</p>
+<h2>Print Effects</h2>
+<p><span class="key">PAD FX</span> prints one effect onto a pad&rsquo;s sound: reverb on a snare, delay on a hat. Choose a Category (Reverb, EQ, Delay, Modulation, Drive/Dyn, Amp), then the Effect; <span class="key">K1</span>&ndash;<span class="key">K3</span> set its controls; Tail is AUTO or a time. <span class="key">&lt;Play&gt;</span> previews; <span class="key">&lt;Print&gt;</span> replaces the pad&rsquo;s sound, keeping the original in memory. The EQ category includes curves for kick, snare, hi-hat, clap, tom and 808.</p>
+{{shot:print_fx|Print Effects}}
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch12"><small>Chapter 12</small>Warp and the S-Series Timestretch</h1>
+
+<h2>Warp</h2>
+<p><span class="key">SHIFT + Pad 15</span> opens Warp: the selected pad&rsquo;s length and pitch changed independently. <span class="key">K1</span> Length (25&ndash;400%), <span class="key">K2</span> Pitch (&plusmn;12), <span class="key">K3</span> Fine. <strong>Bars</strong> tells it how long the loop is, so it can show its BPM; <span class="key">B2 &lt;Seq BPM&gt;</span> stretches it to the sequence&rsquo;s tempo. Each change renders again in the background and plays; <span class="key">B3 &lt;To Pad&gt;</span> puts it on the pad, keeping the original in memory. Only one warped sound is kept at a time.</p>
+<p>Warp uses a <strong>phase vocoder with identity phase locking</strong>: each spectral peak keeps its own frequency and the frequencies around it keep their relation to it, which keeps sustained sounds clear rather than &ldquo;phasey&rdquo;. On a transient the phases start again from the original, so drums stay sharp; left and right move together, so the stereo image holds. Pitch is changed by stretching and resampling.</p>
+{{shot:warp|Warp}}
+
+<h2>The S-Series Timestretch</h2>
+<p>Press <span class="key">SHIFT + Pad 15</span> again for the <strong>S-Series Timestretch</strong>, the MPC 600 S&rsquo;s second way of changing a sound&rsquo;s length. Its parameters and its two modes are taken from the TIME page of Akai&rsquo;s S1000. Unlike Warp it does not try to keep the sound clean: its joins and repeats are part of its character.</p>
+<table>
+  <tr><th>Parameter</th><th>What it does</th></tr>
+  <tr><td>Start, End</td><td>The zone of the sample that is stretched. The rest is kept as it was.</td></tr>
+  <tr><td>Time Factor</td><td>25% to 2000% of the zone&rsquo;s length. The page shows the new length in points and seconds.</td></tr>
+  <tr><td>Mode</td><td>CYCLIC or INTELL.</td></tr>
+  <tr><td>Cycle Len (CYCLIC)</td><td>The length of the repeated cycle, in samples. <span class="key">&lt;AutoC&gt;</span> sets it from the sound&rsquo;s pitch.</td></tr>
+  <tr><td>QUAL (INTELL)</td><td>How many samples are inserted or removed at a time: higher, smaller and more often.</td></tr>
+  <tr><td>WIDTH (INTELL)</td><td>The crossfade across each splice. QUAL and WIDTH start at 90, which suits most material.</td></tr>
+</table>
+{{shot:timestretch|S-Series Timestretch}}
+<h3>How the Two Modes Work</h3>
+<ul>
+  <li><strong>CYCLIC</strong> cuts the sound into cycles of a fixed length and repeats whole cycles (to make it longer) or drops them (to make it shorter), butted together. On a single-pitched sound with the cycle a whole number of its pitch periods, the joins line up and the result is clean; <span class="key">&lt;AutoC&gt;</span> finds such a length by measuring the pitch. On anything else the joins show: that is the CYCLIC sound.</li>
+  <li><strong>INTELL</strong> chooses its splice points: for each piece it searches nearby for the place where the sound best continues what the last piece was playing, and crossfades across the join. It suits speech, music and drum loops. Shorter pieces (high QUAL) follow the sound more closely; a wider crossfade (WIDTH) smooths the joins.</li>
+</ul>
+<p>The parameters and modes are taken from the S1000&rsquo;s TIME page. <span class="key">&lt;Play&gt;</span> hears the result; <span class="key">&lt;GO&gt;</span> puts it on the pad, keeping the original in memory.</p>
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch13"><small>Chapter 13</small>The Mixer and Effects</h1>
+
+<h2>The Track Mixer</h2>
+<p><span class="key">SHIFT + Pad 9</span> opens the track mixer: 16 strips a bank (<span class="key">PAD BANK</span> for the next). A pad picks its track&rsquo;s strip; the slider sets its level (catching up), the wheel its pan; <span class="key">K1</span>&ndash;<span class="key">K3</span> its EQ gains. <span class="key">B1</span> Mute, <span class="key">B2</span> Solo, <span class="key">B3 &lt;EQ&gt;</span> the EQ page. Hidden: <span class="key">SHIFT + B1</span> resets every EQ, <span class="key">SHIFT + B2</span> turns MIDI CC control on and off, <span class="key">SHIFT + B3</span> opens FX Sends.</p>
+{{shot:mixer|The track mixer}}
+<p>Each track&rsquo;s <strong>EQ</strong> is a three-band, either <strong>1073</strong> (stepped frequencies) or <strong>4000 E</strong> (any frequency, with mid Q). Flat or off is a true bypass.</p>
+
+<h2>Input Effects</h2>
+<p><span class="key">KNOB FX</span> opens Input Effects: nine effects, used in one of three ways (<strong>Type</strong>). At every power-on they start off and empty (Type INPUT, each Type on its blank first preset), whatever was used last or came with an autoload project.</p>
+<ul>
+  <li><strong>INPUT</strong>: a chain on the input, heard through Input Thru and recorded. <strong>Input</strong> takes MONO L, MONO R, STEREO, INST L (a guitar or bass straight in, with its Gain and Bright beside it: see Chapter 10), the MIC, or USB (a computer&rsquo;s audio, in stereo).</li>
+  <li><strong>TRACK/MIXER</strong>: nine send effects for the mixer. Each track sends to each effect on the <strong>FX Sends</strong> page (mixer, <span class="key">SHIFT + B3</span>). A send of 0 is a true bypass. Reverbs and delays come back as effect only; compressors and drives come back whole, for parallel processing.</li>
+  <li><strong>PAD</strong>: the chain on one pad&rsquo;s sound. Press a pad on the page to move it there.</li>
+</ul>
+<p>Each Type keeps its own chain, so you can switch to INPUT to record and back to TRACK/MIXER with your mix exactly as it was. Presets come in categories: Guitar, Bass, Keyboard, Other, Mix. In INPUT and PAD, a chain has at most one reverb and one delay. In TRACK/MIXER the presets start with <strong>User Template</strong>: all nine sends blank, to build your own mix effects and save them with Save/Load&rsquo;s TRACK FX type. Bass includes <strong>Jamerson</strong>: a P-bass with flatwounds and a foam mute into the B-15, round, dark and short. Keyboard includes <strong>MFC42 Sweep</strong>.</p>
+<table>
+  <tr><th>Guitar presets</th><th>Sound</th></tr>
+  <tr><td>Sparkle Clean, Vox Clean, Jazz Clean</td><td>Clean amps: bright and open, a top-boost amp just under breakup, and a dark jazz tone</td></tr>
+  <tr><td>Clean Chorus, Ambient Clean, Jazz Chorus, Vox Jangle</td><td>Compressed cleans with chorus, long reverb, or the jangle of a bright top-boost amp</td></tr>
+  <tr><td>Surf, Trem Spring, Jazz Echo, Jazz Ballad, Chime</td><td>Spring reverb, tremolo, echoes and halls</td></tr>
+  <tr><td>Edge of Breakup, Blues OD, Vox Crunch, Tweed Crunch, Crunch Rhythm</td><td>Light to medium drive: amps pushed by a boost or overdrive, or turned up on their own</td></tr>
+  <tr><td>Brit Crunch, Hot Crunch, Plexi, DC30 Drive</td><td>More gain and bite: the AC30 and DS-1, the JTM45 turned up, the DC30 pushed</td></tr>
+  <tr><td>JC Clean, Fuzz Face</td><td>The JC-120 with its chorus; the Fuzz Face into a clean JTM45</td></tr>
+  <tr><td>Vibe Drive, Phase 90, Funk Auto-Wah, Wah Pedal</td><td>Modulation and wah over a driven or clean amp</td></tr>
+</table>
+{{shot:input_fx|Input Effects}}
+<p>The same effects are used by Print Effects, Input Effects, Track Effects and Pad Effects. They are described in full in <a href="#fxref">The Effects in Detail</a> below.</p>
+
+<h2>Master Effects</h2>
+<p><span class="key">SHIFT + Pad 5</span> opens Master Effects, the last stage before the outputs. It comes after the point Resample records from, so nothing recorded or resampled ever has them. The signal goes through an EQ and then a compressor. <span class="key">B1</span> opens the EQ page, <span class="key">B2</span> the Comp page, and <span class="key">B3</span> bypasses both. Both start off.</p>
+<h3>EQ</h3>
+<p>A passive-style program EQ: broad low and high shelves and a high bell, with separate boost and cut controls on the same band (the layout of a Pultec EQP-1A).</p>
+<table>
+  <tr><th>Control</th><th>Range</th><th>What it does</th></tr>
+  <tr><td>Low Freq</td><td>20, 30, 60, 100 Hz</td><td>The frequency of the low boost and cut.</td></tr>
+  <tr><td>Low Boost</td><td>0&ndash;10 (to about +13.5 dB)</td><td>A broad low shelf at Low Freq.</td></tr>
+  <tr><td>Low Atten</td><td>0&ndash;10 (to about &minus;17.5 dB)</td><td>A cut shelf set a little higher than the boost. Boost and Atten together give the classic passive-EQ trick: lift under the low end, with a dip in the low mids just above it.</td></tr>
+  <tr><td>High Freq</td><td>3, 4, 5, 8, 10, 12, 16 kHz</td><td>The centre of the high boost.</td></tr>
+  <tr><td>High Boost</td><td>0&ndash;10 (to about +16 dB)</td><td>A bell at High Freq.</td></tr>
+  <tr><td>Bandwidth</td><td>0&ndash;10, sharp to broad</td><td>The width of the high boost.</td></tr>
+  <tr><td>Atten Sel</td><td>5, 10, 20 kHz</td><td>The frequency of the high cut.</td></tr>
+  <tr><td>High Atten</td><td>0&ndash;10 (to about &minus;16 dB)</td><td>A high shelf cut at Atten Sel.</td></tr>
+</table>
+<h3>Comp: DBX 160 type</h3>
+<p>A feed-forward compressor. Its true-RMS detector links both sides, so the stereo image never moves. Above the threshold it reduces gain at the ratio, and OverEasy rounds the knee over 10 dB. It reaches its reduction quickly and lets go at a fixed 120 dB per second (the release rate of the dbx 160, which the type is named for). A meter shows the gain reduction.</p>
+<table>
+  <tr><th>Control</th><th>Range</th><th>What it does</th></tr>
+  <tr><td>K1 Threshold</td><td>&minus;40 to 0 dB (default &minus;6)</td><td>The level above which it compresses, below full scale.</td></tr>
+  <tr><td>K2 Ratio</td><td>1:1, 1.2, 1.5, 1.7, 2, 2.5, 3, 4, 5, 6, 8, 10, 15, 20:1, &infin;:1</td><td>How hard. At &infin;:1 the level is held at the threshold, so it works as a limiter.</td></tr>
+  <tr><td>OverEasy</td><td>ON / OFF</td><td>A soft knee: compression comes in gradually.</td></tr>
+  <tr><td>K3 Output</td><td>&minus;20 to +20 dB</td><td>Make-up gain.</td></tr>
+</table>
+<h3>Comp: VINYL SIM</h3>
+<p>The same Vinyl Sim as in the effects (see below), here on the whole mix: K1 Comp, K2 Noise, K3 Wow Flut.</p>
+{{shot:master_comp|Master Effects: the compressor}}
+
+<h2 id="fxref">The Effects in Detail</h2>
+<p>Every effect has three controls, on <span class="key">K1</span>&ndash;<span class="key">K3</span>, each set from 0 to 127 like the knobs and shown in its own units. The effects run in stereo at 44.1 kHz. An effect named after a unit takes its character from it: how it clips, its EQ, how it moves.</p>
+<p>In Print Effects they come in six categories, in this order: Reverb, EQ, Delay, Modulation, Drive/Dyn, Amp. In Input Effects any effect can go in any of the nine slots. In INPUT and PAD a chain holds at most one reverb and one delay.</p>
+<p><strong>As a send (TRACK/MIXER).</strong> Reverbs, delays and modulation add to the sound, so as sends only what they add comes back (the &ldquo;wet&rdquo; part). Drives, compressors, amps and EQs replace the sound, so as sends their whole output comes back, for parallel processing. A send of 0 is always silent and costs nothing.</p>
+
+<h3>Reverb</h3>
+<p>Every reverb has the same three controls. <strong>Decay</strong> sets how long the tail takes to fall away by 60 dB (RT60); <strong>Tone</strong> runs from dark to bright; <strong>Mix</strong> sets how much reverb is added.</p>
+<table>
+  <tr><th>Effect</th><th>Decay range</th><th>Defaults (Decay/Tone/Mix)</th><th>Character</th></tr>
+  <tr><td>ASR HALL</td><td>1.2&ndash;6.0 s</td><td class="n">80 / 70 / 30</td><td>A large, dark hall based off of the Ensoniq ASR-10&rsquo;s. It has 30 ms of pre-delay and a slightly grainy tail: its output is rounded to 12 bits, as the ASR&rsquo;s own effects were coarse, but outside the loop so the tail still dies away cleanly. Built on a Freeverb-style tank of eight combs and four allpasses per side, the right side spread wider.</td></tr>
+  <tr><td>ROOM</td><td>0.3&ndash;1.8 s</td><td class="n">60 / 80 / 35</td><td>A small room on the same tank, scaled down, with 8 ms of pre-delay. Good for putting drums in a space without washing them out.</td></tr>
+  <tr><td>PLATE</td><td>0.8&ndash;5.0 s</td><td class="n">70 / 90 / 35</td><td>Dattorro&rsquo;s plate (1997): dense and smooth from the start, with slowly moving allpasses so the tail shimmers. Classic on vocals and snares.</td></tr>
+  <tr><td>SPRING</td><td>1.0&ndash;4.0 s</td><td class="n">70 / 70 / 40</td><td>A delay fed back through a chain of allpasses that smear each echo into the spring&rsquo;s chirp. It is darkened, and &ldquo;boings&rdquo; on transients like an amp&rsquo;s spring tank.</td></tr>
+  <tr><td>SNARE</td><td>0.4&ndash;2.0 s</td><td class="n">60 / 100 / 45</td><td>The plate, tuned short and bright for snares and claps.</td></tr>
+  <tr><td>GATED</td><td>0.2&ndash;0.8 s (the gate)</td><td class="n">60 / 80 / 50</td><td>The 1980s gated reverb: a dense burst cut off sharply. Decay sets how long the gate stays open.</td></tr>
+</table>
+
+<h3>EQ</h3>
+<p>Gains are &plusmn;12 dB, with 0 dB at the middle of the knob (64).</p>
+<table>
+  <tr><th>Effect</th><th>K1</th><th>K2</th><th>K3</th><th>Use</th></tr>
+  <tr><td>3-BAND EQ</td><td>Low: shelf at 120 Hz</td><td>Mid: bell at 1 kHz</td><td>High: shelf at 6 kHz</td><td>General tone shaping.</td></tr>
+  <tr><td>PARAMETRIC EQ</td><td>Freq: 20 Hz&ndash;20 kHz</td><td>Gain: &plusmn;12 dB</td><td>Q: 0.3&ndash;7.5</td><td>One fully adjustable bell, to boost or notch any frequency.</td></tr>
+  <tr><td>KICK EQ</td><td>Sub: shelf at 60 Hz</td><td>Box: bell at 400 Hz</td><td>Click: bell at 4 kHz</td><td>Defaults add sub and click and take out box.</td></tr>
+  <tr><td>SNARE EQ</td><td>Body: bell at 200 Hz</td><td>Ring: narrow bell at 900 Hz</td><td>Snap: shelf at 5 kHz</td><td>Defaults add body and snap and tame ring.</td></tr>
+  <tr><td>HI-HAT EQ</td><td>Low Cut: high-pass, 20 Hz&ndash;2 kHz</td><td>Harsh: bell at 3.5 kHz</td><td>Air: shelf at 10 kHz</td><td>Clears the low end out of hats and softens harshness.</td></tr>
+  <tr><td>CLAP EQ</td><td>Mud: bell at 300 Hz</td><td>Body: bell at 1.2 kHz</td><td>Crisp: shelf at 8 kHz</td><td>Cleans and brightens claps.</td></tr>
+  <tr><td>TOM EQ</td><td>Body: bell at 100 Hz</td><td>Box: bell at 500 Hz</td><td>Attack: bell at 5 kHz</td><td>Fuller toms with more stick.</td></tr>
+  <tr><td>808 EQ</td><td>Sub: shelf at 50 Hz</td><td>Mud: bell at 250 Hz</td><td>Knock: bell at 1.5 kHz</td><td>A deep 808 that still cuts through on small speakers.</td></tr>
+</table>
+
+<h3>Delay</h3>
+<p><strong>Time</strong> works in two halves. Up to the middle of the knob it runs freely from 20 ms to 1 s. Above the middle it locks to the sequence&rsquo;s tempo in note values: 1/32, 1/16T, 1/16, 1/8T, 1/16D, 1/8, 1/4T, 1/8D, 1/4, 1/2T, 1/4D, 1/2. Moving the time glides to the new delay, like a tape machine slowing, rather than jumping.</p>
+<table>
+  <tr><th>Effect</th><th>K1</th><th>K2</th><th>K3</th><th>Character</th></tr>
+  <tr><td>DUB DELAY</td><td>Time</td><td>Feedback (past 100%)</td><td>Mix</td><td>The echoes darken (2.2 kHz) and thin out (150 Hz) on each repeat, and the feedback can go above unity into soft saturation, so it builds and runs away as dub echoes do.</td></tr>
+  <tr><td>DDL</td><td>Time</td><td>Feedback</td><td>Mix</td><td>A clean digital delay: every repeat the same as the first.</td></tr>
+  <tr><td>TAPE ECHO</td><td>Time</td><td>Feedback</td><td>Wow</td><td>Repeats darken (5.5 kHz) and saturate like tape. Wow sets how much the tape speed wavers (slow wow and quicker flutter together); the echo level is fixed.</td></tr>
+  <tr><td>ANALOG DLY</td><td>Time</td><td>Feedback</td><td>Mix</td><td>A bucket-brigade delay: darker (2.8 kHz) repeats with soft saturation and a little built-in movement.</td></tr>
+  <tr><td>PING-PONG</td><td>Time</td><td>Feedback</td><td>Mix</td><td>The echoes bounce left, right, left across the stereo field.</td></tr>
+  <tr><td>SLAPBACK</td><td>Time: 60&ndash;200 ms</td><td>Tone: 1.5&ndash;7.5 kHz</td><td>Mix</td><td>A single short echo, as on 1950s records. No feedback.</td></tr>
+</table>
+
+<h3>Modulation</h3>
+<table>
+  <tr><th>Effect</th><th>K1</th><th>K2</th><th>K3</th><th>Character</th></tr>
+  <tr><td>JUNO CHORUS</td><td>Mode: I, II, I+II</td><td>Tone</td><td>Mix</td><td>The Roland Juno-60&rsquo;s bucket-brigade chorus. I (0.5 Hz) and II (0.86 Hz) are slow and wide; I+II (9.75 Hz) is a fast, shallow shimmer. The left and right sides move against each other.</td></tr>
+  <tr><td>UNIVIBE</td><td>Speed: 0.5&ndash;10 Hz</td><td>Intensity</td><td>Mode: CHORUS / VIBRATO</td><td>Four phase stages at staggered frequencies, swept by a modelled lamp that brightens quickly and fades slowly, so the throb is uneven. CHORUS mixes in the dry sound; VIBRATO is the pitch wobble alone.</td></tr>
+  <tr><td>DP4 PHASER</td><td>Rate: 0.05&ndash;8 Hz</td><td>Depth</td><td>Feedback</td><td>Character taken from the Ensoniq DP/4: eight stages over 250 Hz&ndash;4 kHz, with feedback for a sharper sweep. Left and right a quarter turn apart.</td></tr>
+  <tr><td>MXR PHASER</td><td>Speed: 0.05&ndash;8 Hz</td><td>Depth</td><td>Mix</td><td>Character taken from the Phase 90: four stages over 250 Hz&ndash;2.5 kHz, a gentle swoosh.</td></tr>
+  <tr><td>SMALL STONE</td><td>Rate: 0.05&ndash;8 Hz</td><td>Color</td><td>Mix</td><td>Character taken from the EHX Small Stone: four stages over a wide 100 Hz&ndash;3.5 kHz sweep. Color adds feedback for its vocal, resonant sound.</td></tr>
+  <tr><td>FLANGER</td><td>Rate: 0.05&ndash;5 Hz</td><td>Depth</td><td>Feedback: &minus;100 to +100</td><td>A short swept delay (0.3&ndash;6.8 ms) mixed with the dry sound: the jet-plane sweep. Positive and negative feedback give different tones. Left and right a quarter turn apart.</td></tr>
+  <tr><td>RHODES TREM</td><td>Rate: 0.5&ndash;9 Hz</td><td>Depth</td><td>Stereo</td><td>The Fender Rhodes Suitcase&rsquo;s stereo vibrato. At Stereo 0 it is a plain tremolo; turned up, the two sides move against each other until the sound pans across.</td></tr>
+  <tr><td>WAH PEDAL</td><td>Pedal</td><td>Resonance</td><td>Level: &plusmn;12 dB</td><td>The sweep of a Cry Baby, about 350 Hz heel down to 2.2 kHz toe, with its vocal peak. Play the pedal with K1, the slider on the Input Effects page, or the mod wheel. Moves are smoothed so the sweep never steps.</td></tr>
+  <tr><td>MFC42 FILTER</td><td>Cutoff: 40 Hz&ndash;16 kHz</td><td>Reson</td><td>Mod</td><td>Character taken from the Akai MFC42: a resonant 4-pole low-pass. Mod below the middle (ENV) lets your playing open it; above the middle (LFO) a slow sweep moves it; at the middle it stays put.</td></tr>
+  <tr><td>AUTO-WAH</td><td>Sensitivity</td><td>Range</td><td>Resonance</td><td>Your playing&rsquo;s level opens a resonant filter from 250 Hz upwards: harder notes go further up.</td></tr>
+</table>
+
+<h3>Drive and Dynamics</h3>
+<table>
+  <tr><th>Effect</th><th>K1</th><th>K2</th><th>K3</th><th>Character</th></tr>
+  <tr><td>KLON</td><td>Gain</td><td>Treble</td><td>Output</td><td>Character taken from the Klon Centaur: soft, germanium-style clipping with a mid push that grows with Gain, and the clean signal always blended under it. Transparent at low gain, warm and thick turned up.</td></tr>
+  <tr><td>OD-1</td><td>Drive</td><td>Level</td><td>Mix</td><td>Character taken from the Boss OD-1: the bass is kept out of the clipping and the clip is asymmetric, for its smooth, mid-forward overdrive. Mix blends in the clean sound.</td></tr>
+  <tr><td>DS-1</td><td>Dist</td><td>Tone</td><td>Level</td><td>Character taken from the Boss DS-1: hard clipping, a transistor boost into diodes. Its tone control blends a low-pass and a high-pass, scooping the mids.</td></tr>
+  <tr><td>FUZZ FACE</td><td>Fuzz</td><td>Volume</td><td>Bias: &minus;100 to +100</td><td>Character taken from the Dunlop Fuzz Face: two germanium transistors, a lot of gain, lopsided clipping and a thinner low end. It cleans up as you play softer. Bias off the middle makes it spit and gate.</td></tr>
+  <tr><td>DYNACOMP</td><td>Sensitivity</td><td>Output</td><td>Attack: 0.5&ndash;20 ms</td><td>Character taken from the MXR Dyna Comp: fast and squashy, 8:1 to 20:1. The classic clean-guitar &ldquo;squish&rdquo; and sustain.</td></tr>
+  <tr><td>CS-3 COMP</td><td>Sustain</td><td>Attack: 1&ndash;50 ms</td><td>Tone: &minus;100 to +100</td><td>Character taken from the Boss CS-3: smoother, 3:1 to 12:1, with a treble control at 3 kHz.</td></tr>
+  <tr><td>VINYL SIM</td><td>Comp</td><td>Noise</td><td>Wow Flut</td><td>Character taken from the Roland SP-303&rsquo;s. It shapes the sound into a record&rsquo;s band (no deep lows, a soft top, some warmth in the low mids) and adds a compressor that pumps as Comp goes up. Noise adds crackle and hiss that ride on the music, so silence stays silent. Wow Flut adds a turntable&rsquo;s slow wow and quick flutter.</td></tr>
+  <tr><td>NOISE GATE</td><td>Threshold: &minus;80 to &minus;20 dB</td><td>Release: 10&ndash;500 ms</td><td>Range</td><td>Closes when the sound falls below the threshold. Range sets how far it closes (up to 80 dB down).</td></tr>
+</table>
+
+<h3>Amp</h3>
+<table>
+  <tr><th>Effect</th><th>K1</th><th>K2</th><th>K3</th><th>Character</th></tr>
+  <tr><td>BASSMAN</td><td>Gain</td><td>Tone</td><td>Presence</td><td>Character taken from the Fender &rsquo;59 Bassman: a triode preamp, its tone shaping, a 6L6 power stage and the output transformer. Warm, round break-up. More gain drives it harder without getting much louder.</td></tr>
+  <tr><td>AC30</td><td>Gain</td><td>Cut</td><td>Volume</td><td>Character taken from the Vox AC30 Top Boost: bright, with the EL84s&rsquo; forward mids and chime, then a soft squash. Cut darkens the power stage, as on the amp.</td></tr>
+  <tr><td>JTM45</td><td>Gain</td><td>Tone</td><td>Presence</td><td>Character taken from the Marshall JTM45: two triode stages, a tone stack with the mids up, KT66 power tubes breaking up late and round. A bright cap that fades as Gain goes up.</td></tr>
+  <tr><td>DC30</td><td>Gain</td><td>Tone</td><td>Cut</td><td>Character taken from the Matchless DC-30: EL84s in class A, fuller and thicker than the AC30. Tone tilts dark to bright; Cut takes the top off the power stage.</td></tr>
+  <tr><td>JC-120</td><td>Bright</td><td>Chorus</td><td>Volume</td><td>Character taken from the Roland JC-120: clean and flat solid state, hard clipping only at the very top, and its stereo chorus (the left side dry, the right moving).</td></tr>
+  <tr><td>B-15</td><td>Bass: &plusmn;12 dB</td><td>Treble: &plusmn;12 dB</td><td>Volume</td><td>Character taken from the Ampeg B-15 Portaflex: a tube bass amp with its 15" speaker built in. Round lows, little above 3 kHz, a gentle squash as Volume pushes it.</td></tr>
+  <tr><td>SPEAKER SIM</td><td>Cab</td><td>Mic</td><td>Level: &plusmn;12 dB</td><td>A miked cabinet. Each cab has its own low resonance, midrange shape, presence peak and steep fall above. Mic moves from off the cone&rsquo;s axis (dark) to right on it (bright). Put it after BASSMAN or AC30: the amps have no speaker built in.</td></tr>
+  <tr><td>FENDER EQ</td><td>Bass</td><td>Mid</td><td>Treble</td><td>The Fender tone stack: the &rsquo;59 Bassman&rsquo;s treble/mid/bass network, with its interacting controls, log-taper bass and mid scoop.</td></tr>
+</table>
+<table>
+  <tr><th>SPEAKER SIM Cab</th><th>Character</th></tr>
+  <tr><td>1x12 OPEN</td><td>Open-back combo: airy, with a soft low end.</td></tr>
+  <tr><td>2x12 BLUE</td><td>Two Alnico Blues: chime and bright upper mids.</td></tr>
+  <tr><td>4x10 TWD</td><td>A 4&times;10 tweed: round lows, warm top.</td></tr>
+  <tr><td>4x12 GB</td><td>A closed 4&times;12 of Greenbacks: thump, with a mid scoop.</td></tr>
+</table>
+
+<h3>The Track EQ</h3>
+<p>Each track&rsquo;s mixer strip has its own three-band EQ: a low shelf, a mid bell and a high shelf. Set it with K1&ndash;K3 on the mixer, and in full on the EQ page (<span class="key">B3</span>). Each type takes its frequencies and shape from a console&rsquo;s EQ. Flat or off, the EQ is bypassed completely.</p>
+<table>
+  <tr><th>Type</th><th>Low</th><th>Mid</th><th>High</th><th>Character</th></tr>
+  <tr><td>1073</td><td>35, 60, 110, 220 Hz</td><td>360 Hz, 700 Hz, 1.6, 3.2, 4.8, 7.2 kHz</td><td>Shelf at 12 kHz</td><td>Character taken from the Neve 1073: stepped frequencies, a broad mid, shelves with a little bump.</td></tr>
+  <tr><td>4000 E</td><td>30&ndash;450 Hz</td><td>200 Hz&ndash;7 kHz, with Q</td><td>1.5&ndash;16 kHz</td><td>Character taken from the SSL 4000 E: any frequency in each band&rsquo;s range, in twelfth-octave steps, and an adjustable mid Q.</td></tr>
+</table>
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch14"><small>Chapter 14</small>Saving, Loading and Exporting</h1>
+<p><span class="key">SHIFT + Pad 16</span> opens Save/Load (<span class="key">SHIFT + SAMPLE SELECT</span> opens it ready to save the pad&rsquo;s sound). <strong>Mode</strong>: SAVE, LOAD or EXPORT.</p>
+<table>
+  <tr><th>Type</th><th>Saves and loads</th></tr>
+  <tr><td>PROJECT</td><td>Everything: every program and sound, the sounds in memory, the sequences, songs, mixer, effects and Master Effects.</td></tr>
+  <tr><td>PROGRAM</td><td>One program and its sounds, from or into any of the 24.</td></tr>
+  <tr><td>SAMPLE</td><td>The selected pad&rsquo;s sound as a 24-bit WAV.</td></tr>
+  <tr><td>SETTINGS</td><td>Your settings and preferences.</td></tr>
+  <tr><td>AUTOLOAD</td><td>A project loaded at power-on.</td></tr>
+  <tr><td>FX CHAIN</td><td>The input chain: Input Effects in INPUT (or PAD while that is in use).</td></tr>
+  <tr><td>S600 WAVE</td><td>A sound from or onto the selected pad, as a WAV, in <span class="lcd">MPC600S/s600</span>, where the S600 waveforms are (Chapter 9).</td></tr>
+  <tr><td>TRACK FX</td><td>The Track/Mixer chain: its nine send effects and their settings. Saved and loaded whichever mode the Input Effects page is on; loaded, it is there when you choose TRACK/MIXER.</td></tr>
+  <tr><td>ARP PATTERN</td><td>One USER step pattern (chosen with User:), saved from it or loaded into it.</td></tr>
+</table>
+<h2>Folders</h2>
+<p>Each type opens in its own folder in MPC600S, but you can save, load and export anywhere on the card. The page lists the folder you are in: <span class="lcd">.. (up)</span> first, then folders as <span class="lcd">/NAME</span>, then the saved items of the type. <span class="lcd">..</span> goes up as far as the top of the card. The bottom line shows where you are, from the top of the card. Opening a folder selects the first thing in it.</p>
+<table>
+  <tr><th>Mode</th><th>B1</th><th>B2</th><th>B3</th></tr>
+  <tr><td>SAVE, EXPORT</td><td>&lt;New Dir&gt;: name a folder and make it here; you go into it</td><td>&lt;Open&gt;: into the folder highlighted, or back up; on a saved item, its name, to save over it</td><td>&lt;Save&gt; or &lt;Export&gt;: into the folder you are in</td></tr>
+  <tr><td>LOAD</td><td>&lt;Rename&gt; the item</td><td>&lt;Delete&gt; the item (asks first)</td><td>&lt;Load&gt; the item, or &lt;Open&gt; a folder</td></tr>
+</table>
+<p>Names: the wheel sets each letter, <span class="key">&minus;</span>/<span class="key">+</span> move along the name. Saving over a name asks first. In LOAD, <span class="key">B1</span> renames, <span class="key">B2</span> deletes (asking first: this cannot be undone), <span class="key">B3</span> loads.</p>
+<h2>Exporting</h2>
+<p>EXPORT renders a sequence or song to WAV files, in the background, showing its progress, while the music keeps playing. It goes into the folder you are in (exports to start with), and asks before replacing one already there.</p>
+<table>
+  <tr><th>Type</th><th>Writes</th></tr>
+  <tr><td>SEQUENCE, SONG</td><td>A folder named as you name it: each track with notes as its own WAV (Tracks: MONO or STEREO, or NONE), and with Mix ON the stereo mix as Mix.wav.</td></tr>
+  <tr><td>MIXDOWN SEQ, MIXDOWN SONG</td><td>The stereo mix alone, with the Track and Master effects, as one WAV named as you name it. Nothing else.</td></tr>
+</table>
+{{shot:disk_save|Save/Load}}
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch15"><small>Chapter 15</small>MIDI and Additional Settings</h1>
+<h2>MIDI Settings</h2>
+<p><span class="key">SHIFT + Pad 8</span>: Ext and USB MIDI, Base and Receive channels, Sync (send or receive MIDI clock), Local Mode, Soft Thru, and the sustain pedal (normal, to duration, or footswitch). <span class="key">&lt;CC&gt;</span> opens the Mixer CC page: <strong>Mixer CC</strong> on or off, its Target (the bank&rsquo;s 16 strips, or the selected track), and each control&rsquo;s CC (Level, Pan, EQ Low, Mid and High, Mute, Solo), all off by default.</p>
+<p><strong>Learning CCs.</strong> Press <span class="key">B2 &lt;Learn&gt;</span> and move a knob, fader or button on your controller. The selected control takes that CC, Mixer CC turns on so it answers at once, and the cursor moves to the next control. Press &lt;Learn&gt; again and move the next knob, and so on down the list. Pressed while the cursor is on Mixer CC or Target, &lt;Learn&gt; starts at Level. Press it again before moving anything to cancel. A CC can also be set with the wheel; below 0 is OFF. <span class="key">B3 &lt;Default&gt;</span> sets every CC back to OFF.</p>
+<p> <span class="key">&lt;Notes&gt;</span> sets the note each pad sends and answers to: press a pad and turn the wheel, or <span class="key">&lt;Learn&gt;</span> and play the note.</p>
+<h3>Pad Note Templates</h3>
+<p><span class="key">B3 &lt;Template&gt;</span> on the Pad Notes page sets all 128 pads at once, then <span class="key">&lt;Apply&gt;</span>:</p>
+<table>
+  <tr><th>Template</th><th>The pads</th></tr>
+  <tr><td>DEFAULT MPC</td><td>Pad A01 note 35, then up a note a pad: the standard drum map.</td></tr>
+  <tr><td>CHROMATIC</td><td>A semitone a pad from C in the chosen <strong>Octave</strong> (C-1 to C8; middle C is C4), carrying on through the banks.</td></tr>
+  <tr><td>SCALE</td><td>The chosen <strong>Scale</strong> from its <strong>Root</strong> (C to B) in the chosen Octave, a scale note a pad, up through the octaves. 35 scales: Major, Natural Minor, Harmonic Minor, Melodic Minor, Dorian, Phrygian, Lydian, Mixolydian, Locrian, Major and Minor Pentatonic, Blues, Major Blues, Whole Tone, both Diminished, Phrygian Dominant, Lydian Dominant, Altered, Hungarian Minor, Double Harmonic, Neapolitan Minor and Major, Ukrainian Dorian, Persian, Enigmatic, Prometheus, Augmented, Hirajoshi, In Sen, Iwato, Egyptian, Bebop Dominant, Bebop Major, Spanish 8-Tone.</td></tr>
+</table>
+<p>A line shows the notes it will give pads A01 and A16 before you apply it.</p>
+<h2>Additional Settings</h2>
+<p><span class="key">B1 &lt;Settings&gt;</span> on MIDI Settings opens Additional Settings:</p>
+<ul>
+  <li><strong>Button Lights</strong>: red (default), white, pink or off.</li>
+  <li><strong>Pad Lights</strong>: light blue, red, white or off (default). Lit pads dim while pressed, more with pressure.</li>
+  <li><strong>Pad Thresh</strong>: the lightest pad hit that counts, 1 to 60 (default 12). Raise it if pads play by themselves; lower it to play very softly. A light hit that comes within 25 ms of a much harder one on another pad is taken as the panel shaking and ignored. A knob, slider or volume reading that jumps far from the last is ignored unless the next reading confirms it, so a stray reading cannot jump a setting or drop the volume.</li>
+  <li><strong>Sequencer Res</strong>: MPC 3000, MPC60, MPC 2000 (all 96 PPQN) or SP12 (24 PPQN). See Chapter 4.</li>
+  <li><strong>Screen</strong>: MPC3000 Blue (default), MPC60 Green, MPC1000 Green, MPC4000, MPC2000, Black/Red, Red/Black, Fairlight.</li>
+  <li><strong>Start BPM</strong>: the tempo every sequence has at power-on (default 120.0; SHIFT with the wheel in tenths).</li>
+  <li><strong>Start Bars</strong>: the length of every sequence at power-on (default 2).</li>
+  <li><strong>Start TC</strong>: Timing Correct at power-on (default 1/16 NOTE).</li>
+  <li><strong>Start Swing</strong>: swing at power-on (default 50%).</li>
+</ul>
+<p>These and everything else here are kept on the card and come back at the next power-on. A first install starts with red button lights, pad lights off, MPC 3000 timing, the MPC3000 Blue screen, 120 BPM, 2 bars and 1/16 Timing Correct.</p>
+{{shot:prefs|Additional Settings}}
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="appx"><small>Appendix</small>Specifications and Quick Reference</h1>
+<h2>Audio Engine</h2>
+<table>
+  <tr><th>Item</th><th>Specification</th></tr>
+  <tr><td>Output sample rate</td><td>44.1 kHz, stereo</td></tr>
+  <tr><td>Internal processing</td><td>32-bit floating point throughout: voices, filters, mixer, effects, Master Effects</td></tr>
+  <tr><td>Polyphony</td><td>32 voices (an S600 note with two layers uses two); the oldest voice is taken when all are in use</td></tr>
+  <tr><td>Playback interpolation</td><td>Sounds at 44.1 kHz: linear. Sounds below 44.1 kHz: zero-order hold</td></tr>
+  <tr><td>Pad tuning</td><td>Semi &plusmn;36 semitones, Fine &plusmn;100 cents</td></tr>
+  <tr><td>Pad filters</td><td>State-variable: 2-pole (12 dB/oct) LPF, HPF, BPF; 4-pole (24 dB/oct) LPF 4, HPF 4, BPF 4; S600 LPF: 4-pole transistor-ladder low-pass, 24 dB/oct, self-oscillating at the top of Resonance</td></tr>
+  <tr><td>Glide</td><td>Portamento per S600 pad; step-pattern slides 60 ms (to within 1% of the new pitch), exponential</td></tr>
+  <tr><td>Track EQ</td><td>3 bands (low shelf, mid bell, high shelf), RBJ biquads; bypassed when flat or off</td></tr>
+  <tr><td>Effects</td><td>Print Effects; Input / Track / Pad Effects in 9 slots; Master EQ, then a compressor or Vinyl Sim</td></tr>
+</table>
+<h2>Sampling</h2>
+<table>
+  <tr><th>Item</th><th>Specification</th></tr>
+  <tr><td>Capture</td><td>44.1 kHz, 16-bit; LINE (stereo or either side), MIC, INST L (the left input, mono, through the instrument stage: 40 Hz high-pass, Bright up to +9 dB at 3.5 kHz, 0&ndash;30 dB gain, soft limit), or USB (a computer&rsquo;s audio through the USB audio gadget, 44.1 kHz stereo, its clock followed by an adaptive resampler)</td></tr>
+  <tr><td>Sample rate / bit depth</td><td>7.0&ndash;44.1 kHz; 16, 12, 8 or 4 bits; stored at that rate and depth</td></tr>
+  <tr><td>Anti-aliasing</td><td>Blackman-windowed sinc, &minus;6 dB at 0.45 &times; the new rate; full table in Chapter 10</td></tr>
+  <tr><td>Pitch (sampling)</td><td>0 to +24 semitones, the pad tuned down to match</td></tr>
+  <tr><td>Saved samples</td><td>24-bit WAV</td></tr>
+  <tr><td>Stems</td><td>Open-Unmix separation, up to 20 s: drums, bass, vocals or music, extracted or removed</td></tr>
+</table>
+<h2>Sequencer</h2>
+<table>
+  <tr><th>Item</th><th>Specification</th></tr>
+  <tr><td>Resolution</td><td>96 PPQN (MPC 3000, MPC60 and MPC 2000 timings); 24 PPQN grid for recording in SP12 timing</td></tr>
+  <tr><td>Timing</td><td>Sample-accurate: each note starts on the exact output sample of its tick</td></tr>
+  <tr><td>Sequences, tracks</td><td>99 sequences of 99 tracks, up to 999 bars each</td></tr>
+  <tr><td>Songs</td><td>20, of up to 250 steps, each step 1&ndash;99 repeats</td></tr>
+  <tr><td>Tempo</td><td>30.0&ndash;300.0 BPM in 0.1 steps</td></tr>
+  <tr><td>Swing</td><td>50&ndash;75% (SP12: 50, 54, 58, 63, 67, 71), on 1/8, 1/16 and 1/32; MPC 3000, MPC60, MPC 2000 and SP12 timings</td></tr>
+  <tr><td>Timing Correct</td><td>1/4 to 1/64, with triplets, or off; Shift timing in ticks</td></tr>
+  <tr><td>Arpeggiator</td><td>201 preset patterns in 10 categories (including 76 basslines, 19 jazz lines and 16 STEP presets), and 8 USER step patterns of up to 16 steps</td></tr>
+  <tr><td>Undo</td><td>Two steps</td></tr>
+  <tr><td>MIDI</td><td>DIN and USB; clock send or receive (24 per quarter note); Mixer CC</td></tr>
+</table>
+<h2>Memory and Storage</h2>
+<table>
+  <tr><th>Item</th><th>Specification</th></tr>
+  <tr><td>Programs</td><td>24, each of 128 pads (8 banks of 16); MPC or S600</td></tr>
+  <tr><td>Memory</td><td>Up to 64 sounds kept without a pad; length limited only by memory</td></tr>
+  <tr><td>Storage</td><td>MPC600S folder on the SD card</td></tr>
+</table>
+<h2>If Something Goes Wrong</h2>
+<ul>
+  <li><strong>A note will not stop</strong>: press <span class="key">STOP</span> twice quickly to stop every sound.</li>
+  <li><strong>The mixer does not answer MIDI CC</strong>: turn Mixer CC on and give each control a CC on the <span class="key">&lt;CC&gt;</span> page.</li>
+  <li><strong>The input cannot be heard</strong>: check Input Thru on Sample New Sound, and that Input Effects&rsquo; Input matches where you are plugged in.</li>
+  <li><strong>Not sure what a page does</strong>: <span class="key">SHIFT + SAMPLE REC</span>.</li>
+</ul>
+
+</body>
+</html>

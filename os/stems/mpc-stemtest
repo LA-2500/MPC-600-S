@@ -1,0 +1,5 @@
+#!/bin/sh
+# Stem separation test: runs stemtest, which writes stemtest.txt and the stem-*.wav files here.
+DIR="${MPC_APP_DIR:-.}"
+"$DIR/stemtest" "$DIR" >"$DIR/stemtest-run.log" 2>&1
+sync

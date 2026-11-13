@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MPC 600 S Quick Start</title>
+<style>
+  :root {
+    --text: "New Century Schoolbook", "Century Schoolbook", "Century Schoolbook L", "TeX Gyre Schola", Georgia, serif;
+    --head: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
+    --model: "Bookman Old Style", "Bookman", "URW Bookman", "URW Bookman L", "TeX Gyre Bonum", Georgia, serif;
+    --ink: #111;
+    --rule: #222;
+    --soft: #555;
+    --tint: #f3f3f0;
+  }
+  html { background: #fff; color: var(--ink); }
+  body { font-family: var(--text); font-size: 11.5pt; line-height: 1.5; max-width: 7.2in; margin: 0 auto; padding: 0.3in 0.4in 0.6in; }
+  h1, h2 { font-family: var(--head); font-weight: 700; line-height: 1.2; }
+  .top { text-align: center; border-bottom: 3px solid var(--rule); padding-bottom: 0.12in; margin-bottom: 0.2in; }
+  .top .line { font-family: var(--head); font-weight: 700; font-size: 11pt; letter-spacing: 0.3em; }
+  .top .model { font-family: var(--model); font-weight: 700; font-size: 34pt; margin: 0.04in 0; }
+  .top .book { font-family: var(--head); font-weight: 700; font-size: 15pt; }
+  h2 { font-size: 13.5pt; margin: 0.22in 0 0.06in; border-bottom: 1px solid var(--rule); padding-bottom: 2px; }
+  ol, ul { margin: 0 0 0.1in 0.2in; padding-left: 0.15in; }
+  li { margin-bottom: 0.05in; }
+  p { margin: 0 0 0.08in; }
+  .key { font-family: var(--head); font-weight: 700; font-size: 9.5pt; white-space: nowrap; }
+  .lcd { font-family: "Consolas", "DejaVu Sans Mono", monospace; font-size: 10pt; background: var(--tint); padding: 0 3px; }
+  pre { font-family: "Consolas", "DejaVu Sans Mono", monospace; font-size: 10pt; background: var(--tint); padding: 8px 12px; margin: 0.04in 0 0.12in; }
+  .note { border-left: 4px solid var(--rule); background: var(--tint); padding: 0.06in 0.12in; margin: 0.1in 0; }
+  @page { size: letter; margin: 0.5in 0.5in 0.6in; @bottom-center { content: counter(page); font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #555; } }
+  @media print { body { max-width: none; padding: 0; } }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="line">MIDI PRODUCTION CENTER</div>
+  <div class="model">MPC 600 S</div>
+  <div class="book">Quick Start: Installing</div>
+</div>
+
+<h2>What You Need</h2>
+<ul>
+  <li>An Akai MPC Sample.</li>
+  <li>An SD card. Any size; formatted FAT32 or exFAT, as computers and the MPC Sample format them.</li>
+  <li>A computer to copy one folder onto the card.</li>
+  <li><strong>mpc-os.zip</strong>, the MPC 600 S, from the download page.</li>
+</ul>
+
+<h2>1. Put It on the Card</h2>
+<ol>
+  <li>Unzip <strong>mpc-os.zip</strong>. Inside is one folder, <span class="lcd">autorun</span>.</li>
+  <li>Copy the <span class="lcd">autorun</span> folder to the <strong>top level</strong> of the SD card: not inside another folder, and with its name and the files in it unchanged. The card should look like this:
+<pre>SD card
+└── autorun
+    ├── autorun.check
+    ├── autorun.json
+    ├── autorun.sh
+    └── mpc-os</pre></li>
+  <li>Eject the card from the computer properly before taking it out.</li>
+</ol>
+
+<h2>2. Start It</h2>
+<ol>
+  <li>With the MPC Sample off, put the card in.</li>
+  <li>Turn the MPC Sample on. It starts as usual, and a few seconds later the MPC 600 S takes over the screen and shows its title screen, then its main page.</li>
+</ol>
+<p>The MPC 600 S runs from the card every time it is in. Nothing is installed on the MPC Sample itself.</p>
+
+<h2>3. Your Work</h2>
+<p>The first time it runs, the MPC 600 S makes a folder named <span class="lcd">MPC600S</span> at the top of the card. Your projects, programs, samples, settings, effects chains and exports go there (see the manual&rsquo;s chapter on saving and loading). Keep the card in while you work.</p>
+
+<h2>4. Back to the Stock MPC Sample</h2>
+<p>Turn the MPC Sample off and take the card out (or remove the <span class="lcd">autorun</span> folder from it). It starts as it came from Akai; nothing on it was changed.</p>
+
+<h2>5. Updating</h2>
+<p>Download the new <strong>mpc-os.zip</strong> and replace the <span class="lcd">autorun</span> folder on the card with the new one. The <span class="lcd">MPC600S</span> folder, with your work and settings, is not touched.</p>
+
+<h2>Optional: Stems</h2>
+<p>The Stems page (<span class="key">SAMPLE REC</span> pressed until it shows <em>Stems</em>) separates a pad&rsquo;s sound into its drums, bass, vocals or music. It needs three model files that are too big to go with the OS, so they are a separate download: <strong>MPC600S-stems.zip</strong>, about 107 MB. Everything else works without them; the Stems page says <span class="lcd">No stem models on the card</span> until they are there.</p>
+<ol>
+  <li>Download <strong>MPC600S-stems.zip</strong> and unzip it on the computer. It holds a folder <span class="lcd">MPC600S</span>, with a folder <span class="lcd">stems</span> in it, with the three files.</li>
+  <li>Copy them to the card so that they end up in <span class="lcd">MPC600S/stems/</span> at the top of the card, next to <span class="lcd">autorun</span>:
+<pre>SD card
+├── autorun
+└── MPC600S
+    └── stems
+        ├── umxhq-bass.bin
+        ├── umxhq-drums.bin
+        └── umxhq-vocals.bin</pre></li>
+  <li>If the card has no <span class="lcd">MPC600S</span> folder yet (the MPC 600 S has not run from it), copy the whole <span class="lcd">MPC600S</span> folder from the zip to the top of the card.</li>
+  <li>If the card already has an <span class="lcd">MPC600S</span> folder, with your projects and settings in it, copy only the <span class="lcd">stems</span> folder into it. <strong>Do not replace the MPC600S folder</strong>: on a Mac, Finder&rsquo;s <em>Replace</em> would delete your work in it. On Windows, copying the folder over the old one and choosing to merge is also fine.</li>
+  <li>Keep the file names as they are, and eject the card properly.</li>
+</ol>
+<p>The models stay on the card: updating the OS (the <span class="lcd">autorun</span> folder) does not touch them. A sound of up to 20 seconds can be separated; it takes about 5 seconds for each stem of a 15-second sound. To remove them, delete the <span class="lcd">stems</span> folder.</p>
+
+<h2>If It Does Not Start</h2>
+<ul>
+  <li>Check the <span class="lcd">autorun</span> folder is at the top of the card, not in another folder (unzipping sometimes makes an extra folder around it), and that nothing in it was renamed or edited: the MPC Sample checks the files and will not run them otherwise.</li>
+  <li>Give it time: the stock app starts first, and the MPC 600 S takes over when it is up, up to 45 seconds after power-on.</li>
+  <li>Try another card, or format this one in a computer (FAT32 or exFAT) and copy the folder again.</li>
+  <li>The MPC 600 S keeps a log, <span class="lcd">autorun/mpc-os.log</span>, on the card: it says what it found at start-up.</li>
+</ul>
+
+<h2>Getting Around</h2>
+<p>Press <span class="key">SHIFT + SAMPLE REC</span> on any page for its help. The full manual, <strong>MPC-600-S-Manual.pdf</strong>, covers everything.</p>
+</body>
+</html>

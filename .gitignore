@@ -1,0 +1,4 @@
+build/
+bin/
+os/local.mk
+.DS_Store

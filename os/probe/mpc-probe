@@ -1,0 +1,84 @@
+#!/bin/sh
+# Read-only hardware report for the MPC Sample. Writes probe.txt next to the app.
+# Plays no audio and changes no mixer or system setting. Device serials are filtered out.
+# It records every mixer control twice, with the stock app stopped and running, so
+# the difference shows what the stock app sets up to make sound.
+OUT="${MPC_APP_DIR:-.}/probe.txt"
+exec >"$OUT" 2>&1
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+CTL=/run/ctl-dump
+cp "${MPC_APP_DIR:-.}/ctl-dump" "$CTL" && chmod 755 "$CTL"
+
+run() {
+  printf '\n===== %s\n' "$1"
+  if have timeout; then timeout 15 sh -c "$1"; else sh -c "$1"; fi
+  printf '[exit %s]\n' "$?"
+}
+
+dump() {
+  for f in "$@"; do
+    [ -r "$f" ] || continue
+    printf '\n## %s\n' "$f"
+    if have timeout; then timeout 5 cat "$f"; else cat "$f"; fi
+  done
+}
+
+alsa_state() {
+  printf '\n\n########## %s\n' "$1"
+  run "$CTL"
+  dump /proc/asound/card*/pcm*/sub*/hw_params /proc/asound/card*/pcm*/sub*/sw_params /proc/asound/card*/pcm*/sub*/status
+  run 'cat /sys/kernel/debug/gpio'
+  run 'find /sys/kernel/debug/asoc -path "*dapm*" -type f 2>/dev/null | head -n 150 | while read -r f; do printf "%s: " "$f"; head -n 1 "$f"; done'
+}
+
+date
+echo "app dir: ${MPC_APP_DIR:-unset}"
+
+run 'uname -a'
+run 'cat /etc/os-release'
+run 'grep -v -i serial /proc/cpuinfo'
+run 'cat /proc/meminfo | head -n 12'
+run 'df -h'
+run 'cat /proc/mounts'
+run 'ls -l /dev/snd /dev/snd/by-path'
+dump /proc/asound/version /proc/asound/cards /proc/asound/devices /proc/asound/pcm
+dump /proc/asound/card*/id /proc/asound/card*/pcm*/info
+run 'dmesg | grep -iE "snd|asoc|audio|i2s|codec|alsa|ak45|amp" | tail -n 80'
+run 'ls /etc/asound* /var/lib/alsa /usr/share/alsa 2>&1'
+run 'cat /var/lib/alsa/asound.state'
+run 'systemctl cat ac50.service --no-pager'
+run 'cat /usr/bin/launch-ac50'
+
+alsa_state 'STOCK APP STOPPED'
+
+# On a plain card the runner stopped the stock app before this script. Start it
+# again early, since the runner would do that on exit anyway, and record how it
+# drives the audio hardware. Skipped under the boot menu, which owns the screen.
+if [ ! -f /run/mpc-boot-thingy.pid ] && \
+   ! grep -q 'mpc-boot-autorun\.service' /proc/self/cgroup 2>/dev/null && \
+   have systemctl && systemctl cat ac50.service >/dev/null 2>&1; then
+  run 'systemctl start ac50.service'
+  i=0
+  while [ "$i" -lt 30 ]; do
+    if grep -qsv '^closed' /proc/asound/card*/pcm*/sub*/hw_params; then break; fi
+    i=$((i + 1))
+    sleep 1
+  done
+  echo "waited ${i}s for an open audio stream"
+  sleep 5
+  alsa_state 'STOCK APP RUNNING'
+  pid=$(systemctl show -p MainPID --value ac50.service 2>/dev/null)
+  echo "ac50 pid: ${pid:-none}"
+  if [ -n "${pid:-}" ] && [ "$pid" != 0 ]; then
+    run "ls -l /proc/$pid/exe; ls -l /proc/$pid/fd | grep -E 'snd|dri|/dev/'"
+    run "ps -Lo pid,tid,cls,rtprio,ni,psr,comm -p $pid"
+  fi
+else
+  echo 'STOCK APP NOT STARTED: this run came from the boot menu'
+fi
+
+printf '\nPROBE COMPLETE\n'
+sync
+exit 0
