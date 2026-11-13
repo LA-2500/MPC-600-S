@@ -1,6 +1,6 @@
 # MPC 600 S
 
-Sampler and sequencer OS for the **Akai MPC Sample**. Runs from the SD card via the stock autorun mechanism; the internal firmware is not modified. Remove the card to return to the stock OS.
+Sampler and sequencer OS for the **Akai MPC Sample**, based on the design of the MPC 3000 operating system: page layout, sequencer structure, timing correct and swing. Runs from the SD card via the stock autorun mechanism; the internal firmware is not modified. Remove the card to return to the stock OS.
 
 ## Download
 
