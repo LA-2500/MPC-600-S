@@ -219,6 +219,7 @@ void os_init(struct os *s, struct engine *e) {
     for (int i = 0; i < 16; i++) s->sounding[i] = s->rec_note[i] = s->live_midi[i] = -1;
     for (int i = 0; i < 128; i++) s->midi_rec[i] = -1;
     s->levels_root = 3 * 16 + 12; // pad D13 plays the sound at its own pitch
+    s->start_rate = 29760, s->start_bits = 12, s->start_aa = 1, s->start_norm = 1, s->start_thru = 1, s->start_mode = REC_STEREO;
     record_defaults(s);
     zones_defaults(s);
     master_init(&s->master);

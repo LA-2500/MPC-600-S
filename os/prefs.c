@@ -13,7 +13,13 @@ static const int PPQN[SEQ_RES_COUNT] = {96, 96, 24, 96};
 // The order the wheel shows them in (the MPC60 was added after the others were saved as numbers).
 static const char *const LOOP_CONV[LOOP_CONVS] = {"IMMEDIATE", "AFTER 1ST LOOP"};
 static const int RES_ORDER[SEQ_RES_COUNT] = {SEQ_RES_MPC3000, SEQ_RES_MPC60, SEQ_RES_MPC2000, SEQ_RES_SP1200};
-enum { PF_BUTTONS, PF_PADS, PF_THRESH, PF_RES, PF_LOOPCONV, PF_SCREEN, PF_BPM, PF_BARS, PF_TC, PF_SWING, PF_FIELDS };
+// Page 1: lights, pads, screen, timing and the Start sequencer values. Page 2: Live Loop
+// Conversion and the Start recording values.
+enum { PF_BUTTONS, PF_PADS, PF_THRESH, PF_SCREEN, PF_RES, PF_BPM, PF_BARS, PF_TC, PF_SWING, // page 1
+       PF_LOOPCONV, PF_RATE, PF_BITS, PF_AA, PF_NORM, PF_THRU, PF_MODE, PF_FIELDS };       // page 2
+#define PF_PAGE2 PF_LOOPCONV
+static const char *const MODES[REC_MODES] = {"STEREO", "MONO LFT", "MONO RGT", "MONO LR"};
+static const int BITS[] = {4, 8, 12, 16};
 
 static int clampi(int v, int lo, int hi) {
     return v < lo ? lo : v > hi ? hi : v;
@@ -22,6 +28,7 @@ static int clampi(int v, int lo, int hi) {
 void prefs_open(struct os *s) {
     s->screen = OS_PREFS;
     s->cursor_prefs = 0;
+    s->rate_edit = 0;
 }
 
 // The two-colour buttons: which of their colours light (red alone, white alone, both: pink).
@@ -33,62 +40,136 @@ void prefs_apply(struct os *s) {
     lcd_set_scheme(s->screen_scheme);
 }
 
+static int is_classic(int hz) {
+    int c[16], n = record_classic(c);
+    for (int i = 0; i < n; i++)
+        if (c[i] == hz) return 1;
+    return 0;
+}
+
+// Start Sample Rate: the wheel steps the slider's rates, then SET. On SET, pushing the wheel in
+// changes the number itself, to any rate the recording pages can take; pushed again, done.
+static void change_rate(struct os *s, int d) {
+    if (s->rate_edit) {
+        int list[96], n = record_rates(list), i = 0;
+        while (i < n - 1 && list[i] < s->start_rate) i++;
+        s->start_rate = list[clampi(i + d, 0, n - 1)];
+        return;
+    }
+    int c[16], n = record_classic(c), at = n; // n: SET
+    if (!s->start_rate_set)
+        for (int i = 0; i < n; i++)
+            if (c[i] == s->start_rate) at = i;
+    at = clampi(at + d, 0, n);
+    if (at == n) {
+        s->start_rate_set = 1; // the number stays as it was, to change from
+    } else {
+        s->start_rate_set = 0;
+        s->start_rate = c[at];
+    }
+}
+
+static void change(struct os *s, int f, int d, int shift) {
+    switch (f) {
+    case PF_BUTTONS: s->button_lights = clampi(s->button_lights + d, 0, BUTTON_LIGHTS - 1); break;
+    case PF_PADS: s->pad_lights = clampi(s->pad_lights + d, 0, PAD_LIGHTS - 1); break;
+    case PF_THRESH: s->pad_threshold = clampi(s->pad_threshold + d, 1, 60); break;
+    case PF_RES:
+        pthread_mutex_lock(&s->seq.lock);
+        {
+            int at = 0;
+            while (at < SEQ_RES_COUNT - 1 && RES_ORDER[at] != s->seq.res) at++;
+            s->seq.res = RES_ORDER[clampi(at + d, 0, SEQ_RES_COUNT - 1)];
+        }
+        s->seq.swing = seq_swing_step(&s->seq, s->seq.swing, 0); // onto one of its settings
+        pthread_mutex_unlock(&s->seq.lock);
+        break;
+    case PF_SCREEN: s->screen_scheme = clampi(s->screen_scheme + d, 0, SCREEN_SCHEMES - 1); break;
+    case PF_BPM: s->start_bpm10 = clampi(s->start_bpm10 + d * (shift ? 1 : 10), 300, 3000); break;
+    case PF_BARS: s->start_bars = clampi(s->start_bars + d, 1, SEQ_MAX_BARS); break;
+    case PF_TC: s->start_tc = clampi(s->start_tc + d, 0, TC_COUNT - 1); break;
+    case PF_SWING: s->start_swing = seq_swing_step(&s->seq, s->start_swing, d); break;
+    case PF_LOOPCONV: s->loop_conv = clampi(s->loop_conv + d, 0, LOOP_CONVS - 1); break;
+    case PF_RATE: change_rate(s, d); break;
+    case PF_BITS: {
+        int i = 0;
+        while (i < 3 && BITS[i] != s->start_bits) i++;
+        s->start_bits = BITS[clampi(i + d, 0, 3)];
+        break;
+    }
+    case PF_AA: s->start_aa = d > 0; break;
+    case PF_NORM: s->start_norm = d > 0; break;
+    case PF_THRU: s->start_thru = d > 0; break;
+    case PF_MODE: s->start_mode = clampi(s->start_mode + d, 0, REC_MODES - 1); break;
+    }
+    if (f >= PF_RATE) record_apply_start(s); // every recording page, now
+}
+
 void prefs_frame(struct os *s, struct ui *u, const struct input *in) {
+    int page = s->cursor_prefs >= PF_PAGE2;
     if (input_down(in, IN_B1)) { // <MIDI>: back to MIDI Settings
         s->screen = OS_MIDI;
+        s->rate_edit = 0;
         ui_wake(u, 1);
         return;
     }
-    if (in->encoder_press) s->cursor_prefs = (s->cursor_prefs + (in->shift ? PF_FIELDS - 1 : 1)) % PF_FIELDS;
+    if (input_down(in, IN_B3)) { // <Page 2> / <Page 1>
+        page = !page;
+        s->cursor_prefs = page ? PF_PAGE2 : 0;
+        s->rate_edit = 0;
+        ui_wake(u, 1);
+    }
+    int first = page ? PF_PAGE2 : 0, count = page ? PF_FIELDS - PF_PAGE2 : PF_PAGE2;
+    if (in->encoder_press) {
+        if (s->cursor_prefs == PF_RATE && s->start_rate_set && !in->shift) {
+            s->rate_edit = !s->rate_edit; // SET: the number, and back
+        } else {
+            s->rate_edit = 0;
+            s->cursor_prefs = first + (s->cursor_prefs - first + (in->shift ? count - 1 : 1)) % count;
+        }
+    }
     int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
     if (d) {
-        switch (s->cursor_prefs) {
-        case PF_BUTTONS: s->button_lights = clampi(s->button_lights + d, 0, BUTTON_LIGHTS - 1); break;
-        case PF_PADS: s->pad_lights = clampi(s->pad_lights + d, 0, PAD_LIGHTS - 1); break;
-        case PF_THRESH: s->pad_threshold = clampi(s->pad_threshold + d, 1, 60); break;
-        case PF_RES:
-            pthread_mutex_lock(&s->seq.lock);
-            {
-                int at = 0;
-                while (at < SEQ_RES_COUNT - 1 && RES_ORDER[at] != s->seq.res) at++;
-                s->seq.res = RES_ORDER[clampi(at + d, 0, SEQ_RES_COUNT - 1)];
-            }
-            s->seq.swing = seq_swing_step(&s->seq, s->seq.swing, 0); // onto one of its settings
-            pthread_mutex_unlock(&s->seq.lock);
-            break;
-        case PF_LOOPCONV: s->loop_conv = clampi(s->loop_conv + d, 0, LOOP_CONVS - 1); break;
-        case PF_SCREEN: s->screen_scheme = clampi(s->screen_scheme + d, 0, SCREEN_SCHEMES - 1); break;
-        case PF_BPM: s->start_bpm10 = clampi(s->start_bpm10 + d * (in->shift ? 1 : 10), 300, 3000); break;
-        case PF_BARS: s->start_bars = clampi(s->start_bars + d, 1, SEQ_MAX_BARS); break;
-        case PF_TC: s->start_tc = clampi(s->start_tc + d, 0, TC_COUNT - 1); break;
-        case PF_SWING: s->start_swing = seq_swing_step(&s->seq, s->start_swing, d); break;
-        }
+        change(s, s->cursor_prefs, d, in->shift);
         prefs_apply(s);
         s->fx_save_at = (s->frame_ms ? s->frame_ms : 1) + 1500; // with the other settings, in a moment
         ui_wake(u, 1);
     }
     char v[32];
     lcd_text(u, 0, KEY_ROW, "<MIDI>");
-    lcd_rule(u, TITLE_ROW, "Additional Settings");
-    char bpm[12], sw[8], bars[8], thresh[8];
+    lcd_text(u, 18, KEY_ROW, page ? "<Page 1>" : "<Page 2>");
+    lcd_rule(u, TITLE_ROW, page ? "Additional Settings 2" : "Additional Settings");
+    const char *labels[PF_FIELDS] = {"Button Lights:", "Pad Lights:", "Pad Thresh:", "Screen:", "", "Start BPM:", "Start Bars:",
+                                     "Start TC:", "Start Swing:", "Loop Conv:", "Sample Rate:", "Bit Rate:", "Anti-Aliasing:",
+                                     "Normalize:", "Input Thru:", "Rec Mode:"};
+    char bpm[12], sw[8], bars[8], thresh[8], rate[16], bits[8];
     snprintf(thresh, sizeof thresh, "%d", s->pad_threshold);
     snprintf(bars, sizeof bars, "%d", s->start_bars);
     snprintf(bpm, sizeof bpm, "%d.%d", s->start_bpm10 / 10, s->start_bpm10 % 10);
     snprintf(sw, sizeof sw, "%d%%", seq_swing_step(&s->seq, s->start_swing, 0));
-    const char *labels[PF_FIELDS] = {"Button Lights:", "Pad Lights:", "Pad Thresh:", "", "Loop Conv:", "Screen:", "Start BPM:", "Start Bars:",
-                                     "Start TC:", "Start Swing:"};
-    const char *values[PF_FIELDS] = {BUTTONS[s->button_lights], PADS[s->pad_lights], thresh, RES[s->seq.res], LOOP_CONV[s->loop_conv],
-                                     lcd_scheme_name(s->screen_scheme), bpm, bars, seq_tc_name(s->start_tc), sw};
-    const int rows[PF_FIELDS] = {3, 4, 5, 7, 8, 9, 10, 11, 12, 13}, cols[PF_FIELDS] = {14, 14, 14, 14, 10, 7, 12, 12, 12, 12};
-    for (int i = 0; i < PF_FIELDS; i++) {
+    snprintf(bits, sizeof bits, "%d", s->start_bits);
+    int r = s->start_rate;
+    if (s->rate_edit) snprintf(rate, sizeof rate, ">%d.%02d kHz", r / 1000, r % 1000 / 10); // being changed
+    else if (s->start_rate_set) snprintf(rate, sizeof rate, "SET %d.%02dk", r / 1000, r % 1000 / 10);
+    else snprintf(rate, sizeof rate, "%d.%02d kHz", r / 1000, r % 1000 / 10);
+    const char *values[PF_FIELDS] = {BUTTONS[s->button_lights], PADS[s->pad_lights], thresh, lcd_scheme_name(s->screen_scheme),
+                                     RES[s->seq.res], bpm, bars, seq_tc_name(s->start_tc), sw, LOOP_CONV[s->loop_conv], rate, bits,
+                                     s->start_aa ? "ON" : "OFF", s->start_norm ? "ON" : "OFF",
+                                     s->start_thru ? "ALWAYS ON" : "OFF", MODES[s->start_mode]};
+    const int rows[PF_FIELDS] = {3, 4, 5, 6, 8, 10, 11, 12, 13, 3, 6, 7, 8, 9, 10, 11};
+    const int cols[PF_FIELDS] = {14, 14, 14, 7, 14, 12, 12, 12, 12, 10, 14, 14, 14, 14, 14, 14};
+    for (int i = first; i < first + count; i++) {
         lcd_text(u, 0, rows[i], labels[i]);
         snprintf(v, sizeof v, " %s ", values[i]);
         if (s->cursor_prefs == i) lcd_inverse(u, cols[i], rows[i], v);
         else lcd_text(u, cols[i], rows[i], v);
     }
-    // The resolution, and under it the machine whose timing and swing it follows (the setting).
-    snprintf(v, sizeof v, "Sequencer Res: %dPPQN", PPQN[s->seq.res]);
-    lcd_text(u, 0, 6, v);
+    if (!page) { // the resolution, and under it the machine whose timing and swing it is taken from (the setting)
+        snprintf(v, sizeof v, "Sequencer Res: %dPPQN", PPQN[s->seq.res]);
+        lcd_text(u, 0, 7, v);
+    } else {
+        lcd_rule(u, 5, "Recording Starts With");
+    }
     lcd_rule(u, BOTTOM_ROW, 0);
 }
 
@@ -110,17 +191,28 @@ void prefs_pad_lights(struct os *s, struct ui *u) {
 }
 
 void prefs_save_line(const struct os *s, char *b, size_t n) {
-    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res, s->screen_scheme,
-             s->start_bpm10, s->start_tc, s->start_swing, s->start_bars, s->inst_gain, s->inst_bright, s->pad_threshold, s->loop_conv);
+    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res,
+             s->screen_scheme, s->start_bpm10, s->start_tc, s->start_swing, s->start_bars, s->inst_gain, s->inst_bright,
+             s->pad_threshold, s->loop_conv, s->start_rate, s->start_bits, s->start_aa, s->start_norm, s->start_thru, s->start_mode);
 }
 
 void prefs_load_line(struct os *s, const char *line) {
-    int v[12];
-    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7], &v[8], &v[9],
-                     &v[10], &v[11]);
+    int v[18];
+    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6],
+                     &v[7], &v[8], &v[9], &v[10], &v[11], &v[12], &v[13], &v[14], &v[15], &v[16], &v[17]);
     if (got >= 10) s->inst_gain = clampi(v[8], 0, 30), s->inst_bright = clampi(v[9], 0, 100);
     if (got >= 11) s->pad_threshold = clampi(v[10], 1, 60);
     if (got >= 12) s->loop_conv = clampi(v[11], 0, LOOP_CONVS - 1);
+    if (got >= 18) { // the Start recording values: onto every recording page
+        int list[96], n = record_rates(list), ok = 0;
+        for (int i = 0; i < n; i++) ok |= list[i] == v[12];
+        if (ok) s->start_rate = v[12];
+        s->start_rate_set = !is_classic(s->start_rate);
+        if (v[13] == 4 || v[13] == 8 || v[13] == 12 || v[13] == 16) s->start_bits = v[13];
+        s->start_aa = v[14] != 0, s->start_norm = v[15] != 0, s->start_thru = v[16] != 0;
+        s->start_mode = clampi(v[17], 0, REC_MODES - 1);
+        record_apply_start(s);
+    }
     if (got != 4 && got < 7) return; // 4: saved before the Start settings, which keep their defaults
     if (got >= 8) s->start_bars = clampi(v[7], 1, SEQ_MAX_BARS);
     if (got >= 7) {

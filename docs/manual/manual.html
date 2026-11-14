@@ -606,7 +606,7 @@
   <tr><td>Pitch</td><td>0 to +24 semitones (see below).</td></tr>
   <tr><td>Thres</td><td>The level that starts the recording; OFF starts at once. A moment before the threshold is kept so attacks are whole.</td></tr>
   <tr><td>Bit Rate</td><td>16, 12, 8 or 4 bits.</td></tr>
-  <tr><td>Sample Rate</td><td>7.0 to 44.1 kHz in half-kHz steps, with 11.02, 22.05, 26.04 and 29.76 kHz among them.</td></tr>
+  <tr><td>Sample Rate</td><td>7.0 to 44.1 kHz in half-kHz steps, with 11.02, 22.05, 26.04 and 29.76 kHz among them. Every recording page starts at the Sample Rate, Bit Rate, Anti-Aliasing, Normalize and Mode set on Additional Settings 2 (29.76 kHz, 12 bits, both ON, STEREO to start; Convert Sample starts in MONO LR).</td></tr>
   <tr><td>Anti-Aliasing</td><td>ON or OFF (see below).</td></tr>
   <tr><td>Normalize</td><td>Brings the take up to full level before it is cut to its bits.</td></tr>
   <tr><td>Monitor</td><td>Input Thru: hear the input through the outputs.</td></tr>
@@ -924,20 +924,34 @@
 </table>
 <p>A line shows the notes it will give pads A01 and A16 before you apply it.</p>
 <h2>Additional Settings</h2>
-<p><span class="key">B1 &lt;Settings&gt;</span> on MIDI Settings opens Additional Settings:</p>
+<p><span class="key">B1 &lt;Settings&gt;</span> on MIDI Settings opens Additional Settings. It has two pages; <span class="key">B3 &lt;Page 2&gt;</span> and <span class="key">&lt;Page 1&gt;</span> switch between them. Page 1:</p>
 <ul>
   <li><strong>Button Lights</strong>: red (default), white, pink or off.</li>
   <li><strong>Pad Lights</strong>: light blue, red, white or off (default). Lit pads dim while pressed, more with pressure.</li>
   <li><strong>Pad Thresh</strong>: the lightest pad hit that counts, 1 to 60 (default 12). Raise it if pads play by themselves; lower it to play very softly. A light hit that comes within 25 ms of a much harder one on another pad is taken as the panel shaking and ignored. A knob, slider or volume reading that jumps far from the last is ignored unless the next reading confirms it, so a stray reading cannot jump a setting or drop the volume.</li>
-  <li><strong>Sequencer Res</strong>: MPC 3000, MPC60, MPC 2000 (all 96 PPQN) or SP12 (24 PPQN). See Chapter 4.</li>
-  <li><strong>Loop Conv</strong> (Live Loop Conversion): how a Live Looper take becomes a sound at its Pitch, Sample Rate, Bit Rate, Anti-Aliasing and Normalize. <strong>IMMEDIATE</strong> (the default) or <strong>AFTER 1ST LOOP</strong>; see Live Looper in Chapter 3.</li>
   <li><strong>Screen</strong>: MPC3000 Blue (default), MPC60 Green, MPC1000 Green, MPC4000, MPC2000, Black/Red, Red/Black, Fairlight.</li>
+  <li><strong>Sequencer Res</strong>: MPC 3000, MPC60, MPC 2000 (all 96 PPQN) or SP12 (24 PPQN). See Chapter 4.</li>
   <li><strong>Start BPM</strong>: the tempo every sequence has at power-on (default 120.0; SHIFT with the wheel in tenths).</li>
   <li><strong>Start Bars</strong>: the length of every sequence at power-on (default 2).</li>
   <li><strong>Start TC</strong>: Timing Correct at power-on (default 1/16 NOTE).</li>
   <li><strong>Start Swing</strong>: swing at power-on (default 50%).</li>
 </ul>
-<p>These and everything else here are kept on the card and come back at the next power-on. A first install starts with red button lights, pad lights off, MPC 3000 timing, the MPC3000 Blue screen, 120 BPM, 2 bars and 1/16 Timing Correct.</p>
+<p>Page 2:</p>
+<ul>
+  <li><strong>Loop Conv</strong> (Live Loop Conversion): how a Live Looper take becomes a sound at its Pitch, Sample Rate, Bit Rate, Anti-Aliasing and Normalize. <strong>IMMEDIATE</strong> (the default) or <strong>AFTER 1ST LOOP</strong>, which suits longer takes; see Live Looper in Chapter 3.</li>
+</ul>
+<p><strong>Recording Starts With</strong>: one set of starting values for every recording page: Sample New Sound, Audiotrack Record, Convert Sample, Resample and Live Looper. They are what each page has at power-on, and changing one here sets it on all of them at once. Each page can still be changed on its own afterwards, for that take.</p>
+<table>
+  <tr><th>Field</th><th>Choices</th><th>Default</th></tr>
+  <tr><td>Sample Rate</td><td>The wheel steps through the slider&rsquo;s rates (7.00, 11.02, 22.05, 26.04, 29.76 and 44.10 kHz), then <strong>SET</strong>. On SET, push the wheel in: the number shows as <span class="lcd">&gt;29.76 kHz</span> and the wheel changes it to any rate the recording pages take (7.0 to 44.1 kHz in half-kHz steps, with the classic rates among them). Push again when done; turning back past SET returns to the slider&rsquo;s rates.</td><td>29.76 kHz</td></tr>
+  <tr><td>Bit Rate</td><td>16, 12, 8 or 4 bits.</td><td>12</td></tr>
+  <tr><td>Anti-Aliasing</td><td>ON or OFF.</td><td>ON</td></tr>
+  <tr><td>Normalize</td><td>ON or OFF.</td><td>ON</td></tr>
+  <tr><td>Input Thru</td><td><strong>ALWAYS ON</strong>: the input is heard through the outputs from power-on. <strong>OFF</strong>: it starts off, to be turned on by hand (Monitor on Sample New Sound) when wanted.</td><td>ALWAYS ON</td></tr>
+  <tr><td>Rec Mode</td><td>STEREO, MONO LFT, MONO RGT or MONO LR. Not for Convert Sample, which always starts in MONO LR. An INST L input records mono whatever this says.</td><td>STEREO</td></tr>
+</table>
+{{shot:prefs2|Additional Settings, page 2: a Sample Rate being SET}}
+<p>These and everything else here are kept on the card and come back at the next power-on. A first install starts with red button lights, pad lights off, MPC 3000 timing, the MPC3000 Blue screen, 120 BPM, 2 bars and 1/16 Timing Correct, and records at 29.76 kHz and 12 bits in stereo.</p>
 {{shot:prefs|Additional Settings}}
 
 <!-- ===================================================================================== -->

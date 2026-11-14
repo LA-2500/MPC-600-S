@@ -99,6 +99,28 @@ void record_defaults(struct os *s) {
     s->rec_set[4] = (struct rec_settings){.mode = REC_STEREO, .thres_db = -30, .bits = 16, .rate = 44100, .aa = 1,
                                           .start_force = 1};
     s->rec_set[5] = *a, s->rec_set[5].length = RLEN_SEQ; // Live Looper: as Audiotrack Record, one pass
+    record_apply_start(s);
+}
+
+// Additional Settings' Start values: the same rate, bits, Anti-Aliasing, Normalize and Mode on
+// every recording page, and Input Thru.
+void record_apply_start(struct os *s) {
+    static const int PAGES[] = {0, 1, 2, 4, 5};
+    for (int i = 0; i < 5; i++) {
+        struct rec_settings *r = &s->rec_set[PAGES[i]];
+        r->rate = s->start_rate, r->bits = s->start_bits, r->aa = s->start_aa != 0, r->normalize = s->start_norm != 0;
+        r->mode = PAGES[i] == 2 ? REC_MONO_LR : s->start_mode; // Convert Sample stays mono (MONO LR)
+    }
+    s->input_thru = s->start_thru != 0;
+}
+
+int record_rates(int *out) {
+    return rates(out);
+}
+
+int record_classic(int *out) {
+    for (int i = 0; i < NCLASSIC; i++) out[i] = CLASSIC[i];
+    return NCLASSIC;
 }
 
 // SAMPLE REC: opens Sample New Sound, then flips between it and Audiotrack Record.

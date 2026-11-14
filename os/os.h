@@ -358,6 +358,11 @@ struct os {
     int64_t frame_ms;             // the time this frame started
     int button_lights, pad_lights, screen_scheme, cursor_prefs; // Additional Settings: BUTTON_*, PAD_LIGHT_*, SCREEN_*
     int start_bpm10, start_bars, start_tc, start_swing; // Additional Settings: the tempo, length, TC and swing at power-on
+    // Additional Settings, page 2: what every recording page starts with (Sample New Sound,
+    // Audiotrack Record, Convert Sample, Resample, Live Looper), and Input Thru.
+    int start_rate, start_bits, start_aa, start_norm, start_thru, start_mode;
+    int start_rate_set;           // Sample Rate shows SET (any rate) rather than one of the slider's
+    int rate_edit;                // SET's number being changed with the wheel (pushed in)
     int pad_level[16];            // how hard each pad is pressed now (0 up), for the pad lights
     int pads_lit;
     // Save/Load (Shift + Pad 16).
@@ -418,6 +423,9 @@ int os_memory_add(struct os *s, struct sample *n, const char *name);
 
 // Sample New Sound, in record.c.
 void record_defaults(struct os *s);
+void record_apply_start(struct os *s); // the Start recording settings onto every recording page
+int record_rates(int *out);            // every rate the wheel can reach, lowest first
+int record_classic(int *out);          // the rates the slider jumps between
 void record_open(struct os *s);
 void record_open_convert(struct os *s); // Shift + SAMPLE REC: Convert Sample
 void record_open_resample(struct os *s); // Shift + Pad 11: Resample

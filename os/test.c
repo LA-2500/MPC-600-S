@@ -2667,8 +2667,14 @@ static void test_record_page(const char *shot_dir) {
     os.seq.metronome = METRO_OFF;
     tap(IN_SAMPLE_REC);
     CHECK(os.screen == OS_RECORD && os.record_page == 0 && os.cursor_record == 0);
-    CHECK(os.input_thru == 1 && os.rec_set[0].bits == 12 && os.rec_set[0].rate == 26040 && os.rec_set[0].aa &&
-          os.rec_set[0].normalize);
+    // Every recording page starts as Additional Settings 2 says: 29.76 kHz, 12 bits, AA and
+    // Normalize on, STEREO, Input Thru on.
+    for (int p = 0; p < 6; p++)
+        if (p != 3)
+            CHECK(os.rec_set[p].rate == 29760 && os.rec_set[p].bits == 12 && os.rec_set[p].aa && os.rec_set[p].normalize &&
+                  os.rec_set[p].mode == (p == 2 ? REC_MONO_LR : REC_STEREO)); // Convert Sample: mono
+    CHECK(os.input_thru == 1);
+    os.rec_set[0].rate = 26040;
     os.cursor_record = 5; // Sample Rate: the wheel moves in half kHz and lands on the classic rates
     struct input in = blank();
     in.encoder = 1;
@@ -2802,7 +2808,7 @@ static void test_live_looper(const char *shot_dir) {
     if (shot_dir) write_shot(shot_dir, "livelooper");
     atomic_store(&os.rec.present, 1);
     os.rec.latency = 300;
-    os.rec_set[5].count_bars = 1;
+    os.rec_set[5].count_bars = 1, os.rec_set[5].rate = 44100; // lengths below in 44.1 kHz frames
     os.selected = 0; // A01 has a sound: a pad must be chosen first, and empty
     tap(IN_B3);
     CHECK(os.lp_state == LP_IDLE && strcmp(os.toast, "Select an empty pad first") == 0);
@@ -2968,8 +2974,9 @@ static void test_audio_track(const char *shot_dir) {
     tap(IN_SAMPLE_REC);
     tap(IN_SAMPLE_REC);
     CHECK(os.screen == OS_RECORD && os.record_page == 1 && os.cursor_record == 0);
-    CHECK(os.rec_set[1].bits == 12 && os.rec_set[1].rate == 44100 && os.rec_set[1].count_bars == 2 &&
+    CHECK(os.rec_set[1].bits == 12 && os.rec_set[1].rate == 29760 && os.rec_set[1].count_bars == 2 &&
           os.rec_set[1].length == RLEN_SEQ);
+    os.rec_set[1].rate = 44100; // the timings below are in 44.1 kHz frames
     struct input idle = blank();
     frame(&idle);
     if (shot_dir) write_shot(shot_dir, "audiotrack");
@@ -3019,7 +3026,7 @@ static void test_audio_track(const char *shot_dir) {
 
     // SAMPLE REC again, from Audiotrack Record: Convert Sample, here pad A06 down to 11.02 kHz.
     tap(IN_SAMPLE_REC);
-    CHECK(os.record_page == 2 && os.cursor_record == 0 && os.rec_set[2].rate == 26040 && os.rec_set[2].bits == 12 &&
+    CHECK(os.record_page == 2 && os.cursor_record == 0 && os.rec_set[2].rate == 29760 && os.rec_set[2].bits == 12 &&
           os.rec_set[2].mode == REC_MONO_LR);
     CHECK(os.selected == 5);
     os.rec_set[2].rate = 11020;
@@ -3761,7 +3768,8 @@ static void test_resample(const char *shot_dir) {
     frame(&in);
     CHECK(os.screen == OS_RECORD && os.record_page == 4 && os.cursor_record == 0);
     const struct rec_settings *r = &os.rec_set[4];
-    CHECK(r->bits == 16 && r->rate == 44100 && r->start_force && !r->what && !r->thru_record);
+    CHECK(r->bits == 12 && r->rate == 29760 && r->start_force && !r->what && !r->thru_record);
+    os.rec_set[4].bits = 16, os.rec_set[4].rate = 44100; // the main output as it is, below
     CHECK(atomic_load(&os.rec.source) == 1); // its meter: the main output
     struct input idle = blank();
     frame(&idle);
@@ -5700,7 +5708,7 @@ static void test_prefs(const char *shot_dir) {
     for (int i = 0; i < u2.nled; i++)
         if (u2.led[i].index == 0) lit = u2.led[i].r;
     CHECK(lit > 0 && lit < 60);
-    os.cursor_prefs = 3; // Seq Res (after Pad Thresh): MPC 3000, MPC60, MPC 2000, SP12
+    os.cursor_prefs = 4; // Seq Res (after Screen): MPC 3000, MPC60, MPC 2000, SP12
     in = blank();
     in.encoder = 1;
     frame(&in);
@@ -5708,15 +5716,68 @@ static void test_prefs(const char *shot_dir) {
     in.encoder = 2;
     frame(&in);
     CHECK(os.seq.res == SEQ_RES_SP1200);
-    os.cursor_prefs = 4; // Loop Conv: IMMEDIATE (the default), AFTER 1ST LOOP
+    os.cursor_prefs = 3; // Screen: the MPC60's green
     in.encoder = 1;
-    CHECK(os.loop_conv == LOOP_CONV_IMMEDIATE);
-    frame(&in);
-    CHECK(os.loop_conv == LOOP_CONV_AFTER);
-    os.cursor_prefs = 5; // Screen: the MPC60's green
     frame(&in);
     CHECK(os.screen_scheme == SCREEN_MPC60 && lcd_bg != 0x408cfa);
     if (shot_dir) write_shot(shot_dir, "prefs");
+    tap(IN_B3); // <Page 2>
+    CHECK(os.cursor_prefs == 9);
+    in.encoder = 1; // Loop Conv: IMMEDIATE (the default), AFTER 1ST LOOP
+    CHECK(os.loop_conv == LOOP_CONV_IMMEDIATE);
+    frame(&in);
+    CHECK(os.loop_conv == LOOP_CONV_AFTER);
+    // Sample Rate: the wheel steps the slider's rates, then SET; pushed in on SET, any rate.
+    in = blank();
+    in.encoder_press = 1;
+    frame(&in);
+    CHECK(os.cursor_prefs == 10 && os.start_rate == 29760);
+    in = blank();
+    in.encoder = 1;
+    frame(&in);
+    CHECK(os.start_rate == 44100 && !os.start_rate_set && os.rec_set[0].rate == 44100 && os.rec_set[5].rate == 44100);
+    frame(&in);
+    CHECK(os.start_rate_set && os.start_rate == 44100); // SET
+    frame(&in);
+    CHECK(os.start_rate_set); // the end of the list
+    in = blank();
+    in.encoder_press = 1;
+    frame(&in);
+    CHECK(os.rate_edit && os.cursor_prefs == 10); // pushed in: the number, the cursor stays
+    in = blank();
+    in.encoder = -3;
+    frame(&in);
+    CHECK(os.start_rate == 43000 && os.rec_set[1].rate == 43000); // 44.1, 44.0, 43.5, 43.0
+    if (shot_dir) write_shot(shot_dir, "prefs2");
+    in = blank();
+    in.encoder_press = 1;
+    frame(&in);
+    CHECK(!os.rate_edit && os.cursor_prefs == 10);
+    in = blank();
+    in.encoder = -1; // off SET: back to the slider's rates
+    frame(&in);
+    CHECK(!os.start_rate_set && os.start_rate == 44100);
+    in.encoder = -1;
+    frame(&in);
+    CHECK(os.start_rate == 29760);
+    os.cursor_prefs = 11; // Bit Rate
+    frame(&in);
+    CHECK(os.start_bits == 8 && os.rec_set[2].bits == 8);
+    in.encoder = 1;
+    frame(&in);
+    os.cursor_prefs = 14; // Input Thru: OFF, then on by hand
+    in.encoder = -1;
+    frame(&in);
+    CHECK(os.start_thru == 0 && os.input_thru == 0);
+    in.encoder = 1;
+    frame(&in);
+    os.cursor_prefs = 15; // Rec Mode
+    frame(&in);
+    CHECK(os.start_mode == REC_MONO_L && os.rec_set[4].mode == REC_MONO_L && os.rec_set[2].mode == REC_MONO_LR);
+    in.encoder = -1;
+    frame(&in);
+    tap(IN_B3); // <Page 1>
+    CHECK(os.cursor_prefs == 0);
     // SP-1200 swing: a 16th at 58% lands 4 ticks late; the six settings only.
     os.seq.tc = TC_16, os.seq.swing = 58;
     CHECK(seq_correct(&os.seq, 24, 0) == 28 && seq_correct(&os.seq, 48, 0) == 48);
@@ -5732,7 +5793,10 @@ static void test_prefs(const char *shot_dir) {
     os.settings_path = path;
     os_save_settings(&os);
     os.button_lights = 0, os.pad_lights = PAD_LIGHT_OFF, os.seq.res = 0, os.screen_scheme = 0, os.loop_conv = 0;
+    os.start_rate = 44100, os.start_bits = 16, os.start_aa = 1, os.start_mode = REC_STEREO;
+    os.rec_set[1].rate = 44100;
     os_load_settings(&os);
+    CHECK(os.start_rate == 29760 && os.start_bits == 12 && os.rec_set[1].rate == 29760 && os.rec_set[1].bits == 12);
     CHECK(os.loop_conv == LOOP_CONV_AFTER);
     os.loop_conv = LOOP_CONV_IMMEDIATE;
     CHECK(os.button_lights == BUTTON_WHITE && os.pad_lights == PAD_LIGHT_WHITE && os.seq.res == SEQ_RES_SP1200 &&
