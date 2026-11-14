@@ -913,7 +913,18 @@
 <h1 class="chapter" id="ch15"><small>Chapter 15</small>MIDI and Additional Settings</h1>
 <h2>MIDI Settings</h2>
 <p><span class="key">SHIFT + Pad 8</span>: Ext and USB MIDI, Base and Receive channels, Sync (send or receive MIDI clock), Local Mode, Soft Thru, and the sustain pedal (normal, to duration, or footswitch).</p>
-<p><strong>Footswitch</strong>: with Sustain set to FOOTSWITCH, a pedal on Base Chn (MIDI CC 64) works the transport instead of holding notes:</p>
+<p><strong>Footswitch</strong>: with Sustain set to FOOTSWITCH, a pedal works the transport instead of holding notes. Most footswitches reach the MPC through a MIDI keyboard or controller, which sends the pedal as a MIDI CC (usually 64, the sustain pedal) on its own channel. Four more fields, under Footswitch, make it work with whatever is sending it:</p>
+<table>
+  <tr><th>Field</th><th>What it does</th><th>Default</th></tr>
+  <tr><td>Footswitch</td><td>What the pedal does: PLAY/STOP, REC/OVERDUB or AUDIO REC (below).</td><td>PLAY/STOP</td></tr>
+  <tr><td>Foot Chn</td><td><strong>ANY</strong> takes the pedal on any MIDI channel, so it works whatever channel the keyboard sends on. Set a channel (1&ndash;16) only if two devices both send a pedal.</td><td>ANY</td></tr>
+  <tr><td>Foot CC</td><td>The CC the pedal comes as. Some controllers send their pedal jack as CC 66, 67 or 4, or a button as a CC: set it here, or use &lt;Learn&gt;.</td><td>64</td></tr>
+  <tr><td>Polarity</td><td>Pedals are wired two ways: plugged into some keyboards, a pedal reads &ldquo;down&rdquo; while it is up. <strong>AUTO</strong> works it out: a pedal rests far longer than it is pressed, so the level that lasts longer is &ldquo;up&rdquo;. A pedal that rests &ldquo;down&rdquo; is known from its first press and release and works from the next press; nothing happens on the first. (The first thing heard being &ldquo;up&rdquo; is never acted on, since a keyboard may send that by itself as it connects.) <strong>NORMAL</strong> or <strong>INVERTED</strong> fix it.</td><td>AUTO</td></tr>
+</table>
+<p><strong>&lt;Learn&gt;</strong>: with the cursor on any of the footswitch fields, <span class="key">B2</span> is <span class="key">&lt;Learn&gt;</span>. Press it (the bottom line says <span class="lcd">Press the pedal to learn</span>), then press the pedal once: Foot Chn, Foot CC and Polarity are all set from that press, and a message shows them, for example <span class="lcd">Footswitch: Chn 3 CC 66 NORM</span>. The press itself does nothing else. <span class="key">&lt;Stop&gt;</span> cancels.</p>
+<p>With Sustain on FOOTSWITCH, the bottom line of MIDI Settings shows what the pedal last sent, as <span class="lcd">Pedal: Chn 1 CC 64 = 127</span>, or <span class="lcd">Pedal: nothing yet</span>. If pressing the pedal changes nothing there, it is not reaching the MPC: check the keyboard&rsquo;s MIDI or USB connection and that Ext MIDI or USB MIDI is ON. If it changes but the pedal does nothing, use &lt;Learn&gt;.</p>
+{{shot:midi_foot|MIDI Settings: the footswitch, learning}}
+<p>What the pedal does:</p>
 <table>
   <tr><th>Footswitch</th><th>The pedal</th></tr>
   <tr><td>PLAY/STOP</td><td>Starts the sequence from the top, or stops it.</td></tr>

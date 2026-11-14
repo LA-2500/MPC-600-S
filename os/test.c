@@ -3574,6 +3574,55 @@ static void test_midi_settings(const char *shot_dir) {
     CHECK(os.seq.mode == SEQ_STOPPED);
     midi_send_in(0xb0, 64, 0);
 
+    // The footswitch's own channel (ANY to start), CC and polarity. AUTO: an inverted pedal (it
+    // rests high) is found out from its first press and release, and works from the next press.
+    struct ui fu0 = {.px = px, .track_led = -1};
+    #define PEDAL(status, cc, v, t) (midi_qn = midi_qat = 0, midi_push(status, cc, v), fu0.now_ms = (t), os_frame(&fu0, &idle_in, &os))
+    struct input idle_in = blank();
+    os.foot_known = 0, os.foot_dur[0] = os.foot_dur[1] = 0, os.foot_inv = 0;
+    CHECK(os.midi.foot_chn == 0 && os.midi.foot_cc == 64 && os.midi.foot_pol == FPOL_AUTO);
+    PEDAL(0xb4, 64, 0, 10000); // channel 5, first heard "up": not acted on
+    CHECK(os.seq.mode == SEQ_STOPPED);
+    PEDAL(0xb4, 64, 127, 10200); // let go
+    CHECK(os.seq.mode == SEQ_STOPPED);
+    PEDAL(0xb4, 64, 0, 15000); // pressed: it rests high, so this is the press
+    CHECK(os.seq.mode == SEQ_PLAYING && os.foot_inv);
+    PEDAL(0xb4, 64, 127, 15150);
+    PEDAL(0xb4, 64, 0, 19000);
+    CHECK(os.seq.mode == SEQ_STOPPED);
+    PEDAL(0xb4, 64, 127, 19100);
+    // A set channel: another channel's pedal is not the footswitch.
+    os.midi.foot_chn = 2;
+    PEDAL(0xb4, 64, 0, 25000);
+    CHECK(os.seq.mode == SEQ_STOPPED);
+    os.midi.foot_chn = 0;
+    // <Learn> on the footswitch's fields: one press sets channel, CC and polarity.
+    os.screen = OS_MIDI;
+    os.cursor_midi = 9; // Foot Chn (Sync In hidden)
+    tap(IN_B2);
+    CHECK(os.foot_learn);
+    os.toast_until = 0;
+    frame(&idle_in);
+    if (shot_dir) write_shot(shot_dir, "midi_foot");
+    PEDAL(0xb2, 66, 127, 30000); // a controller sending its pedal as CC 66 on channel 3
+    CHECK(!os.foot_learn && os.midi.foot_chn == 3 && os.midi.foot_cc == 66 && os.midi.foot_pol == FPOL_NORMAL);
+    CHECK(strncmp(os.toast, "Footswitch: Chn 3 CC 66", 23) == 0 && os.seq.mode == SEQ_STOPPED);
+    os.foot_known = 0;
+    PEDAL(0xb2, 66, 0, 30500);
+    PEDAL(0xb2, 66, 127, 32000); // pressed: NORMAL now
+    CHECK(os.seq.mode == SEQ_PLAYING);
+    PEDAL(0xb2, 66, 0, 32100);
+    PEDAL(0xb0, 64, 127, 33000); // the old CC is not the footswitch any more
+    CHECK(os.seq.mode == SEQ_PLAYING);
+    PEDAL(0xb2, 66, 127, 34000);
+    CHECK(os.seq.mode == SEQ_STOPPED);
+    PEDAL(0xb2, 66, 0, 34100);
+    CHECK(os.foot_seen && os.foot_last_ch == 3 && os.foot_last_cc == 66 && os.foot_last_val == 0);
+    #undef PEDAL
+    os.midi.foot_chn = 0, os.midi.foot_cc = 64, os.midi.foot_pol = FPOL_AUTO, os.foot_known = 0;
+    os.foot_dur[0] = os.foot_dur[1] = 0, os.foot_inv = 0;
+    os.screen = OS_MAIN;
+
     // Footswitch AUDIO REC: <Rec> and <Stop> on Audiotrack Record, and Live Looper takes.
     os.midi.foot = FOOT_AUDIO;
     atomic_store(&os.rec.present, 1);

@@ -20,6 +20,7 @@ void midi_defaults(struct midi_settings *m) {
     m->usb = 1;
     m->base = 1;
     m->local = 1;
+    m->foot_chn = 0, m->foot_cc = 64, m->foot_pol = FPOL_AUTO; // any channel, the sustain pedal's CC
     midi_cc_defaults(m);
 }
 
@@ -30,7 +31,7 @@ void midi_open(struct os *s) {
 }
 
 static void back(struct os *s, struct ui *u, int to) {
-    s->cc_learn = s->note_learn = 0;
+    s->cc_learn = s->note_learn = s->foot_learn = 0;
     s->screen = to;
     os_save_settings(s);
     ui_wake(u, 1);
@@ -38,14 +39,17 @@ static void back(struct os *s, struct ui *u, int to) {
 
 // ---- MIDI Settings ----
 
-enum { M_EXT, M_USB, M_BASE, M_RECV, M_SYNC, M_SYNCIN, M_LOCAL, M_THRU, M_SUS, M_FOOT, M_FIELDS }; // Mixer CC: on the CC page
+enum { M_EXT, M_USB, M_BASE, M_RECV, M_SYNC, M_SYNCIN, M_LOCAL, M_THRU, M_SUS, M_FOOT, M_FCHN, M_FCC, M_FPOL,
+       M_FIELDS }; // Mixer CC: on the CC page
 static const char *const M_LABELS[M_FIELDS] = {"Ext MIDI:", "USB MIDI:", "Base Chn:", "Receive Chn:", "Sync:", "  Sync In:",
-                                               "Local Mode:", "Soft Thru:", "Sustain:", "  Footswitch:"};
+                                               "Local Mode:", "Soft Thru:", "Sustain:", "  Footswitch:", "  Foot Chn:",
+                                               "  Foot CC:", "  Polarity:"};
+#define M_ROWS 10 // rows 3-12 for the fields; row 13 shows what the pedal last sent
 
 static int m_fields(const struct os *s, int *out) {
     int n = 0;
     for (int f = 0; f < M_FIELDS; f++)
-        if ((f != M_FOOT || s->midi.sustain == SUS_FOOT) && (f != M_SYNCIN || s->midi.sync == SYNC_RECEIVE)) out[n++] = f;
+        if ((f < M_FOOT || s->midi.sustain == SUS_FOOT) && (f != M_SYNCIN || s->midi.sync == SYNC_RECEIVE)) out[n++] = f;
     return n;
 }
 
@@ -65,6 +69,9 @@ static void m_change(struct midi_settings *m, int f, int d) {
     case M_THRU: m->thru = d > 0; break;
     case M_SUS: m->sustain = clampi(m->sustain + d, SUS_NORMAL, SUS_FOOT); break;
     case M_FOOT: m->foot = clampi(m->foot + d, FOOT_PLAY, FOOT_MODES - 1); break;
+    case M_FCHN: m->foot_chn = clampi(m->foot_chn + d, 0, 16); break;
+    case M_FCC: m->foot_cc = clampi(m->foot_cc + d, 0, 127); break;
+    case M_FPOL: m->foot_pol = clampi(m->foot_pol + d, 0, FPOL_COUNT - 1); break;
     }
 }
 
@@ -84,45 +91,72 @@ static void m_value(const struct midi_settings *m, int f, char *b, size_t n) {
     case M_THRU: snprintf(b, n, " %s ", m->thru ? "ON" : "OFF"); break;
     case M_SUS: snprintf(b, n, " %s ", sus[m->sustain]); break;
     case M_FOOT: snprintf(b, n, " %s ", m->foot == FOOT_AUDIO ? "AUDIO REC" : m->foot == FOOT_REC ? "REC/OVERDUB" : "PLAY/STOP"); break;
+    case M_FCHN:
+        if (m->foot_chn) snprintf(b, n, " %d ", m->foot_chn);
+        else snprintf(b, n, " ANY ");
+        break;
+    case M_FCC: snprintf(b, n, " %d ", m->foot_cc); break;
+    case M_FPOL: snprintf(b, n, " %s ", m->foot_pol == FPOL_NORMAL ? "NORMAL" : m->foot_pol == FPOL_INVERTED ? "INVERTED" : "AUTO"); break;
     }
 }
 
 void midi_frame(struct os *s, struct ui *u, const struct input *in) {
     if (input_down(in, IN_B1)) { // <Settings>: Additional Settings
+        s->foot_learn = 0;
         prefs_open(s);
         ui_wake(u, 1);
         return;
     }
-    if (input_down(in, IN_B2)) {
+    int list[M_FIELDS], n = m_fields(s, list);
+    if (s->cursor_midi >= n) s->cursor_midi = 0;
+    int on_foot = list[s->cursor_midi] >= M_FOOT; // B2 is <Learn> on the footswitch's fields
+    if (input_down(in, IN_B2) && on_foot) {
+        s->foot_learn = !s->foot_learn; // pressed again before the pedal: cancelled
+        ui_wake(u, 1);
+    } else if (input_down(in, IN_B2)) {
         s->screen = OS_CCMAP;
         s->cursor_ccmap = 0;
         ui_wake(u, 1);
         return;
     }
     if (input_down(in, IN_B3)) {
+        s->foot_learn = 0;
         s->screen = OS_PADNOTES;
         s->pad_note_sel = s->bank * 16;
         ui_wake(u, 1);
         return;
     }
-    int list[M_FIELDS], n = m_fields(s, list);
-    if (s->cursor_midi >= n) s->cursor_midi = 0;
     if (in->encoder_press) s->cursor_midi = (s->cursor_midi + (in->shift ? n - 1 : 1)) % n;
     int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
     if (d) m_change(&s->midi, list[s->cursor_midi], d);
     n = m_fields(s, list);
     if (s->cursor_midi >= n) s->cursor_midi = n - 1;
 
+    on_foot = list[s->cursor_midi] >= M_FOOT;
+    if (!on_foot) s->foot_learn = 0;
+
     lcd_text(u, 0, KEY_ROW, "<Settings>");
-    lcd_text(u, 11, KEY_ROW, "<CC>");
-    lcd_text(u, 18, KEY_ROW, "<Notes>");
+    if (on_foot) lcd_text(u, 11, KEY_ROW, s->foot_learn ? "<Stop>" : "<Learn>");
+    else lcd_text(u, 11, KEY_ROW, "<CC>");
+    lcd_text(u, 19, KEY_ROW, "<Notes>");
     lcd_rule(u, TITLE_ROW, "MIDI Settings");
-    for (int i = 0; i < n; i++) {
+    int top = s->cursor_midi - (M_ROWS - 1); // scrolled to keep the cursor in view
+    top = top < 0 ? 0 : top;
+    for (int i = top; i < n && i < top + M_ROWS; i++) {
         char v[24];
-        lcd_text(u, 0, 3 + i, M_LABELS[list[i]]);
+        int row = 3 + i - top;
+        lcd_text(u, 0, row, M_LABELS[list[i]]);
         m_value(&s->midi, list[i], v, sizeof v);
-        if (i == s->cursor_midi) lcd_inverse(u, 13, 3 + i, v);
-        else lcd_text(u, 13, 3 + i, v);
+        if (i == s->cursor_midi) lcd_inverse(u, 13, row, v);
+        else lcd_text(u, 13, row, v);
+    }
+    if (s->midi.sustain == SUS_FOOT) { // what the pedal last sent, to see it is getting through
+        char line[LCD_COLS + 8];
+        if (s->foot_learn) snprintf(line, sizeof line, "Press the pedal to learn");
+        else if (s->foot_seen) snprintf(line, sizeof line, "Pedal: Chn %d CC %d = %d", s->foot_last_ch, s->foot_last_cc, s->foot_last_val);
+        else snprintf(line, sizeof line, "Pedal: nothing yet");
+        lcd_text(u, 0, 13, line);
+        ui_wake(u, 100);
     }
     lcd_rule(u, BOTTOM_ROW, 0);
 }

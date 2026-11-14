@@ -197,8 +197,13 @@ static const struct {
     {OS_MIDI, -1, "MIDI Settings",
      "Ports (Ext, USB), Base and Receive channels, Sync send or receive, Local Mode, Soft "
      "Thru, Sustain pedal.\n"
-     "Sustain FOOTSWITCH: the pedal (on Base Chn) is a Footswitch: PLAY/STOP, REC/OVERDUB, or "
-     "AUDIO REC, which is <Rec> and <Stop> on Audiotrack Record and Live Looper.\f"
+     "Sustain FOOTSWITCH: the pedal is a Footswitch: PLAY/STOP, REC/OVERDUB, or AUDIO REC, "
+     "which is <Rec> and <Stop> on Audiotrack Record and Live Looper.\f"
+     "Foot Chn: ANY (to start) or 1-16. Foot CC: 64 (to start). Polarity: AUTO (to start) "
+     "works out a pedal that rests 'down' from its first press; NORMAL or INVERTED.\n"
+     "On those fields B2 is <Learn>: press it, then the pedal. Its channel, CC and polarity "
+     "are set from that one press.\n"
+     "The bottom line shows what the pedal last sent, to check it is getting through.\f"
      "<CC>: Mixer CC, the mixer under MIDI CC.\n"
      "<Notes>: the note each pad sends and answers to. <Learn> on either listens for one."},
     {OS_CCMAP, -1, "CC Map",

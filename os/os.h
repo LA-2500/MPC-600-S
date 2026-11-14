@@ -62,7 +62,8 @@ struct master {
 enum { SEQ_ASK_NONE, SEQ_ASK_BARS, SEQ_ASK_BPM_DOUBLE, SEQ_ASK_BPM_HALF };
 enum { SYNC_OFF, SYNC_SEND, SYNC_RECEIVE };
 enum { SUS_NORMAL, SUS_DURATION, SUS_FOOT };
-enum { FOOT_PLAY, FOOT_REC, FOOT_AUDIO, FOOT_MODES }; // FOOT_AUDIO: <Rec>/<Stop> on Audiotrack Record or Live Looper
+enum { FOOT_PLAY, FOOT_REC, FOOT_AUDIO, FOOT_MODES };
+enum { FPOL_AUTO, FPOL_NORMAL, FPOL_INVERTED, FPOL_COUNT }; // the footswitch's polarity // FOOT_AUDIO: <Rec>/<Stop> on Audiotrack Record or Live Looper
 enum { MCC_LEVEL, MCC_PAN, MCC_LOW, MCC_MID, MCC_HIGH, MCC_MUTE, MCC_SOLO, MCC_COUNT };
 enum { CCT_BANK, CCT_SELECTED };
 // The MIDI Settings page, saved to the card with the other settings.
@@ -70,7 +71,7 @@ struct midi_settings {
     int ext;             // Ext MIDI: the MIDI IN/OUT jacks
     int usb;             // USB MIDI, with a computer plugged in
     int sync_in;         // Sync RECEIVE follows this port's clock: MIDI_PORT_EXT or MIDI_PORT_USB
-    int base;            // Base Chn 1..16: where mixer CC (SELECTED) and the footswitch are read
+    int base;            // Base Chn 1..16: where mixer CC (SELECTED) is read
     int recv;            // Receive Chn: 0 ALL, else 1..16, for notes played on the active track
     int sync;            // SYNC_*
     int local;           // Local Mode: pads play the sounds (on) or only send MIDI (off)
@@ -79,6 +80,9 @@ struct midi_settings {
     int mixer_cc;        // the mixer answers MIDI CC
     int cc_target;       // CCT_*: channels 1-16 are the bank's strips, or all on Base Chn for the selected one
     int cc[MCC_COUNT];   // the CC each mixer control answers to, or -1 for none
+    int foot_chn;        // the footswitch's channel: 0 ANY, else 1..16
+    int foot_cc;         // its CC (64, the sustain pedal, to start)
+    int foot_pol;        // FPOL_*
 };
 enum { ZONE_PAD, ZONE_REGIONS };
 enum { ZP_SETUP, ZP_WAIT, ZP_PLAY, ZP_ASSIGN };
@@ -162,6 +166,11 @@ struct os {
     // Pad Notes <Template>: open, which (PADTPL_*), the scale, its root (0..11) and octave (-1..8).
     int padtpl_open, padtpl_kind, padtpl_scale, padtpl_root, padtpl_oct, cursor_padtpl;
     int sus_down;               // the sustain pedal is down (Normal, To Duration)
+    // The footswitch: <Learn> waiting for it; what it last sent (shown on MIDI Settings); and for
+    // AUTO polarity, its level and how long each level last lasted (the resting one is longer).
+    int foot_learn, foot_known, foot_high, foot_inv;
+    int foot_seen, foot_last_ch, foot_last_cc, foot_last_val;
+    int64_t foot_t, foot_dur[2];
     int sus_n, sus_rn;          // releases held back until the pedal comes up
     struct { int id, key; } sus_snd[64];
     struct { int note, tune; } sus_rec[64];

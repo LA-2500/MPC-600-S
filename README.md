@@ -31,6 +31,7 @@ Help for the current page: **SHIFT + SAMPLE REC**. Procedure and troubleshooting
 | Sampling | 7–44.1 kHz, 16/12/8/4-bit, anti-alias filtered; sources: line in, INST (left channel, mono, 40 Hz HPF, 0–30 dB gain), mic, USB audio (UAC2) |
 | Programs | Drum programs; S600 programs taken from Akai's S-series samplers: envelopes, filters (incl. ladder low-pass), LFO, layers |
 | Live Looper | One-pass takes dropped onto pads while the sequence keeps looping; layers without stopping; delete last take; conversion during the pass (IMMEDIATE) or after the first loop (AFTER 1ST LOOP), bit-identical either way; MIDI footswitch start/stop (AUDIO REC) |
+| Footswitch | Any MIDI channel and CC, learned from one press; polarity worked out automatically (AUTO), or set |
 | Recording defaults | Global start values on Additional Settings 2: sample rate (29.76 kHz; slider rates or SET to any), bit rate (12), anti-aliasing, normalize, Input Thru, mode |
 | Editing | Trim, loop, zones, warp, S-series timestretch, print effects; audio tracks; resampling |
 | Stem separation | Open-Unmix UMX-HQ on device: drums, bass, vocals, music; up to 20 s per sound |

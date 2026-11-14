@@ -821,6 +821,39 @@ static void sync_in(struct os *s, struct ui *u, int byte) {
     s->clk_t0 = now, s->clk_n = 0;
 }
 
+// The footswitch: on its channel (or any) and CC, with its polarity. <Learn> takes all three from
+// one press. AUTO works the polarity out as it goes: a pedal rests far longer than it is held, so
+// whichever level lasts longer is "up" (before anything is known, the level it rested at until its
+// first message is the other one). 1 when the message was the footswitch's.
+static int foot_in(struct os *s, struct ui *u, int ch, int cc, int value) {
+    struct midi_settings *M = &s->midi;
+    if (cc == 64 || cc == M->foot_cc || s->foot_learn) // what a pedal sends: for the indicator
+        s->foot_seen = 1, s->foot_last_ch = ch, s->foot_last_cc = cc, s->foot_last_val = value;
+    if (s->foot_learn) {
+        M->foot_chn = ch, M->foot_cc = cc, M->foot_pol = value >= 64 ? FPOL_NORMAL : FPOL_INVERTED;
+        s->foot_learn = 0, s->foot_known = 0;
+        char msg[40];
+        snprintf(msg, sizeof msg, "Footswitch: Chn %d CC %d %s", ch, cc, value >= 64 ? "NORM" : "INV");
+        toast(s, u, msg);
+        os_save_settings(s);
+        return 1;
+    }
+    if (M->sustain != SUS_FOOT || cc != M->foot_cc || (M->foot_chn && ch != M->foot_chn)) return 0;
+    int high = value >= 64, first = !s->foot_known;
+    if (!first && high == s->foot_high) return 1; // no change
+    int64_t now = now_ms(u), was = first ? INT64_C(1) << 40 : now - s->foot_t;
+    s->foot_dur[!high] = was; // the level that just ended (before the first message: the resting one)
+    s->foot_known = 1, s->foot_high = high, s->foot_t = now;
+    if (s->foot_dur[1] > s->foot_dur[0]) s->foot_inv = 1; // rests high: an inverted pedal
+    else if (s->foot_dur[0] > s->foot_dur[1]) s->foot_inv = 0;
+    // AUTO, and the first thing heard is "up": an inverted pedal pressed, or a keyboard resetting
+    // its pedal as it connects. Taken as inverted, but not acted on: the next press tells.
+    if (first && !high && M->foot_pol == FPOL_AUTO) return 1;
+    int inv = M->foot_pol == FPOL_INVERTED || (M->foot_pol == FPOL_AUTO && s->foot_inv);
+    if (high != inv) footswitch(s, u); // pressed
+    return 1;
+}
+
 static void midi_in(struct os *s, struct ui *u, const unsigned char *m, int from) {
     const struct midi_settings *M = &s->midi;
     if (from == MIDI_PORT_EXT ? !M->ext : !M->usb) return; // that port is switched off
@@ -848,12 +881,13 @@ static void midi_in(struct os *s, struct ui *u, const unsigned char *m, int from
         engine_set_bend(s->engine, (m[2] << 7 | m[1]) - 8192);
         return;
     }
+    if (st == 0xb0 && foot_in(s, u, ch, m[1], m[2])) return;
     if (st == 0xb0) {
         if (m[1] == 1) engine_set_mod(s->engine, m[2]), infx_wah_pedal(s, m[2]); // the wah follows the mod wheel
         if (m[1] == 64) { // the sustain pedal
             int down = m[2] >= 64;
             if (M->sustain == SUS_FOOT) {
-                if (down && !s->sus_down && ch == M->base) footswitch(s, u);
+                // the footswitch is read below, on its own channel and CC
             } else if (!down && s->sus_down) {
                 s->sus_down = 0;
                 sustain_up(s);
@@ -1163,11 +1197,15 @@ void os_load_settings(struct os *s) {
             snprintf(s->home_dir, sizeof s->home_dir, "%s", line + strlen(SETTING_HOME));
         if (strncmp(line, SETTING_MIDI, strlen(SETTING_MIDI)) == 0) {
             struct midi_settings m = s->midi;
-            int n = sscanf(line + strlen(SETTING_MIDI), "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+            int n = sscanf(line + strlen(SETTING_MIDI), "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
                            &m.ext, &m.base, &m.recv, &m.sync, &m.local, &m.thru, &m.sustain, &m.foot, &m.mixer_cc,
                            &m.cc_target, &m.cc[0], &m.cc[1], &m.cc[2], &m.cc[3], &m.cc[4], &m.cc[5], &m.cc[6], &m.usb,
-                           &m.sync_in);
-            if (n == 17 || n == 19) s->midi = m; // 17: saved before USB MIDI, which keeps its default
+                           &m.sync_in, &m.foot_chn, &m.foot_cc, &m.foot_pol);
+            if (n == 17 || n == 19 || n == 22) s->midi = m; // 17: before USB MIDI; 19: before the footswitch's own
+            s->midi.foot = s->midi.foot < 0 || s->midi.foot >= FOOT_MODES ? FOOT_PLAY : s->midi.foot;
+            s->midi.foot_chn = s->midi.foot_chn < 0 || s->midi.foot_chn > 16 ? 0 : s->midi.foot_chn;
+            s->midi.foot_cc = s->midi.foot_cc < 0 || s->midi.foot_cc > 127 ? 64 : s->midi.foot_cc;
+            s->midi.foot_pol = s->midi.foot_pol < 0 || s->midi.foot_pol >= FPOL_COUNT ? FPOL_AUTO : s->midi.foot_pol;
         }
         if (strncmp(line, SETTING_FX, strlen(SETTING_FX)) == 0) infx_load_line(s, line + strlen(SETTING_FX));
         if (strncmp(line, SETTING_PREFS, strlen(SETTING_PREFS)) == 0) prefs_load_line(s, line + strlen(SETTING_PREFS));
@@ -1203,7 +1241,7 @@ static int save_settings(const struct os *s) {
     fprintf(f, "%s%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", SETTING_MIDI, m->ext, m->base, m->recv, m->sync, m->local, m->thru,
             m->sustain, m->foot, m->mixer_cc, m->cc_target);
     for (int c = 0; c < MCC_COUNT; c++) fprintf(f, ",%d", m->cc[c]);
-    fprintf(f, ",%d,%d", m->usb, m->sync_in);
+    fprintf(f, ",%d,%d,%d,%d,%d", m->usb, m->sync_in, m->foot_chn, m->foot_cc, m->foot_pol);
     fprintf(f, "\n%s%d", SETTING_INPUT, s->input_src);
     char fx[1600];
     infx_save_line(s, fx, sizeof fx);
