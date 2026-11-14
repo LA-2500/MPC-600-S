@@ -11,8 +11,9 @@ static const char *const PADS[PAD_LIGHTS] = {"BLUE", "RED", "WHITE", "OFF"};
 static const char *const RES[SEQ_RES_COUNT] = {"MPC 3000", "MPC 2000", "SP12", "MPC60"};
 static const int PPQN[SEQ_RES_COUNT] = {96, 96, 24, 96};
 // The order the wheel shows them in (the MPC60 was added after the others were saved as numbers).
+static const char *const LOOP_CONV[LOOP_CONVS] = {"IMMEDIATE", "AFTER 1ST LOOP"};
 static const int RES_ORDER[SEQ_RES_COUNT] = {SEQ_RES_MPC3000, SEQ_RES_MPC60, SEQ_RES_MPC2000, SEQ_RES_SP1200};
-enum { PF_BUTTONS, PF_PADS, PF_THRESH, PF_RES, PF_SCREEN, PF_BPM, PF_BARS, PF_TC, PF_SWING, PF_FIELDS };
+enum { PF_BUTTONS, PF_PADS, PF_THRESH, PF_RES, PF_LOOPCONV, PF_SCREEN, PF_BPM, PF_BARS, PF_TC, PF_SWING, PF_FIELDS };
 
 static int clampi(int v, int lo, int hi) {
     return v < lo ? lo : v > hi ? hi : v;
@@ -55,6 +56,7 @@ void prefs_frame(struct os *s, struct ui *u, const struct input *in) {
             s->seq.swing = seq_swing_step(&s->seq, s->seq.swing, 0); // onto one of its settings
             pthread_mutex_unlock(&s->seq.lock);
             break;
+        case PF_LOOPCONV: s->loop_conv = clampi(s->loop_conv + d, 0, LOOP_CONVS - 1); break;
         case PF_SCREEN: s->screen_scheme = clampi(s->screen_scheme + d, 0, SCREEN_SCHEMES - 1); break;
         case PF_BPM: s->start_bpm10 = clampi(s->start_bpm10 + d * (in->shift ? 1 : 10), 300, 3000); break;
         case PF_BARS: s->start_bars = clampi(s->start_bars + d, 1, SEQ_MAX_BARS); break;
@@ -73,11 +75,11 @@ void prefs_frame(struct os *s, struct ui *u, const struct input *in) {
     snprintf(bars, sizeof bars, "%d", s->start_bars);
     snprintf(bpm, sizeof bpm, "%d.%d", s->start_bpm10 / 10, s->start_bpm10 % 10);
     snprintf(sw, sizeof sw, "%d%%", seq_swing_step(&s->seq, s->start_swing, 0));
-    const char *labels[PF_FIELDS] = {"Button Lights:", "Pad Lights:", "Pad Thresh:", "", "Screen:", "Start BPM:", "Start Bars:",
+    const char *labels[PF_FIELDS] = {"Button Lights:", "Pad Lights:", "Pad Thresh:", "", "Loop Conv:", "Screen:", "Start BPM:", "Start Bars:",
                                      "Start TC:", "Start Swing:"};
-    const char *values[PF_FIELDS] = {BUTTONS[s->button_lights], PADS[s->pad_lights], thresh, RES[s->seq.res],
+    const char *values[PF_FIELDS] = {BUTTONS[s->button_lights], PADS[s->pad_lights], thresh, RES[s->seq.res], LOOP_CONV[s->loop_conv],
                                      lcd_scheme_name(s->screen_scheme), bpm, bars, seq_tc_name(s->start_tc), sw};
-    const int rows[PF_FIELDS] = {3, 4, 5, 7, 9, 10, 11, 12, 13}, cols[PF_FIELDS] = {14, 14, 14, 14, 7, 12, 12, 12, 12};
+    const int rows[PF_FIELDS] = {3, 4, 5, 7, 8, 9, 10, 11, 12, 13}, cols[PF_FIELDS] = {14, 14, 14, 14, 10, 7, 12, 12, 12, 12};
     for (int i = 0; i < PF_FIELDS; i++) {
         lcd_text(u, 0, rows[i], labels[i]);
         snprintf(v, sizeof v, " %s ", values[i]);
@@ -108,16 +110,17 @@ void prefs_pad_lights(struct os *s, struct ui *u) {
 }
 
 void prefs_save_line(const struct os *s, char *b, size_t n) {
-    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res, s->screen_scheme, s->start_bpm10,
-             s->start_tc, s->start_swing, s->start_bars, s->inst_gain, s->inst_bright, s->pad_threshold);
+    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res, s->screen_scheme,
+             s->start_bpm10, s->start_tc, s->start_swing, s->start_bars, s->inst_gain, s->inst_bright, s->pad_threshold, s->loop_conv);
 }
 
 void prefs_load_line(struct os *s, const char *line) {
-    int v[11];
-    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7], &v[8], &v[9],
-                     &v[10]);
+    int v[12];
+    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7], &v[8], &v[9],
+                     &v[10], &v[11]);
     if (got >= 10) s->inst_gain = clampi(v[8], 0, 30), s->inst_bright = clampi(v[9], 0, 100);
     if (got >= 11) s->pad_threshold = clampi(v[10], 1, 60);
+    if (got >= 12) s->loop_conv = clampi(v[11], 0, LOOP_CONVS - 1);
     if (got != 4 && got < 7) return; // 4: saved before the Start settings, which keep their defaults
     if (got >= 8) s->start_bars = clampi(v[7], 1, SEQ_MAX_BARS);
     if (got >= 7) {

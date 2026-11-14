@@ -7,6 +7,11 @@
 // sequence from the start after a count-in; the take begins exactly on its first tick and
 // ends after the set length, or at STOP or <Stop>. A pad (an empty one) gets it, with a note
 // at the start of the active track, so it plays back with the sequence like an audio track.
+//
+// Live Looper (<Live Loop> on Audiotrack Record): one pass of the sequence recorded while it
+// keeps looping, made into a sound in the background and dropped onto the pad selected
+// beforehand, with a note at the start of the active track. It comes in on the pass it is
+// ready in, from where that pass is, and plays from the start of every pass after.
 #include "lcd.h"
 #include "os.h"
 #include "seq.h"
@@ -30,14 +35,16 @@ static const struct {
     {"Stem:", 9}, {"Mode:", 9}, {"Input:", 9}, {"Record:", 9}, {"Start:", 9}, {"Input Thru:", 12},
 };
 #define PAGE_FIELDS 10
-static const int PAGE[5][PAGE_FIELDS] = {
+static const int PAGE[6][PAGE_FIELDS] = {
     {F_INPUT, F_MODE, F_PITCH, F_THRES, F_BITS, F_RATE, F_AA, F_NORMALIZE, F_MONITOR, -1},
     {F_INPUT, F_MODE, F_PITCH, F_COUNT, F_LENGTH, F_BITS, F_RATE, F_AA, F_NORMALIZE, -1}, // Input Thru: on Sample New Sound
     {F_MODE, F_BITS, F_RATE, F_PITCH, F_AA, F_NORMALIZE, F_PAD, -1, -1, -1}, // Pad: last, a pad hit picks it anyway
     {F_STEM, F_SMODE, F_PAD, -1, -1, -1, -1, -1, -1, -1},
     {F_WHAT, F_START, F_THRES, F_MODE, F_PITCH, F_BITS, F_RATE, F_AA, F_NORMALIZE, F_RTHRU}, // Thres beside Start
+    {F_INPUT, F_MODE, F_PAD, F_PITCH, F_COUNT, F_BITS, F_RATE, F_AA, F_NORMALIZE, -1}, // Pad: the one it goes on
 };
-static const char *const TITLES[5] = {"Sample New Sound", "Audiotrack Record", "Convert Sample", "Stems", "Resample"};
+static const char *const TITLES[6] = {"Sample New Sound", "Audiotrack Record", "Convert Sample", "Stems", "Resample",
+                                      "Live Looper"};
 static const char *const STEM_NAMES[STEM_KINDS] = {"DRUMS", "BASS", "VOCALS", "MUSIC"};
 
 // The fields a page shows now. Resample shows Start only for LIVE, and Thres only for a
@@ -59,6 +66,7 @@ static const int BITS[] = {4, 8, 12, 16};
 #define NBITS 4
 #define THRES_OFF (-61) // below the lowest level: recording starts at once
 #define TAKE_PAD (-3)   // the engine pad <Play> plays a finished take on
+#define LP_FADE_MS 5   // Live Looper: the fade-in of a take coming in partway through a pass
 #define METER_ROW 12 // the meter takes the last three rows: nine fields above it
 #define WAVE_TOP (13 * CELL_H)
 #define WAVE_ROWS_H (2 * CELL_H)
@@ -90,6 +98,7 @@ void record_defaults(struct os *s) {
     s->rec_set[2] = (struct rec_settings){.mode = REC_MONO_LR, .bits = 12, .rate = 26040, .aa = 1, .normalize = 1};
     s->rec_set[4] = (struct rec_settings){.mode = REC_STEREO, .thres_db = -30, .bits = 16, .rate = 44100, .aa = 1,
                                           .start_force = 1};
+    s->rec_set[5] = *a, s->rec_set[5].length = RLEN_SEQ; // Live Looper: as Audiotrack Record, one pass
 }
 
 // SAMPLE REC: opens Sample New Sound, then flips between it and Audiotrack Record.
@@ -428,6 +437,329 @@ static void watch_audio_track(struct os *s) {
     }
 }
 
+// ---- Live Looper ----
+
+// The background work on a take: IMMEDIATE converts it while it comes in (st); AFTER 1ST LOOP
+// converts the raw take (src) while it already plays.
+struct lp_job {
+    pthread_t thread;
+    atomic_int done, cancel;
+    const struct recorder *rec;
+    struct rec_stream *st;
+    struct sample *src;
+    struct rec_format f;
+    struct sample *out;
+    int slot;
+};
+
+static void *lp_stream_thread(void *a) {
+    struct lp_job *j = a;
+    while (!atomic_load(&j->cancel) && !rec_stream_run(j->st, j->rec)) usleep(2000);
+    if (atomic_load(&j->cancel)) rec_stream_free(j->st);
+    else j->out = rec_stream_finish(j->st);
+    j->st = 0;
+    atomic_store(&j->done, 1);
+    return 0;
+}
+
+static void *lp_convert_thread(void *a) {
+    struct lp_job *j = a;
+    j->out = rec_convert(j->src, &j->f);
+    atomic_store(&j->done, 1);
+    return 0;
+}
+
+static struct rec_format lp_format(const struct os *s) {
+    const struct rec_settings *set = &s->rec_set[5];
+    int mode = s->input_src == INPUT_INST ? REC_MONO_L : set->mode; // an instrument is mono
+    return (struct rec_format){mode, set->rate, set->bits, set->aa, set->normalize, set->pitch, 0, 0};
+}
+
+static struct lp_job *lp_start(void *(*fn)(void *), struct lp_job *j) {
+    if (pthread_create(&j->thread, 0, fn, j) != 0) {
+        free(j);
+        return 0;
+    }
+    return j;
+}
+
+// Waits for a job and takes its result; the job goes.
+static struct sample *lp_join(struct lp_job **jp) {
+    struct lp_job *j = *jp;
+    if (!j) return 0;
+    pthread_join(j->thread, 0);
+    struct sample *out = j->out;
+    rec_stream_free(j->st);
+    free(j);
+    *jp = 0;
+    return out;
+}
+
+// <Rec>: the pass to record is the first after the count-in (stopped), or the next one (playing).
+static void looper_start(struct os *s, struct ui *u) {
+    const struct rec_settings *r = &s->rec_set[5];
+    int slot = s->selected;
+    if (!atomic_load(&s->rec.present)) {
+        os_toast(s, u, "No audio input");
+        return;
+    }
+    if (s->pads[slot].s) {
+        os_toast(s, u, "Select an empty pad first");
+        return;
+    }
+    pthread_mutex_lock(&s->seq.lock);
+    const struct seq_sequence *q = &s->seq.sequence[s->seq.current];
+    int track = s->seq.track, midi = q->track[track].type == TRACK_MIDI, loop = q->loop_bar;
+    int stopped = s->seq.mode == SEQ_STOPPED, wraps = s->seq.wrap_count;
+    long length = ticks_to_frames(q, seq_length(q));
+    pthread_mutex_unlock(&s->seq.lock);
+    if (midi) {
+        os_toast(s, u, "MIDI track: select a drum track");
+        return;
+    }
+    if (loop != 1) {
+        os_toast(s, u, "Set the sequence Loop TO BAR 1");
+        return;
+    }
+    s->lp_slot = slot, s->lp_track = track, s->lp_length = length, s->lp_pitch = r->pitch;
+    s->lp_latency = s->rec.latency; // played along to the sequence: the take is that much later
+    atomic_store(&s->rec.source, 0);
+    atomic_store(&s->rec.threshold, 0);
+    if (recorder_arm(&s->rec, max_frames(s)) != 0) return;
+    s->lp_session = 1;
+    if (stopped) {
+        seq_play_count_in(&s->seq, r->count_bars);
+        s->lp_state = LP_COUNT;
+    } else {
+        s->lp_wraps = wraps;
+        s->lp_state = LP_WAIT;
+    }
+}
+
+// <Stop>, or the sequence stopped: the take is let go; the sequence plays on.
+static void looper_abort(struct os *s) {
+    if (s->lp_state == LP_IDLE) return;
+    if (s->lp_job) atomic_store(&s->lp_job->cancel, 1);
+    recorder_stop(&s->rec);
+    s->lp_state = LP_ABORT;
+}
+
+// A take onto its pad, with a note at the start of the track, and in from where the pass is.
+static void looper_drop_in(struct os *s, struct ui *u, struct sample *t, int semi) {
+    int slot = s->lp_slot;
+    char name[24], msg[40];
+    snprintf(name, sizeof name, "Loop%02d", s->rec_count + 1);
+    if (s->pads[slot].s) { // filled meanwhile: kept in memory instead
+        if (os_memory_add(s, t, name) != 0) sample_free(t), os_toast(s, u, "Memory full");
+        else s->rec_count++, os_toast(s, u, "Pad not empty: kept in memory");
+        return;
+    }
+    os_undo_save(s, "Live Looper");
+    os_pad_load(s, slot, t, name);
+    s->pads[slot].p.semi = semi; // a pitched-up take plays at its own pitch
+    os_pad_push(s, slot);
+    s->rec_count++;
+    pthread_mutex_lock(&s->seq.lock);
+    const struct seq_sequence *q = &s->seq.sequence[s->seq.current];
+    long ticks = seq_length(q);
+    int playing = s->seq.mode != SEQ_STOPPED && s->seq.mode != SEQ_COUNT_IN && s->seq.mode != SEQ_WAITING;
+    double pos = s->seq.pos;
+    const struct seq_track *k = &q->track[s->lp_track];
+    int level = k->level, pan = k->pan, seqn = s->seq.current;
+    pthread_mutex_unlock(&s->seq.lock);
+    seq_add_note(&s->seq, seqn, s->lp_track, 0, slot, 127, ticks < 1 ? 1 : ticks > 65535 ? 65535 : (int)ticks);
+    if (s->lp_ntakes == LP_TAKES) memmove(s->lp_takes, s->lp_takes + 1, (LP_TAKES - 1) * sizeof s->lp_takes[0]);
+    else s->lp_ntakes++;
+    s->lp_takes[s->lp_ntakes - 1] = (struct lp_take){slot, seqn, s->lp_track, t};
+    long at = ticks > 0 ? (long)((double)t->frames * pos / ticks) : 0;
+    if (playing && at > 0 && at < t->frames - 64) { // this pass: from where it is, faded in so it does not click
+        struct pad_params p = s->pads[slot].p;
+        p.start = (int32_t)at;
+        if (p.attack_ms < LP_FADE_MS) p.attack_ms = LP_FADE_MS;
+        engine_note_on_layers(s->engine, os_pad_slot(s, slot), 127, 0, t, 0, &p, s->lp_track + 1, level, pan);
+    }
+    snprintf(msg, sizeof msg, "Looping on Pad %c%02d", 'A' + slot / 16, slot % 16 + 1);
+    os_toast(s, u, msg);
+}
+
+// AFTER 1ST LOOP: the converted take replaces the raw one on its pad, from the next pass.
+static void looper_swap(struct os *s, struct ui *u) {
+    int slot = s->lp_conv->slot;
+    struct sample *raw = s->lp_conv->src, *t = lp_join(&s->lp_conv);
+    int still = s->pads[slot].s == raw; // not deleted or replaced meanwhile
+    char name[24];
+    snprintf(name, sizeof name, "%s", s->pads[slot].name);
+    os_sample_release(s, raw); // the job's hold on it
+    if (!t) return;
+    if (!still) {
+        sample_free(t);
+        return;
+    }
+    os_pad_load(s, slot, t, name); // the raw one plays out its pass, then goes
+    s->pads[slot].p.semi = -s->rec_set[5].pitch;
+    os_pad_push(s, slot);
+    for (int i = 0; i < s->lp_ntakes; i++)
+        if (s->lp_takes[i].s == raw) s->lp_takes[i].s = t;
+    ui_wake(u, 1);
+}
+
+// <Del Take>: the last take's note and sound go, and its pad is selected for another try.
+static void looper_delete(struct os *s, struct ui *u) {
+    while (s->lp_ntakes > 0) {
+        struct lp_take k = s->lp_takes[--s->lp_ntakes];
+        if (s->pads[k.slot].s != k.s) continue; // changed since: not the take any more
+        unsigned char notes[128] = {0};
+        notes[k.slot & 127] = 1;
+        os_undo_save(s, "Delete Take");
+        seq_erase_range(&s->seq, k.seq, k.track, 0, 1, notes);
+        os_pad_clear(s, k.slot);
+        s->selected = k.slot;
+        char msg[40];
+        snprintf(msg, sizeof msg, "Take deleted: Pad %c%02d", 'A' + k.slot / 16, k.slot % 16 + 1);
+        os_toast(s, u, msg);
+        return;
+    }
+    os_toast(s, u, "No take to delete");
+}
+
+void looper_service(struct os *s, struct ui *u) {
+    if (s->lp_conv && atomic_load(&s->lp_conv->done)) looper_swap(s, u);
+    if (s->lp_conv) ui_wake(u, 20);
+    if (s->lp_state == LP_IDLE) return;
+    struct recorder *r = &s->rec;
+    int state = atomic_load(&r->state);
+    if (s->lp_state == LP_ABORT) {
+        if (state == REC_ARMED || state == REC_RECORDING) return; // stops on the next block
+        sample_free(lp_join(&s->lp_job));
+        recorder_discard(r);
+        s->lp_state = LP_IDLE;
+        os_toast(s, u, "Take stopped");
+        ui_wake(u, 1);
+        return;
+    }
+    pthread_mutex_lock(&s->seq.lock);
+    int stopped = s->seq.mode == SEQ_STOPPED, seen = s->seq.zero_seen, wraps = s->seq.wrap_count;
+    long long zero = s->seq.zero_clock, wrap = s->seq.wrap_clock;
+    pthread_mutex_unlock(&s->seq.lock);
+    if (stopped && s->lp_state != LP_ENDING) {
+        looper_abort(s);
+        return;
+    }
+    if (s->lp_state == LP_COUNT && seen) s->lp_zero = zero, s->lp_state = LP_REC;
+    if (s->lp_state == LP_WAIT && wraps != s->lp_wraps) s->lp_zero = wrap, s->lp_state = LP_REC;
+    if (s->lp_state == LP_REC && state != REC_ARMED && state != REC_RECORDING) { // out of memory before the end
+        sample_free(lp_join(&s->lp_job));
+        recorder_discard(r);
+        s->lp_state = LP_IDLE;
+        os_toast(s, u, "Out of memory");
+        return;
+    }
+    long skip = (long)(s->lp_zero - r->first_clock) + s->lp_latency;
+    if (s->lp_state == LP_REC && state == REC_RECORDING) {
+        if (!s->lp_job && s->loop_conv == LOOP_CONV_IMMEDIATE) { // converted as it comes in
+            struct lp_job *j = calloc(1, sizeof *j);
+            if (j) {
+                j->rec = r, j->f = lp_format(s);
+                j->st = rec_stream_new(&j->f, skip, s->lp_length);
+                if (!j->st) free(j);
+                else s->lp_job = lp_start(lp_stream_thread, j);
+            }
+        }
+        long left = skip + s->lp_length - atomic_load(&r->frames);
+        if (left <= 0) {
+            recorder_stop(r);
+            s->lp_state = LP_ENDING;
+        }
+        if (left < ENGINE_RATE / 5) ui_wake(u, 3); // close to the end: checked often, for a quick drop-in
+    }
+    if (s->lp_state != LP_ENDING) return;
+    ui_wake(u, 3);
+    if (state != REC_DONE) return;
+    if (s->loop_conv == LOOP_CONV_IMMEDIATE && s->lp_job) {
+        if (!atomic_load(&s->lp_job->done)) return;
+        struct sample *t = lp_join(&s->lp_job);
+        recorder_discard(r);
+        s->lp_state = LP_IDLE;
+        if (t) looper_drop_in(s, u, t, -s->lp_pitch);
+        else os_toast(s, u, "Out of memory");
+        return;
+    }
+    // AFTER 1ST LOOP (or no memory for the stream): the take as it is now, converted while it plays.
+    struct sample *raw = recorder_raw(r, lp_format(s).mode, skip, s->lp_length);
+    recorder_discard(r);
+    s->lp_state = LP_IDLE;
+    if (!raw) {
+        os_toast(s, u, "Out of memory");
+        return;
+    }
+    if (s->lp_conv) looper_swap(s, u); // the one before, finished first
+    looper_drop_in(s, u, raw, 0);
+    if (s->pads[s->lp_slot].s != raw) return; // kept in memory instead
+    struct lp_job *j = calloc(1, sizeof *j);
+    if (!j) return;
+    j->src = raw, j->f = lp_format(s), j->slot = s->lp_slot;
+    raw->refs++; // held while it is converted, even if the pad lets go
+    s->lp_conv = lp_start(lp_convert_thread, j);
+    if (!s->lp_conv) os_sample_release(s, raw);
+}
+
+// The Live Looper page: its settings while idle; while a take is under way, where it is.
+static void looper_frame(struct os *s, struct ui *u, const struct input *in) {
+    struct rec_settings *set = &s->rec_set[5];
+    int busy = s->lp_state != LP_IDLE;
+    int nf, list[PAGE_FIELDS];
+    nf = fields_of(s, 5, list);
+    if (!busy) {
+        if (input_down(in, IN_B1)) { // <Back>: Audiotrack Record
+            s->record_page = 1;
+            s->cursor_record = 0;
+            ui_wake(u, 1);
+            return;
+        }
+        if (input_down(in, IN_B3)) looper_start(s, u);
+        else if (input_down(in, IN_B2)) looper_delete(s, u); // <Del Take>
+        if (s->cursor_record >= nf) s->cursor_record = 0;
+        if (in->encoder_press) s->cursor_record = (s->cursor_record + (in->shift ? nf - 1 : 1)) % nf;
+        int kind = list[s->cursor_record];
+        int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
+        if (d && s->lp_state == LP_IDLE) change(s, set, kind, d);
+        if (in->fader_moved && kind == F_RATE) set->rate = CLASSIC[in->fader * NCLASSIC / 128];
+    } else if (input_down(in, IN_B3)) {
+        looper_abort(s);
+    }
+    busy = s->lp_state != LP_IDLE;
+    if (!busy) {
+        lcd_text(u, 0, KEY_ROW, "<Back>");
+        if (s->lp_ntakes > 0) lcd_text(u, 8, KEY_ROW, "<Del Take>");
+        lcd_text(u, 20, KEY_ROW, "<Rec>");
+    } else if (s->lp_state != LP_ABORT) {
+        lcd_text(u, 20, KEY_ROW, "<Stop>");
+    }
+    lcd_rule(u, TITLE_ROW, TITLES[5]);
+    for (int i = 0, row = 3; i < nf; i++, row++) {
+        char b[LCD_COLS + 1];
+        lcd_text(u, 0, row, KINDS[list[i]].label);
+        value(s, set, list[i], b, sizeof b);
+        if (i == s->cursor_record && !busy) lcd_inverse(u, KINDS[list[i]].col, row, b);
+        else lcd_text(u, KINDS[list[i]].col, row, b);
+    }
+    char line[LCD_COLS + 8];
+    if (s->lp_state == LP_REC && atomic_load(&s->rec.state) == REC_RECORDING) {
+        long left = s->lp_length - (atomic_load(&s->rec.frames) - (long)(s->lp_zero - s->rec.first_clock) - s->lp_latency);
+        if (left < 0) left = 0;
+        long tenths = left * 10 / ENGINE_RATE;
+        snprintf(line, sizeof line, "Loop Rec  %ld.%lds to go", tenths / 10, tenths % 10);
+        lcd_rule(u, METER_ROW, line);
+        draw_wave(u, s, 0);
+    } else {
+        lcd_rule(u, METER_ROW, s->lp_state == LP_COUNT ? "Count In" : s->lp_state == LP_WAIT ? "Waiting for bar 1"
+                               : s->lp_state == LP_ENDING ? "Dropping in"
+                               : "Meter");
+        draw_meter(u, s, THRES_OFF);
+    }
+    ui_wake(u, 40);
+}
+
 // ---- Stems: one stem of the pad's zone, separated in the background ----
 
 struct stem_job {
@@ -581,10 +913,14 @@ void record_frame(struct os *s, struct ui *u, const struct input *in) {
     struct rec_settings *set = &s->rec_set[s->record_page];
     recorder_service(r);
     watch_audio_track(s);
+    if (s->record_page == 5) {
+        looper_frame(s, u, in);
+        return;
+    }
     int state = atomic_load(&r->state);
     if (state == REC_IDLE && s->record_page <= 1) atomic_store(&r->source, 0); // the meter: the input,
     if (state == REC_IDLE && s->record_page == 4) atomic_store(&r->source, 1); // or on Resample the main output
-    if (state == REC_DONE && !s->rec_result) take_done(s, u);
+    if (state == REC_DONE && !s->rec_result && s->lp_state == LP_IDLE) take_done(s, u); // the Live Looper's is its own
     int waiting = s->rec_result != 0;
     if (waiting) { // the prompt: a pad assigns (in record_pad), <Play> previews, ENTER or <Keep> keeps
         if (input_down(in, IN_B1)) { // <Cancel>
@@ -611,13 +947,23 @@ void record_frame(struct os *s, struct ui *u, const struct input *in) {
             }
         }
     } else if (state == REC_ARMED || state == REC_RECORDING) {
-        if (input_down(in, IN_B3)) { // <Stop>, where <Rec> was: the take, and on Audiotrack Record the sequence
+        if (input_down(in, IN_B3) && s->lp_state != LP_IDLE) { // the Live Looper's take
+            looper_abort(s);
+        } else if (input_down(in, IN_B3)) { // <Stop>, where <Rec> was: the take, and on Audiotrack Record the sequence
             recorder_stop(r);
             if (s->at_running) seq_stop(&s->seq, 1);
             s->at_running = 0;
         }
     } else {
-        if (input_down(in, IN_B3) && s->record_page == 3) {
+        if (input_down(in, IN_B2) && s->record_page == 1) { // <Live Loop>
+            s->record_page = 5;
+            s->cursor_record = 0;
+            ui_wake(u, 1);
+            return;
+        }
+        if (input_down(in, IN_B3) && s->lp_state != LP_IDLE) {
+            os_toast(s, u, "Live Looper busy");
+        } else if (input_down(in, IN_B3) && s->record_page == 3) {
             stems_start(s, u);
             ui_wake(u, 1);
         } else if (input_down(in, IN_B3) && s->record_page == 2) {
@@ -663,6 +1009,7 @@ void record_frame(struct os *s, struct ui *u, const struct input *in) {
         lcd_text(u, 20, KEY_ROW, "<Stop>");
     } else {
         lcd_text(u, 0, KEY_ROW, "<Exit>");
+        if (s->record_page == 1) lcd_text(u, 8, KEY_ROW, "<Live Loop>");
         lcd_text(u, s->record_page == 2 ? 17 : s->record_page == 3 ? 19 : 20, KEY_ROW,
                  s->record_page == 2 ? "<Convert>" : s->record_page == 3 ? "<Do It>" : "<Rec>");
     }

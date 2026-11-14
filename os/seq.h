@@ -117,6 +117,10 @@ struct seq {
     int current, next; // next is the sequence queued while playing, or -1
     int track;         // the active track
     int rec_arm, metronome, count_in;
+    int click_audio;  // the metronome during audio track and Live Looper takes (and Resample SEQUENCE): 0 off
+    int audio_take;   // set by the OS while one of those takes runs (the count-in clicks either way)
+    int click_loop;   // after a Live Looper take, while the sequence plays on: 0 no click, 1 click
+    int loop_after;   // set by the OS: Live Looper takes made since the sequence started, none under way
     int click_rate;   // CLICK_*: how often the metronome clicks
     int click_volume; // 0..100
     int count_bars;   // bars of count-in
@@ -134,6 +138,8 @@ struct seq {
     unsigned char pad_mute[ENGINE_PROGRAMS][128], pad_solo[ENGINE_PROGRAMS][128];
     long long zero_clock; // the engine clock frame where a count-in ended and the sequence began
     int zero_seen;        // set then; seq_play_count_in clears it
+    long long wrap_clock; // the engine clock frame where the sequence last looped back
+    int wrap_count;       // how many times it has looped back since the OS started
     int stop_flush;
     int erase_note; // while ERASE and a pad are held during playback, or -1
     struct {

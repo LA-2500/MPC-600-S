@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 1.1 &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 1.2 &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -244,6 +244,8 @@
   <tr><td>Click</td><td>The metronome on or off.</td></tr>
   <tr><td>In Play</td><td>ON: it clicks whenever the sequence plays. OFF: only while recording.</td></tr>
   <tr><td>Volume, Rate</td><td>How loud, and how often: 1/4 to 1/32, with triplets.</td></tr>
+  <tr><td>Audio Rec</td><td>NO (the default): no click during an audio track or Live Looper take, or a Resample of the sequence, so none can bleed into the take through a microphone. YES: it clicks as set above. The count-in always clicks.</td></tr>
+  <tr><td>After Loop</td><td>After a Live Looper take, while the sequence plays on: STOP (the default) keeps the metronome quiet; CLICK keeps it going. Arming the next take hands it back to Audio Rec.</td></tr>
   <tr><td>Count-in</td><td>On or off.</td></tr>
   <tr><td>Type</td><td>COUNT IN: count the bars in. WAIT KEY: the recording starts the moment you press a pad or play a MIDI note, so a part can begin on its own first hit.</td></tr>
   <tr><td>Bars</td><td>How many bars to count in.</td></tr>
@@ -294,6 +296,40 @@
   <li>The pad needs to be empty: the take never overwrites a sound. A full pad asks you to choose again.</li>
   <li>On a MIDI track the take still goes on the pad, but no note is added: select a DRUM track to have it play with the sequence.</li>
 </ul>
+<h3>Live Looper</h3>
+<p><span class="key">&lt;Live Loop&gt;</span> on Audiotrack Record opens a page for takes that drop in while the sequence keeps playing, one pass at a time, as a looper does. Each take goes on its own pad with a note at the start of the active track, so the layers build up without the sequence stopping.</p>
+<ol>
+  <li>On the main page, set the sequence&rsquo;s Loop to <span class="lcd">TO BAR 1</span> and select a DRUM track.</li>
+  <li>On Live Looper, select an <strong>empty</strong> pad: press it, or turn the Pad field. The take goes there; a pad with a sound is refused.</li>
+  <li>Press <span class="key">&lt;Rec&gt;</span>. Stopped, the sequence counts in (Count In) and the first pass is the take. Playing, the take starts on the next bar 1.</li>
+  <li>At the end of the pass the sequence carries on, and the take drops onto the pad straight away (how it is converted: Live Loop Conversion, below), faded in over 5 ms from where the new pass is. From the next pass it plays from the top with the sequence.</li>
+  <li>Select the next empty pad and press <span class="key">&lt;Rec&gt;</span> again for another layer. Nothing has to stop.</li>
+  <li>Not happy with a take? <span class="key">&lt;Del Take&gt;</span> (B2) deletes the last one: its sound leaves the pad, its note leaves the track, and the pad is selected again, so <span class="key">&lt;Rec&gt;</span> records over it on the next pass. Pressed again, it deletes the take before, back through the last 16. It is one step of Undo as well.</li>
+</ol>
+{{shot:livelooper|Live Looper}}
+<table>
+  <tr><th>Field</th><th>What it does</th></tr>
+  <tr><td>Input, Mode</td><td>As on Audiotrack Record.</td></tr>
+  <tr><td>Pad</td><td>The pad the take goes on. It must be empty.</td></tr>
+  <tr><td>Pitch, Bit Rate, Sample Rate, Anti-Aliasing, Normalize</td><td>As on Sample New Sound. Every setting works while looping: the take is recorded at 44.1 kHz and 16 bits and converted after its pass.</td></tr>
+  <tr><td>Count In</td><td>Bars of count-in when starting from stopped: 2 (the default) or 1.</td></tr>
+</table>
+<ul>
+  <li><span class="key">&lt;Stop&gt;</span> during a take lets it go; the sequence plays on. <span class="key">STOP</span> stops the sequence and the take with it. <span class="key">&lt;Back&gt;</span> returns to Audiotrack Record.</li>
+  <li>The take is always one pass: the sequence&rsquo;s length, lined up with its first tick, with the input&rsquo;s delay taken out as on Audiotrack Record.</li>
+  <li>The conversion runs on its own thread, away from the audio, the pads and the screen: playing never stalls while a take is made.</li>
+  <li>The metronome during a take follows Audio Rec, and after it After Loop, on the metronome page.</li>
+</ul>
+{{shot:livelooper_done|A take dropped in, the sequence still looping}}
+<h4>Live Loop Conversion</h4>
+<p>A take is recorded at 44.1 kHz and 16 bits. Turning it into a sound at the page&rsquo;s settings is the same work as on Sample New Sound: for each new sample, a windowed-sinc filter (the anti-aliasing, and the pitch-up) reads the take between its samples; then the take is normalized to its peak and rounded to its bits. The filter is nearly all of the work, and normalizing needs the whole take, since its loudest point can come last. <strong>Loop Conv</strong> on Additional Settings (Chapter 15) chooses when that work is done:</p>
+<table>
+  <tr><th>Loop Conv</th><th>How it works</th><th>What you hear</th></tr>
+  <tr><td><strong>IMMEDIATE</strong> (default)</td><td>The filter runs while the pass is recorded, a background thread following a few milliseconds behind the input. When the pass ends, only its last few milliseconds, the normalize and the bits are left: well under a millisecond&rsquo;s work for 10 seconds of stereo on a computer, a few milliseconds on the MPC Sample.</td><td>The take at its own rate, bits and pitch from the start of the next pass, a few milliseconds in (the input&rsquo;s delay and that work), faded in.</td></tr>
+  <tr><td><strong>AFTER 1ST LOOP</strong></td><td>The take drops in as recorded, 44.1 kHz and 16 bits with no pitch-up, as soon as the pass ends. It is converted in the background while it plays, and the converted sound takes the pad&rsquo;s place for the passes after.</td><td>The first pass after the take clean and full-range, then the converted sound. Nothing runs while you record, so it suits <strong>longer takes</strong>: the processor is free for the pass, and the conversion has a whole loop to finish in.</td></tr>
+</table>
+<p>The result is the same either way, sample for sample: only the moment it is made differs. The tests check that the converted take is identical whichever way it is made.</p>
+
 <h3>Working With Audio Tracks</h3>
 <ul>
   <li>Record several takes onto different pads, and mute or solo them on Track Mute (PAD MUTE) to pick the best.</li>
@@ -638,7 +674,7 @@
 
 <h2>The Other Recording Pages</h2>
 <ul>
-  <li><strong>Audiotrack Record</strong>: <span class="key">&lt;Rec&gt;</span> plays the sequence from the start after a count-in; the take begins exactly on its first beat and lasts the sequence, twice it, or until STOP. Press an empty pad: it gets the take and a note at the start of the active track. Pitch works here too.</li>
+  <li><strong>Audiotrack Record</strong>: <span class="key">&lt;Rec&gt;</span> plays the sequence from the start after a count-in; the take begins exactly on its first beat and lasts the sequence, twice it, or until STOP. Press an empty pad: it gets the take and a note at the start of the active track. Pitch works here too. <span class="key">&lt;Live Loop&gt;</span> opens Live Looper.</li>
   <li><strong>Convert Sample</strong>: the selected pad&rsquo;s sound sampled again at a new rate, depth and pitch, as if it were played into the input. It replaces the sound on the pad; the original stays in memory.</li>
   <li><strong>Stems</strong>: separates a pad&rsquo;s sound (up to 20 seconds) into drums, bass, vocals or music, with Open-Unmix. EXTRACT keeps only that stem; REMOVE keeps the rest.</li>
   <li><strong>Resample</strong> (<span class="key">SHIFT + Pad 11</span>): records the main output, live or the whole sequence. It is taken after the Input and Track effects but before Master Effects. Input Thru: MUTE keeps the input out of the take, RECORD puts it in.</li>
@@ -892,6 +928,7 @@
   <li><strong>Pad Lights</strong>: light blue, red, white or off (default). Lit pads dim while pressed, more with pressure.</li>
   <li><strong>Pad Thresh</strong>: the lightest pad hit that counts, 1 to 60 (default 12). Raise it if pads play by themselves; lower it to play very softly. A light hit that comes within 25 ms of a much harder one on another pad is taken as the panel shaking and ignored. A knob, slider or volume reading that jumps far from the last is ignored unless the next reading confirms it, so a stray reading cannot jump a setting or drop the volume.</li>
   <li><strong>Sequencer Res</strong>: MPC 3000, MPC60, MPC 2000 (all 96 PPQN) or SP12 (24 PPQN). See Chapter 4.</li>
+  <li><strong>Loop Conv</strong> (Live Loop Conversion): how a Live Looper take becomes a sound at its Pitch, Sample Rate, Bit Rate, Anti-Aliasing and Normalize. <strong>IMMEDIATE</strong> (the default) or <strong>AFTER 1ST LOOP</strong>; see Live Looper in Chapter 3.</li>
   <li><strong>Screen</strong>: MPC3000 Blue (default), MPC60 Green, MPC1000 Green, MPC4000, MPC2000, Black/Red, Red/Black, Fairlight.</li>
   <li><strong>Start BPM</strong>: the tempo every sequence has at power-on (default 120.0; SHIFT with the wheel in tenths).</li>
   <li><strong>Start Bars</strong>: the length of every sequence at power-on (default 2).</li>

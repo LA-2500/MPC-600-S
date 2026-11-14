@@ -383,7 +383,7 @@ int disk_project_save(struct os *s, const char *dir) {
     }
     int32_t state[] = {sq->current, sq->track, sq->tc, sq->swing, sq->shift_later, sq->shift_ticks, sq->metronome,
                        sq->click_rate, sq->click_volume, sq->count_in, sq->count_bars, sq->count_wait, sq->rep_rate,
-                       sq->arp, sq->arp_pattern, sq->res};
+                       sq->arp, sq->arp_pattern, sq->res, sq->click_audio, sq->click_loop};
     wints(&b, state, (int)(sizeof state / 4));
     for (int g = 0; g < OS_PROGRAMS; g++) { // Pad Mute and Pad Solo, as bytes in ints
         int32_t m[128], so[128];
@@ -469,14 +469,15 @@ int disk_project_load(struct os *s, const char *dir) {
             if (i < SONG_STEPS) song->step[i].seq = (unsigned char)clampi(a, 0, SEQ_COUNT - 1), song->step[i].reps = (unsigned char)clampi(r, 1, 99), song->nsteps = i + 1;
         }
     }
-    int32_t st[16] = {0, 0, TC_16, 50, 0, 0, METRO_REC, CLICK_4, 80, 1, 1, 0, REP_16, 0, 0, SEQ_RES_MPC3000};
-    rints(&b, st, 16);
+    int32_t st[18] = {0, 0, TC_16, 50, 0, 0, METRO_REC, CLICK_4, 80, 1, 1, 0, REP_16, 0, 0, SEQ_RES_MPC3000, 0, 0};
+    rints(&b, st, 18);
     sq->current = clampi(st[0], 0, SEQ_COUNT - 1), sq->track = clampi(st[1], 0, SEQ_TRACKS - 1);
     sq->tc = clampi(st[2], 0, TC_COUNT - 1), sq->swing = clampi(st[3], 50, 75), sq->shift_later = st[4];
     sq->shift_ticks = clampi(st[5], 0, SEQ_PPQ / 2 - 1), sq->metronome = clampi(st[6], 0, 2), sq->click_rate = clampi(st[7], 0, CLICK_RATES - 1);
     sq->click_volume = clampi(st[8], 0, 100), sq->count_in = st[9] != 0, sq->count_bars = clampi(st[10], 1, SEQ_COUNT_BARS_MAX);
     sq->count_wait = st[11] != 0, sq->rep_rate = clampi(st[12], 0, REP_RATES - 1), sq->arp = st[13] != 0;
     sq->arp_pattern = clampi(st[14], 0, seq_arp_patterns() - 1), sq->res = clampi(st[15], 0, SEQ_RES_COUNT - 1);
+    sq->click_audio = st[16] != 0, sq->click_loop = st[17] != 0;
     sq->pos = 0, sq->next = -1;
     for (int g = 0; g < OS_PROGRAMS && b.ok; g++) {
         int32_t m[128] = {0}, so[128] = {0};

@@ -69,6 +69,18 @@ struct sample *recorder_take(struct recorder *r, const struct rec_format *f);
 // Convert Sample: a sound sampled again at the format's rate, pitch and bits, as if it were
 // played into the input (its own rate's audio, sampled at the new rate's instants).
 struct sample *rec_convert(const struct sample *src, const struct rec_format *f);
+// The same conversion as recorder_take, done while the take is still coming in (Live Looper:
+// IMMEDIATE): rec_stream_run converts whatever the frames so far allow, and once all `n`
+// frames from `skip` are in, rec_stream_finish normalizes and sets the bits, which is quick.
+// The result is exactly recorder_take's. Run and finish on one thread; the recorder may record on.
+struct rec_stream;
+struct rec_stream *rec_stream_new(const struct rec_format *f, long skip, long n);
+int rec_stream_run(struct rec_stream *st, const struct recorder *r); // 1 once every output is made
+struct sample *rec_stream_finish(struct rec_stream *st);              // frees st
+void rec_stream_free(struct rec_stream *st);
+// The take's frames as they are (44.1 kHz, 16 bits, no pitch), in the format's Mode (Live
+// Looper: AFTER 1ST LOOP plays this for one pass). The recorder must be done.
+struct sample *recorder_raw(const struct recorder *r, int mode, long skip, long n);
 
 // The sound resampled to 44.1 kHz just as the engine plays it, for files other gear can read.
 struct sample *rec_convert_44k(const struct sample *s);

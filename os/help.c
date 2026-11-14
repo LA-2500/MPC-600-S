@@ -95,7 +95,19 @@ static const struct {
      "Length: the sequence, twice it, or until STOP.\f"
      "Press an empty pad: it gets the take and a note at the start of the active track.\n"
      "Pitch works as on Sample New Sound.\n"
+     "<Live Loop>: takes that drop in while the sequence keeps looping.\n"
      "SAMPLE REC again: Convert Sample."},
+    {OS_RECORD, 5, "Live Looper",
+     "Select an empty pad, then <Rec>: one pass of the sequence is recorded and the sequence "
+     "keeps looping.\n"
+     "Stopped: a count-in first. Playing: the take starts on the next bar 1.\f"
+     "The take drops onto the pad, with a note at the start of the active track, on the pass "
+     "it is ready in.\n"
+     "Select another empty pad and <Rec> again to add a layer, without stopping.\f"
+     "<Del Take>: the last take's sound and note go, and its pad is selected to try again. "
+     "Pressed again, the take before.\n"
+     "<Stop> lets a take go. <Back>: Audiotrack Record.\n"
+     "How a take is converted: Loop Conv on Additional Settings."},
     {OS_RECORD, 2, "Convert Sample",
      "The selected pad's sound sampled again at a new rate, bits and pitch, as an old sampler "
      "would. It replaces the sound on the pad; the original stays in memory.\n"
@@ -151,6 +163,8 @@ static const struct {
      "Shift+Pad 14 opens this page."},
     {OS_METRO, -1, "Metronome",
      "Click on or off, In Play (also while playing), volume and rate.\n"
+     "Audio Rec: clicks during audio track and Live Looper takes (NO by default).\n"
+     "After Loop: CLICK goes on after a Live Looper take, STOP keeps quiet.\n"
      "Count-in: bars before recording, or wait for a pad or key to start."},
     {OS_ERASE, -1, "Erase",
      "Erases notes from a sequence: a track or all, a range, and pads you press (none is "
@@ -270,6 +284,10 @@ static const struct {
      "MPC 2000: 96 PPQN, swing 50-75. MPC 3000 moves in 2-tick steps at 1/16; MPC60 in 1-tick "
      "steps, as measured from its grooves; the 2000 rounds its swing down. SP12: 24 PPQN, "
      "swing 50, 54, 58, 63, 67, 71, as measured from SP-1200 grooves.\n"
+     "Loop Conv (Live Loop Conversion): IMMEDIATE converts a Live Looper take while its pass "
+     "is recorded, so it drops in at its own rate and bits a few ms after the pass. AFTER 1ST "
+     "LOOP drops the take in as recorded (44.1k, 16-bit) and converts it while it plays: the "
+     "converted one takes over from the next pass. Good for longer takes.\n"
      "Screen: the colours of other machines.\f"
      "Start BPM, Start Bars, Start TC and Start Swing: the tempo, the length of every "
      "sequence, Timing Correct and swing the MPC 600 S starts with at power-on."},

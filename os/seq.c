@@ -336,6 +336,8 @@ static void play_range(struct seq *s, const struct block *b, double start, doubl
 
 static int clicking(const struct seq *s) {
     if (s->mode == SEQ_COUNT_IN) return 1;
+    if (s->audio_take) return s->click_audio && s->metronome != METRO_OFF; // kept out of an audio take unless asked
+    if (s->loop_after) return s->click_loop && s->metronome != METRO_OFF;  // after a Live Looper take: After Loop
     if (s->metronome == METRO_ON) return 1;
     return s->metronome == METRO_REC && (s->mode == SEQ_RECORDING || s->mode == SEQ_OVERDUB);
 }
@@ -1001,6 +1003,8 @@ void seq_audio_block(void *ctx, struct engine *e, int frames) {
         } else {
             double loop = (double)(q->loop_bar - 1) * seq_bar_ticks(q);
             s->pos = loop < length ? loop : 0;
+            s->wrap_clock = clock + (long long)llround(b.done); // where the next pass begins (Live Looper)
+            s->wrap_count++;
         }
     }
     pthread_mutex_unlock(&s->lock);

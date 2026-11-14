@@ -180,6 +180,7 @@ static float value_at(const float *x, long n, const struct kernel *k, double t) 
 }
 
 static struct sample *make_sound(float *x[2], long n, int in_rate, int ch, const struct rec_format *f);
+static void finish_sound(struct sample *s, long count, const struct rec_format *f);
 
 struct sample *recorder_take(struct recorder *r, const struct rec_format *f) {
     if (atomic_load(&r->state) != REC_DONE) return 0;
@@ -231,7 +232,13 @@ static struct sample *make_sound(float *x[2], long n, int in_rate, int ch, const
     free(k.table);
     free(x[0]);
     free(x[1]);
+    finish_sound(s, out * ch, f);
+    return s;
+}
 
+// Normalized (if set) and rounded to the format's bits: the last of the conversion.
+static void finish_sound(struct sample *s, long count, const struct rec_format *f) {
+    long out = count, ch = 1;
     float top = (float)((1 << (f->bits - 1)) - 1) / (float)(1 << (f->bits - 1));
     if (f->normalize) {
         float peak = 0;
@@ -245,7 +252,6 @@ static struct sample *make_sound(float *x[2], long n, int in_rate, int ch, const
         float v = roundf(s->data[i] * q) / q;
         s->data[i] = v > top ? top : v < -1.0f ? -1.0f : v;
     }
-    return s;
 }
 
 struct sample *rec_convert(const struct sample *src, const struct rec_format *f) {
@@ -280,4 +286,94 @@ struct sample *rec_convert_44k(const struct sample *s) {
         for (int c = 0; c < s->channels; c++) n->data[i * s->channels + c] = s->data[j * s->channels + c];
     }
     return n;
+}
+
+// ---- The conversion while recording (Live Looper: IMMEDIATE) ----
+
+struct rec_stream {
+    struct rec_format f;
+    long skip, n, have; // the take's frames from skip, n of them, have copied so far
+    int ch;
+    float *x[2];        // the take as plain signals, as recorder_take makes them
+    struct sample *s;   // the sound, made so far up to `done`
+    long out, done;
+    double step;
+    struct kernel k;
+};
+
+void rec_stream_free(struct rec_stream *st) {
+    if (!st) return;
+    free(st->x[0]);
+    free(st->x[1]);
+    free(st->k.table);
+    sample_free(st->s);
+    free(st);
+}
+
+struct rec_stream *rec_stream_new(const struct rec_format *f, long skip, long n) {
+    struct rec_stream *st = calloc(1, sizeof *st);
+    if (!st) return 0;
+    st->f = *f, st->skip = skip < 0 ? 0 : skip, st->n = n < 1 ? 1 : n;
+    st->ch = f->mode == REC_STEREO ? 2 : 1;
+    // As make_sound: the same rate, step, size and kernel.
+    int rate = f->rate < 4000 ? 4000 : f->rate > ENGINE_RATE ? ENGINE_RATE : f->rate;
+    double speed = pow(2.0, (f->pitch < 0 ? 0 : f->pitch > 24 ? 24 : f->pitch) / 12.0);
+    st->step = speed * ENGINE_RATE / rate;
+    st->out = (long)floor((st->n - 1) / st->step) + 1;
+    double fc = f->aa ? 0.45 / st->step : 0.45;
+    if (fc > 0.45) fc = 0.45;
+    for (int c = 0; c < st->ch; c++) st->x[c] = malloc((size_t)st->n * sizeof(float));
+    st->s = sample_new((int32_t)st->out, st->ch, rate);
+    if (!st->x[0] || (st->ch == 2 && !st->x[1]) || !st->s || (st->step != 1.0 && kernel_make(&st->k, fc) != 0)) {
+        rec_stream_free(st);
+        return 0;
+    }
+    return st;
+}
+
+int rec_stream_run(struct rec_stream *st, const struct recorder *r) {
+    long avail = atomic_load_explicit(&((struct recorder *)r)->frames, memory_order_acquire) - st->skip;
+    if (avail > st->n) avail = st->n;
+    for (; st->have < avail; st->have++) { // the new frames, as plain signals
+        float l, rr;
+        recorder_frame(r, st->skip + st->have, &l, &rr);
+        if (st->ch == 2) st->x[0][st->have] = l, st->x[1][st->have] = rr;
+        else st->x[0][st->have] = st->f.mode == REC_MONO_L ? l : st->f.mode == REC_MONO_R ? rr : 0.5f * (l + rr);
+    }
+    int all = st->have >= st->n;
+    int half = st->step == 1.0 ? 0 : st->k.half;
+    // An output is made once every frame its kernel reaches is in (or all are: the end clamps).
+    for (; st->done < st->out; st->done++) {
+        double t = st->done * st->step;
+        if (!all && (long)floor(t) + half >= st->have) break;
+        for (int c = 0; c < st->ch; c++)
+            st->s->data[st->done * st->ch + c] = st->step == 1.0 ? st->x[c][st->done] : value_at(st->x[c], st->n, &st->k, t);
+    }
+    return st->done >= st->out;
+}
+
+struct sample *rec_stream_finish(struct rec_stream *st) {
+    if (!st) return 0;
+    struct sample *s = st->s;
+    st->s = 0;
+    if (s) finish_sound(s, st->out * st->ch, &st->f);
+    rec_stream_free(st);
+    return s;
+}
+
+struct sample *recorder_raw(const struct recorder *r, int mode, long skip, long n) {
+    long total = atomic_load_explicit(&((struct recorder *)r)->frames, memory_order_acquire);
+    if (skip < 0) skip = 0;
+    if (n > total - skip) n = total - skip;
+    if (n < 1) return 0;
+    int ch = mode == REC_STEREO ? 2 : 1;
+    struct sample *s = sample_new((int32_t)n, ch, ENGINE_RATE);
+    if (!s) return 0;
+    for (long i = 0; i < n; i++) {
+        float l, rr;
+        recorder_frame(r, skip + i, &l, &rr);
+        if (ch == 2) s->data[i * 2] = l, s->data[i * 2 + 1] = rr;
+        else s->data[i] = mode == REC_MONO_L ? l : mode == REC_MONO_R ? rr : 0.5f * (l + rr);
+    }
+    return s;
 }

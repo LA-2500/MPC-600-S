@@ -2181,6 +2181,15 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
             s->aud[i].until = 0;
         }
     recorder_service(&s->rec); // a take keeps going while other pages are shown
+    looper_service(s, u);      // and the Live Looper's, and its drop-in
+    int taking = s->at_running || (s->lp_state >= LP_COUNT && s->lp_state <= LP_ENDING); // the click: Audio Rec
+    if (s->seq.mode == SEQ_STOPPED && s->lp_state == LP_IDLE) s->lp_session = 0;
+    int after = s->lp_session && !taking; // and After Loop, between and after Live Looper takes
+    if (taking != s->seq.audio_take || after != s->seq.loop_after) {
+        pthread_mutex_lock(&s->seq.lock);
+        s->seq.audio_take = taking, s->seq.loop_after = after;
+        pthread_mutex_unlock(&s->seq.lock);
+    }
     atomic_store_explicit(&s->fx.bpm10, s->seq.sequence[s->seq.current].tempo10, memory_order_relaxed); // synced delays
     infx_follow_input(s); // LINE/MIC set on a record page
     s->master_dirty = 0; // Master Effects go with a project (and Autoload), not the settings: a blank start has them off

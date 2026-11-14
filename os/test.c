@@ -1444,7 +1444,23 @@ static void test_metronome_and_count_in(const char *shot_dir) {
     frame(&in);
     frame(&in);
     CHECK(os.seq.click_rate == CLICK_8);
-    os.cursor_metro = 6; // Bars
+    os.cursor_metro = 4; // Audio Rec: off unless asked
+    CHECK(os.seq.click_audio == 0);
+    frame(&in);
+    CHECK(os.seq.click_audio == 1);
+    in.encoder = -1;
+    frame(&in);
+    CHECK(os.seq.click_audio == 0);
+    in.encoder = 1;
+    os.cursor_metro = 5; // After Loop: STOP unless asked
+    CHECK(os.seq.click_loop == 0);
+    frame(&in);
+    CHECK(os.seq.click_loop == 1);
+    in.encoder = -1;
+    frame(&in);
+    CHECK(os.seq.click_loop == 0);
+    in.encoder = 1;
+    os.cursor_metro = 8; // Bars
     frame(&in);
     CHECK(os.seq.count_bars == 2);
     tap(IN_B1);
@@ -2740,6 +2756,181 @@ static void test_record_page(const char *shot_dir) {
     long before = os.pads[3].s->frames;
     tap(IN_B3);
     CHECK(os.pads[3].s->rate == ENGINE_RATE && labs(os.pads[3].s->frames - before * 2) <= 1);
+    os.screen = OS_MAIN;
+}
+
+// Live Looper (<Live Loop> on Audiotrack Record): a take of one pass while the sequence keeps
+// looping, made into a sound in the background and dropped onto the pad selected beforehand;
+// another can follow on the next pass without stopping.
+static float lp_buf[256];
+static void lp_block(int loud_after_zero) { // a block of input, as the audio thread runs, then output
+    long long clock = atomic_load(&e.clock);
+    for (int i = 0; i < 128; i++) {
+        int loud = !loud_after_zero || (os.seq.zero_seen && clock + i >= os.seq.zero_clock + os.rec.latency);
+        lp_buf[i * 2] = lp_buf[i * 2 + 1] = loud ? 0.5f : 0.0f;
+    }
+    recorder_input(&os.rec, lp_buf, 128, clock);
+    render(128);
+}
+
+static int lp_run(int loud_after_zero) { // until the take is in (or let go): the blocks it took
+    struct input idle = blank();
+    int b = 0;
+    for (; b < 20000 && (os.lp_state != LP_IDLE || os.lp_conv); b++) {
+        lp_block(loud_after_zero);
+        int near = os.lp_state == LP_ENDING || os.lp_conv;
+        if (b % 16 == 0 || near) frame(&idle);
+        if (near) usleep(200); // the conversion runs on its own thread
+    }
+    frame(&idle);
+    return b;
+}
+
+static void test_live_looper(const char *shot_dir) {
+    seq_fresh();
+    os.seq.metronome = METRO_REC;
+    os.seq.sequence[0].bars = 1; // 2 s at 120 BPM
+    CHECK(os.seq.sequence[0].loop_bar == 1);
+    load_pad(0);
+    tap(IN_SAMPLE_REC);
+    tap(IN_SAMPLE_REC);
+    CHECK(os.record_page == 1);
+    tap(IN_B2); // <Live Loop>
+    CHECK(os.screen == OS_RECORD && os.record_page == 5 && os.cursor_record == 0);
+    struct input idle = blank();
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "livelooper");
+    atomic_store(&os.rec.present, 1);
+    os.rec.latency = 300;
+    os.rec_set[5].count_bars = 1;
+    os.selected = 0; // A01 has a sound: a pad must be chosen first, and empty
+    tap(IN_B3);
+    CHECK(os.lp_state == LP_IDLE && strcmp(os.toast, "Select an empty pad first") == 0);
+
+    // From stopped: a count-in, then the first pass is the take. No click in it (Audio Rec NO).
+    os.selected = 6;
+    tap(IN_B3);
+    CHECK(os.lp_state == LP_COUNT && os.seq.mode == SEQ_COUNT_IN);
+    for (int b = 0; b < 2000 && os.lp_state == LP_COUNT; b++) lp_block(1), frame(&idle);
+    CHECK(os.lp_state == LP_REC && os.seq.audio_take);
+    render(128);
+    CHECK(voices() == 0); // the take's first beat: no click
+    lp_run(1);
+    const struct seq_track *k = &os.seq.sequence[0].track[0];
+    CHECK(os.pads[6].s && strcmp(os.pads[6].name, "Loop01") == 0 && labs(os.pads[6].s->frames - 2 * ENGINE_RATE) <= 2);
+    CHECK(os.pads[6].s->data[0] > 0.9f); // normalized, from the pass's first frame
+    CHECK(k->count == 1 && k->notes[0].tick == 0 && k->notes[0].note == 6 && k->notes[0].dur == 384);
+    CHECK(os.seq.mode != SEQ_STOPPED); // still looping
+    CHECK(os.seq.loop_after && !os.seq.audio_take);
+    if (shot_dir) write_shot(shot_dir, "livelooper_done");
+
+    // While it plays: another pad, another take, on the next pass. No stopping.
+    tap(IN_B3); // A07 is now full
+    CHECK(os.lp_state == LP_IDLE && strcmp(os.toast, "Select an empty pad first") == 0);
+    os.selected = 7;
+    int wraps = os.seq.wrap_count;
+    tap(IN_B3);
+    CHECK(os.lp_state == LP_WAIT);
+    lp_run(0);
+    CHECK(os.seq.wrap_count > wraps && os.pads[7].s && strcmp(os.pads[7].name, "Loop02") == 0);
+    CHECK(k->count == 2 && os.seq.mode != SEQ_STOPPED);
+
+    // After Loop CLICK: the metronome goes on after the take; STOP (the default) keeps it quiet.
+    os.seq.click_loop = 1;
+    int clicked = 0;
+    for (int b = 0; b < 800; b++) {
+        render(128);
+        if (os.seq.pos >= 0 && voices() > 2) clicked = 1; // two loops sounding, and a click
+    }
+    CHECK(clicked);
+    os.seq.click_loop = 0;
+
+    // AFTER 1ST LOOP: the raw take drops in at once (44.1 kHz, no pitch), and the converted one
+    // takes its place while it plays.
+    os.loop_conv = LOOP_CONV_AFTER;
+    os.rec_set[5].rate = 26040, os.rec_set[5].pitch = 12;
+    os.selected = 9;
+    tap(IN_B3);
+    CHECK(os.lp_state == LP_WAIT);
+    for (int b = 0; b < 20000 && os.lp_state != LP_IDLE; b++) {
+        lp_block(0);
+        if (b % 16 == 0 || os.lp_state == LP_ENDING) frame(&idle);
+    }
+    CHECK(os.pads[9].s && os.pads[9].s->rate == ENGINE_RATE && os.pads[9].p.semi == 0 && os.lp_conv);
+    lp_run(0);
+    CHECK(os.pads[9].s && os.pads[9].s->rate == 26040 && os.pads[9].p.semi == -12 && !os.lp_conv);
+    CHECK(strcmp(os.pads[9].name, "Loop03") == 0 && k->count == 3);
+    os.loop_conv = LOOP_CONV_IMMEDIATE;
+    os.rec_set[5].rate = 44100, os.rec_set[5].pitch = 0;
+
+    // <Del Take>: the last take's note and sound go, its pad selected; again, the one before.
+    tap(IN_B2);
+    CHECK(!os.pads[9].s && k->count == 2 && os.selected == 9 && strcmp(os.toast, "Take deleted: Pad A10") == 0);
+    tap(IN_B2);
+    CHECK(!os.pads[7].s && k->count == 1 && os.selected == 7 && os.pads[6].s);
+
+    // <Stop> during a take lets it go; the sequence plays on.
+    os.selected = 8;
+    tap(IN_B3);
+    CHECK(os.lp_state == LP_WAIT);
+    tap(IN_B3);
+    lp_run(0);
+    CHECK(os.lp_state == LP_IDLE && !os.pads[8].s && os.seq.mode != SEQ_STOPPED);
+
+    // How long a take takes to become a sound: 10 s of stereo at 26.04 kHz, 12 bits, +12.
+    struct recorder r;
+    memset(&r, 0, sizeof r);
+    recorder_arm(&r, 10 * ENGINE_RATE + 1000);
+    for (int b = 0; b < 10 * ENGINE_RATE / 128 + 1; b++) {
+        for (int i = 0; i < 256; i++) lp_buf[i] = 0.3f * sinf((float)(b * 128 + i / 2) * 0.05f);
+        recorder_service(&r);
+        recorder_input(&r, lp_buf, 128, 0);
+    }
+    recorder_stop(&r);
+    recorder_input(&r, lp_buf, 128, 0);
+    struct rec_format f = {REC_STEREO, 26040, 12, 1, 1, 12, 0, 10 * ENGINE_RATE};
+    struct timespec t0, t1, t2;
+    // IMMEDIATE: converted as it comes in, in pieces; at the end only the last of it and the
+    // normalize and bits are left. The result is exactly the after-the-pass one.
+    struct rec_stream *st = rec_stream_new(&f, 0, 10 * ENGINE_RATE);
+    CHECK(st != 0);
+    while (!rec_stream_run(st, &r)) CHECK(0); // all the frames are in already: done in one go
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    struct sample *streamed = rec_stream_finish(st);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    struct sample *t = recorder_take(&r, &f);
+    clock_gettime(CLOCK_MONOTONIC, &t2);
+    CHECK(t && streamed && t->frames == streamed->frames && t->channels == streamed->channels);
+    CHECK(t && streamed && memcmp(t->data, streamed->data, (size_t)t->frames * t->channels * sizeof(float)) == 0);
+    printf("  Live Looper: a 10 s stereo take at 26.04 kHz, 12 bits, +12: converted after the pass in %.0f ms, "
+           "the last step of IMMEDIATE %.1f ms, on this computer\n",
+           (t2.tv_sec - t1.tv_sec) * 1e3 + (t2.tv_nsec - t1.tv_nsec) / 1e6,
+           (t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) / 1e6);
+    sample_free(t);
+    sample_free(streamed);
+    // And in pieces as frames arrive: the same.
+    memset(&r, 0, sizeof r);
+    recorder_arm(&r, 3 * ENGINE_RATE);
+    struct rec_format g = {REC_MONO_LR, 11020, 8, 1, 1, 5, 0, 0};
+    st = rec_stream_new(&g, 1000, 2 * ENGINE_RATE);
+    int finished = 0;
+    for (int b = 0; b < 3 * ENGINE_RATE / 128 - 1; b++) {
+        for (int i = 0; i < 128; i++) lp_buf[i * 2] = 0.3f * sinf((float)(b * 128 + i) * 0.031f), lp_buf[i * 2 + 1] = 0.1f;
+        recorder_service(&r);
+        recorder_input(&r, lp_buf, 128, 0);
+        finished = rec_stream_run(st, &r);
+    }
+    CHECK(finished);
+    streamed = rec_stream_finish(st);
+    recorder_stop(&r);
+    recorder_input(&r, lp_buf, 128, 0);
+    g.skip = 1000, g.length = 2 * ENGINE_RATE;
+    t = recorder_take(&r, &g);
+    CHECK(t && streamed && t->frames == streamed->frames &&
+          memcmp(t->data, streamed->data, (size_t)t->frames * sizeof(float)) == 0);
+    sample_free(t);
+    sample_free(streamed);
+    seq_stop(&os.seq, 1);
     os.screen = OS_MAIN;
 }
 
@@ -4458,7 +4649,7 @@ static void test_help_and_locate(const char *shot_dir) {
                      OS_ERASE, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_SENDS, OS_MASTER, OS_MUTE, OS_SONG, OS_STEP,
                      OS_WARP, OS_PREFS, OS_DISK, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT};
         for (int i = 0; i < (int)(sizeof all / sizeof all[0]); i++) help_dump(&os, all[i]);
-        for (int r = 0; r < 5; r++) os.record_page = r, help_dump(&os, OS_RECORD);
+        for (int r = 0; r < 6; r++) os.record_page = r, help_dump(&os, OS_RECORD);
     }
     os.screen = OS_MAIN;
     CHECK(help_open(&os, 0) == 0); // the main page has none
@@ -5494,8 +5685,12 @@ static void test_prefs(const char *shot_dir) {
     in.encoder = 2;
     frame(&in);
     CHECK(os.seq.res == SEQ_RES_SP1200);
-    os.cursor_prefs = 4; // Screen: the MPC60's green
+    os.cursor_prefs = 4; // Loop Conv: IMMEDIATE (the default), AFTER 1ST LOOP
     in.encoder = 1;
+    CHECK(os.loop_conv == LOOP_CONV_IMMEDIATE);
+    frame(&in);
+    CHECK(os.loop_conv == LOOP_CONV_AFTER);
+    os.cursor_prefs = 5; // Screen: the MPC60's green
     frame(&in);
     CHECK(os.screen_scheme == SCREEN_MPC60 && lcd_bg != 0x408cfa);
     if (shot_dir) write_shot(shot_dir, "prefs");
@@ -5513,8 +5708,10 @@ static void test_prefs(const char *shot_dir) {
     close(fd);
     os.settings_path = path;
     os_save_settings(&os);
-    os.button_lights = 0, os.pad_lights = PAD_LIGHT_OFF, os.seq.res = 0, os.screen_scheme = 0;
+    os.button_lights = 0, os.pad_lights = PAD_LIGHT_OFF, os.seq.res = 0, os.screen_scheme = 0, os.loop_conv = 0;
     os_load_settings(&os);
+    CHECK(os.loop_conv == LOOP_CONV_AFTER);
+    os.loop_conv = LOOP_CONV_IMMEDIATE;
     CHECK(os.button_lights == BUTTON_WHITE && os.pad_lights == PAD_LIGHT_WHITE && os.seq.res == SEQ_RES_SP1200 &&
           os.screen_scheme == SCREEN_MPC60 && lcd_bg != 0x408cfa);
     unlink(path);
@@ -5923,6 +6120,7 @@ int main(int argc, char **argv) {
     test_hold_playback();
     test_record_page(argc > 1 ? argv[1] : 0);
     test_audio_track(argc > 1 ? argv[1] : 0);
+    test_live_looper(argc > 1 ? argv[1] : 0);
     test_stems(argc > 1 ? argv[1] : 0);
     test_input_select();
     test_resample(argc > 1 ? argv[1] : 0);

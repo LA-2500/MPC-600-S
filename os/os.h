@@ -17,7 +17,7 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM };
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_VERSION "LA Version 1.1 (11/13/26)" // 26 columns: a four-digit year will not fit
+#define OS_VERSION "LA Version 1.2 (11/14/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
 #define OS_POWER_FORCE_MS 15000 // if an orderly shutdown has not finished by then, cut the power
@@ -32,6 +32,10 @@ enum { PAD_LIGHT_BLUE, PAD_LIGHT_RED, PAD_LIGHT_WHITE, PAD_LIGHT_OFF, PAD_LIGHTS
 enum { MUTE_TRACK, MUTE_TRACK_SOLO, MUTE_PAD, MUTE_PAD_SOLO, MUTE_SEQUENCE, MUTE_TYPES };
 enum { LEVELS_VELOCITY, LEVELS_TUNE };
 enum { RLEN_SEQ, RLEN_DOUBLE, RLEN_MAX };
+// Live Looper: idle; counting in from stopped; waiting for the next pass; recording it; ending; made into a sound; stopped
+enum { LP_IDLE, LP_COUNT, LP_WAIT, LP_REC, LP_ENDING, LP_ABORT };
+enum { LOOP_CONV_IMMEDIATE, LOOP_CONV_AFTER, LOOP_CONVS }; // Live Loop Conversion
+#define LP_TAKES 16 // Live Looper takes <Del Take> can go back through
 enum { STEM_DRUMS, STEM_BASS, STEM_VOCALS, STEM_MUSIC, STEM_KINDS };
 #define STEMS_MAX_SECONDS 20
 struct stem_job;
@@ -188,8 +192,22 @@ struct os {
         int count_bars, length;  // Audiotrack: 1 or 2 bars of count-in; RLEN_*
         int start_force, what;   // Resample: start at once (else at the threshold); 0 LIVE, 1 SEQUENCE
         int thru_record;         // Resample: Input Thru 0 MUTE, 1 RECORD (in the take)
-    } rec_set[5]; // [3]: Stems, which has no recording settings; [4]: Resample
-    int record_page;             // which is shown: 0-1 SAMPLE REC, 2-3 Shift + SAMPLE REC, 4 Resample
+    } rec_set[6]; // [3]: Stems, which has no recording settings; [4]: Resample; [5]: Live Looper
+    int record_page;             // which is shown: 0-1 SAMPLE REC, 2-3 Shift + SAMPLE REC, 4 Resample, 5 Live Looper
+    // Live Looper: a take of one pass of the playing sequence, dropped onto the selected pad as it loops.
+    int lp_state;                // LP_*
+    int lp_slot, lp_track, lp_wraps, lp_latency, lp_pitch;
+    int lp_session;              // a take was started since the sequence last started: After Loop applies
+    long long lp_zero;           // the engine clock frame the take's pass begins
+    long lp_length;              // the pass in frames
+    struct lp_job *lp_job;       // IMMEDIATE: the take made into a sound while it is recorded
+    struct lp_job *lp_conv;      // AFTER 1ST LOOP: the take made into a sound while it already plays
+    int loop_conv;               // Live Loop Conversion (Additional Settings): LOOP_CONV_*
+    struct lp_take {
+        int slot, seq, track;
+        const struct sample *s;  // what the pad held when the take went on it
+    } lp_takes[LP_TAKES];
+    int lp_ntakes;
     int at_latency;              // frames from the sequence's start to its sound in the take
     int cursor_record, record_return, rec_count;
     int at_running;              // an audio track take is under way with the sequence
@@ -404,6 +422,7 @@ void record_open(struct os *s);
 void record_open_convert(struct os *s); // Shift + SAMPLE REC: Convert Sample
 void record_open_resample(struct os *s); // Shift + Pad 11: Resample
 void record_frame(struct os *s, struct ui *u, const struct input *in);
+void looper_service(struct os *s, struct ui *u); // every frame, on any page: the Live Looper's take
 int record_pad(struct os *s, struct ui *u, int slot); // 1 when the pad took the finished take
 
 // Undo and Redo, in undo.c. Call os_undo_save just before an audio command or a change to

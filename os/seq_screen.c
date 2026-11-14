@@ -12,7 +12,7 @@ enum {
     F_TRK, F_TYPE, F_ON, F_CHN, F_VEL, F_PGM,
     F_TC_NOTE, F_TC_SWING, F_TC_SHIFT, F_TC_AMOUNT, F_TC_TRACK,
     F_FROM_BAR, F_FROM_BEAT, F_FROM_TICK, F_TO_BAR, F_TO_BEAT, F_TO_TICK, F_TC_NOTES,
-    F_CLICK, F_INPLAY, F_CVOL, F_RATE, F_CIN, F_CTYPE, F_CBARS, F_KIT, F_PSND, F_PTYPE,
+    F_CLICK, F_INPLAY, F_CVOL, F_RATE, F_CAUDIO, F_CLOOP, F_CIN, F_CTYPE, F_CBARS, F_KIT, F_PSND, F_PTYPE,
     F_REP_TYPE, F_REP_RATE, F_ARP_PAT, F_REP_KEYS, F_ARP_CAT, F_ARP_OCT, F_ARP_GATE, F_ARP_LATCH, F_ARP_TRANS,
     F_E_SEQ, F_E_TRK, F_E_FROM_BAR, F_E_FROM_BEAT, F_E_FROM_TICK, F_E_TO_BAR, F_E_TO_BEAT, F_E_TO_TICK, F_E_NOTES,
 };
@@ -51,12 +51,12 @@ static const struct label TC_LABELS[] = {
 };
 
 static const struct field METRO_FIELDS[] = {
-    {F_CLICK, 3, 7}, {F_INPLAY, 4, 9}, {F_CVOL, 5, 8}, {F_RATE, 6, 6},
-    {F_CIN, 8, 10}, {F_CTYPE, 9, 6}, {F_CBARS, 10, 6},
+    {F_CLICK, 3, 7}, {F_INPLAY, 4, 9}, {F_CVOL, 5, 8}, {F_RATE, 6, 6}, {F_CAUDIO, 7, 11},
+    {F_CLOOP, 8, 12}, {F_CIN, 10, 10}, {F_CTYPE, 11, 6}, {F_CBARS, 12, 6},
 };
 static const struct label METRO_LABELS[] = {
-    {3, 0, "Click:"}, {4, 0, "In Play:"}, {5, 0, "Volume:"}, {6, 0, "Rate:"},
-    {8, 0, "Count-in:"}, {9, 0, "Type:"}, {10, 0, "Bars:"},
+    {3, 0, "Click:"}, {4, 0, "In Play:"}, {5, 0, "Volume:"}, {6, 0, "Rate:"}, {7, 0, "Audio Rec:"},
+    {8, 0, "After Loop:"}, {10, 0, "Count-in:"}, {11, 0, "Type:"}, {12, 0, "Bars:"},
 };
 static const char *const RATE_NAMES[CLICK_RATES] = {"1/4", "1/4T", "1/8", "1/8T", "1/16", "1/16T", "1/32"};
 static const char *const REP_NAMES[REP_RATES] = {"1/4", "1/4T", "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T"};
@@ -201,6 +201,8 @@ static void value(struct os *s, int id, char *b, size_t n) {
         snprintf(b, n, "%s", (s->seq.metronome == METRO_OFF ? s->metro_on_mode : s->seq.metronome) == METRO_ON ? "YES" : "NO");
         break;
     case F_CVOL: snprintf(b, n, "%3d", s->seq.click_volume); break;
+    case F_CAUDIO: snprintf(b, n, "%s", s->seq.click_audio ? "YES" : "NO"); break;
+    case F_CLOOP: snprintf(b, n, "%s", s->seq.click_loop ? "CLICK" : "STOP"); break;
     case F_RATE: snprintf(b, n, "%s", RATE_NAMES[s->seq.click_rate]); break;
     case F_REP_RATE: snprintf(b, n, "%s", REP_NAMES[s->seq.rep_rate]); break;
     case F_REP_KEYS: snprintf(b, n, "%s", s->rep_toggle ? "TOGGLE" : "HOLD"); break;
@@ -336,6 +338,8 @@ static void change(struct os *s, int id, int d, int fine) {
             sq->metronome = METRO_OFF;
         }
         break;
+    case F_CAUDIO: sq->click_audio = d > 0; break;
+    case F_CLOOP: sq->click_loop = d > 0; break;
     case F_INPLAY:
         s->metro_on_mode = (sq->metronome == METRO_OFF ? s->metro_on_mode : sq->metronome) == METRO_ON ? METRO_REC : METRO_ON;
         if (sq->metronome != METRO_OFF) sq->metronome = s->metro_on_mode;
@@ -1241,12 +1245,11 @@ void seq_metro_frame(struct os *s, struct ui *u, const struct input *in) {
     edit_fields(s, in, METRO_FIELDS, COUNT(METRO_FIELDS), &s->cursor_metro);
     lcd_text(u, 0, KEY_ROW, "<Back>");
     lcd_rule(u, TITLE_ROW, "Metronome");
-    lcd_rule(u, 7, "Count-in");
+    lcd_rule(u, 9, "Count-in");
     draw_labels(u, METRO_LABELS, COUNT(METRO_LABELS));
     draw_fields(s, u, METRO_FIELDS, COUNT(METRO_FIELDS), s->cursor_metro);
     if (sq->count_wait) {
-        lcd_text(u, 0, 12, "WAIT KEY: the first pad");
-        lcd_text(u, 0, 13, "or MIDI note starts it");
+        lcd_text(u, 0, 13, "A pad or MIDI note starts");
     }
     lcd_rule(u, BOTTOM_ROW, 0);
     pthread_mutex_unlock(&sq->lock);
