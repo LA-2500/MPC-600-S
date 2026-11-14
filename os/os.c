@@ -774,12 +774,16 @@ static void sustain_up(struct os *s) {
     s->sus_n = s->sus_rn = 0;
 }
 
-// The pedal as a footswitch: PLAY/STOP, or REC/OVERDUB (stopped, it starts an overdub;
-// playing, it punches in and out).
+// The pedal as a footswitch: PLAY/STOP, REC/OVERDUB (stopped, it starts an overdub;
+// playing, it punches in and out), or AUDIO REC (an audio track or Live Looper take).
 static void footswitch(struct os *s, struct ui *u) {
     pthread_mutex_lock(&s->seq.lock);
     int stopped = s->seq.mode == SEQ_STOPPED;
     pthread_mutex_unlock(&s->seq.lock);
+    if (s->midi.foot == FOOT_AUDIO) { // <Rec> or <Stop> on Audiotrack Record or Live Looper
+        record_foot(s, u);
+        return;
+    }
     if (s->midi.foot == FOOT_PLAY) {
         if (stopped) seq_play(&s->seq, 1);
         else seq_stop(&s->seq, 0);

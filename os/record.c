@@ -725,6 +725,39 @@ void looper_service(struct os *s, struct ui *u) {
     if (!s->lp_conv) os_sample_release(s, raw);
 }
 
+// The footswitch as AUDIO REC: what <Rec> or <Stop> does on Audiotrack Record or Live Looper.
+// On Audiotrack Record it records there; on Live Looper, or on any page once Live Looper takes
+// have started (select the next pad with SAMPLE + pad, then press the pedal), a Live Looper take.
+void record_foot(struct os *s, struct ui *u) {
+    int on_record = s->screen == OS_RECORD;
+    int looper = (on_record && s->record_page == 5) || (!(on_record && s->record_page == 1) && s->lp_session);
+    if (looper) {
+        if (s->lp_state == LP_IDLE) looper_start(s, u);
+        else looper_abort(s);
+        ui_wake(u, 1);
+        return;
+    }
+    if (!on_record || s->record_page != 1) {
+        os_toast(s, u, "Footswitch: open Audiotrack Record or Live Looper");
+        return;
+    }
+    int state = atomic_load(&s->rec.state);
+    if (s->rec_result) {
+        os_toast(s, u, "Assign the take first");
+    } else if (state == REC_ARMED || state == REC_RECORDING) { // <Stop>
+        recorder_stop(&s->rec);
+        if (s->at_running) seq_stop(&s->seq, 1);
+        s->at_running = 0;
+    } else if (s->lp_state != LP_IDLE) {
+        os_toast(s, u, "Live Looper busy");
+    } else if (!atomic_load(&s->rec.present)) {
+        os_toast(s, u, "No audio input");
+    } else {
+        start_audio_track(s); // <Rec>
+    }
+    ui_wake(u, 1);
+}
+
 // The Live Looper page: its settings while idle; while a take is under way, where it is.
 static void looper_frame(struct os *s, struct ui *u, const struct input *in) {
     struct rec_settings *set = &s->rec_set[5];

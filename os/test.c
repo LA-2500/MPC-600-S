@@ -3573,6 +3573,43 @@ static void test_midi_settings(const char *shot_dir) {
     midi_send_in(0xb0, 64, 127);
     CHECK(os.seq.mode == SEQ_STOPPED);
     midi_send_in(0xb0, 64, 0);
+
+    // Footswitch AUDIO REC: <Rec> and <Stop> on Audiotrack Record, and Live Looper takes.
+    os.midi.foot = FOOT_AUDIO;
+    atomic_store(&os.rec.present, 1);
+    int screen_was = os.screen;
+    os.screen = OS_MAIN;
+    midi_send_in(0xb0, 64, 127); // not on either page: nothing starts
+    midi_send_in(0xb0, 64, 0);
+    CHECK(!os.at_running && os.lp_state == LP_IDLE && os.seq.mode == SEQ_STOPPED);
+    os.screen = OS_RECORD, os.record_page = 1;
+    midi_send_in(0xb0, 64, 127);
+    midi_send_in(0xb0, 64, 0);
+    CHECK(os.at_running && os.seq.mode == SEQ_COUNT_IN && atomic_load(&os.rec.state) == REC_ARMED);
+    midi_send_in(0xb0, 64, 127); // <Stop>
+    midi_send_in(0xb0, 64, 0);
+    CHECK(!os.at_running && os.seq.mode == SEQ_STOPPED);
+    static float quiet[256];
+    recorder_input(&os.rec, quiet, 128, 0); // the take stops on the next block
+    recorder_discard(&os.rec);
+    os.record_page = 5; // Live Looper: a take on the selected empty pad
+    int sel_was = os.selected;
+    os.selected = 120;
+    os.seq.sequence[os.seq.current].loop_bar = 1;
+    midi_send_in(0xb0, 64, 127);
+    midi_send_in(0xb0, 64, 0);
+    CHECK(os.lp_state == LP_COUNT && os.seq.mode == SEQ_COUNT_IN);
+    midi_send_in(0xb0, 64, 127); // and again: let go
+    midi_send_in(0xb0, 64, 0);
+    CHECK(os.lp_state == LP_ABORT);
+    recorder_input(&os.rec, quiet, 128, 0);
+    seq_stop(&os.seq, 1);
+    struct ui fu = {.px = px, .now_ms = 1000, .track_led = -1};
+    looper_service(&os, &fu);
+    CHECK(os.lp_state == LP_IDLE);
+    os.lp_session = 0, os.selected = sel_was, os.screen = screen_was, os.record_page = 0;
+    atomic_store(&os.rec.present, 0);
+    os.midi.foot = FOOT_PLAY;
     os.midi.sustain = SUS_NORMAL;
 
     // Local Mode off: a pad goes out as MIDI on Base Chn and makes no sound here.

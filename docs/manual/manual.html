@@ -319,6 +319,7 @@
   <li>The take is always one pass: the sequence&rsquo;s length, lined up with its first tick, with the input&rsquo;s delay taken out as on Audiotrack Record.</li>
   <li>The conversion runs on its own thread, away from the audio, the pads and the screen: playing never stalls while a take is made.</li>
   <li>The metronome during a take follows Audio Rec, and after it After Loop, on the metronome page.</li>
+  <li>A MIDI footswitch set to <strong>AUDIO REC</strong> (MIDI Settings, Chapter 15) is <span class="key">&lt;Rec&gt;</span> and <span class="key">&lt;Stop&gt;</span>, here and on any page once takes have started.</li>
   <li>To set a loop&rsquo;s volume (or anything else) while it plays, hold <span class="key">SAMPLE</span> and press its pad: it is selected without sounding or retriggering (Chapter 8).</li>
 </ul>
 {{shot:livelooper_done|A take dropped in, the sequence still looping}}
@@ -911,7 +912,15 @@
 <!-- ===================================================================================== -->
 <h1 class="chapter" id="ch15"><small>Chapter 15</small>MIDI and Additional Settings</h1>
 <h2>MIDI Settings</h2>
-<p><span class="key">SHIFT + Pad 8</span>: Ext and USB MIDI, Base and Receive channels, Sync (send or receive MIDI clock), Local Mode, Soft Thru, and the sustain pedal (normal, to duration, or footswitch). <span class="key">&lt;CC&gt;</span> opens the Mixer CC page: <strong>Mixer CC</strong> on or off, its Target (the bank&rsquo;s 16 strips, or the selected track), and each control&rsquo;s CC (Level, Pan, EQ Low, Mid and High, Mute, Solo), all off by default.</p>
+<p><span class="key">SHIFT + Pad 8</span>: Ext and USB MIDI, Base and Receive channels, Sync (send or receive MIDI clock), Local Mode, Soft Thru, and the sustain pedal (normal, to duration, or footswitch).</p>
+<p><strong>Footswitch</strong>: with Sustain set to FOOTSWITCH, a pedal on Base Chn (MIDI CC 64) works the transport instead of holding notes:</p>
+<table>
+  <tr><th>Footswitch</th><th>The pedal</th></tr>
+  <tr><td>PLAY/STOP</td><td>Starts the sequence from the top, or stops it.</td></tr>
+  <tr><td>REC/OVERDUB</td><td>Stopped: starts an overdub. Playing: punches recording in and out.</td></tr>
+  <tr><td>AUDIO REC</td><td>Is <span class="key">&lt;Rec&gt;</span> and <span class="key">&lt;Stop&gt;</span> on Audiotrack Record and Live Looper, so takes can be started with the hands on the instrument. On Audiotrack Record it starts a take (count-in and all) or stops one. On Live Looper it starts a take on the selected empty pad, or lets one go. Once Live Looper takes have started, it works from any page: select the next empty pad with <span class="key">SAMPLE</span> + pad, and press the pedal for the next layer. Anywhere else it does nothing but say where to go.</td></tr>
+</table>
+<p> <span class="key">&lt;CC&gt;</span> opens the Mixer CC page: <strong>Mixer CC</strong> on or off, its Target (the bank&rsquo;s 16 strips, or the selected track), and each control&rsquo;s CC (Level, Pan, EQ Low, Mid and High, Mute, Solo), all off by default.</p>
 <p><strong>Learning CCs.</strong> Press <span class="key">B2 &lt;Learn&gt;</span> and move a knob, fader or button on your controller. The selected control takes that CC, Mixer CC turns on so it answers at once, and the cursor moves to the next control. Press &lt;Learn&gt; again and move the next knob, and so on down the list. Pressed while the cursor is on Mixer CC or Target, &lt;Learn&gt; starts at Level. Press it again before moving anything to cancel. A CC can also be set with the wheel; below 0 is OFF. <span class="key">B3 &lt;Default&gt;</span> sets every CC back to OFF.</p>
 <p> <span class="key">&lt;Notes&gt;</span> sets the note each pad sends and answers to: press a pad and turn the wheel, or <span class="key">&lt;Learn&gt;</span> and play the note.</p>
 <h3>Pad Note Templates</h3>

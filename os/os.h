@@ -62,7 +62,7 @@ struct master {
 enum { SEQ_ASK_NONE, SEQ_ASK_BARS, SEQ_ASK_BPM_DOUBLE, SEQ_ASK_BPM_HALF };
 enum { SYNC_OFF, SYNC_SEND, SYNC_RECEIVE };
 enum { SUS_NORMAL, SUS_DURATION, SUS_FOOT };
-enum { FOOT_PLAY, FOOT_REC };
+enum { FOOT_PLAY, FOOT_REC, FOOT_AUDIO, FOOT_MODES }; // FOOT_AUDIO: <Rec>/<Stop> on Audiotrack Record or Live Looper
 enum { MCC_LEVEL, MCC_PAN, MCC_LOW, MCC_MID, MCC_HIGH, MCC_MUTE, MCC_SOLO, MCC_COUNT };
 enum { CCT_BANK, CCT_SELECTED };
 // The MIDI Settings page, saved to the card with the other settings.
@@ -431,6 +431,7 @@ void record_open_convert(struct os *s); // Shift + SAMPLE REC: Convert Sample
 void record_open_resample(struct os *s); // Shift + Pad 11: Resample
 void record_frame(struct os *s, struct ui *u, const struct input *in);
 void looper_service(struct os *s, struct ui *u); // every frame, on any page: the Live Looper's take
+void record_foot(struct os *s, struct ui *u);    // the footswitch as AUDIO REC: <Rec> or <Stop> there
 int record_pad(struct os *s, struct ui *u, int slot); // 1 when the pad took the finished take
 
 // Undo and Redo, in undo.c. Call os_undo_save just before an audio command or a change to

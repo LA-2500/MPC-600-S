@@ -64,7 +64,7 @@ static void m_change(struct midi_settings *m, int f, int d) {
     case M_LOCAL: m->local = d > 0; break;
     case M_THRU: m->thru = d > 0; break;
     case M_SUS: m->sustain = clampi(m->sustain + d, SUS_NORMAL, SUS_FOOT); break;
-    case M_FOOT: m->foot = d > 0 ? FOOT_REC : FOOT_PLAY; break;
+    case M_FOOT: m->foot = clampi(m->foot + d, FOOT_PLAY, FOOT_MODES - 1); break;
     }
 }
 
@@ -83,7 +83,7 @@ static void m_value(const struct midi_settings *m, int f, char *b, size_t n) {
     case M_LOCAL: snprintf(b, n, " %s ", m->local ? "ON" : "OFF"); break;
     case M_THRU: snprintf(b, n, " %s ", m->thru ? "ON" : "OFF"); break;
     case M_SUS: snprintf(b, n, " %s ", sus[m->sustain]); break;
-    case M_FOOT: snprintf(b, n, " %s ", m->foot == FOOT_REC ? "REC/OVERDUB" : "PLAY/STOP"); break;
+    case M_FOOT: snprintf(b, n, " %s ", m->foot == FOOT_AUDIO ? "AUDIO REC" : m->foot == FOOT_REC ? "REC/OVERDUB" : "PLAY/STOP"); break;
     }
 }
 

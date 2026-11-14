@@ -109,6 +109,8 @@ static const struct {
      "Pressed again, the take before.\n"
      "<Stop> lets a take go. <Back>: Audiotrack Record.\n"
      "SAMPLE + pad: select a loop to edit without retriggering it.\n"
+     "Footswitch AUDIO REC (MIDI Settings): the pedal is <Rec>/<Stop>, here or on any page "
+     "once takes have started.\n"
      "How a take is converted: Loop Conv on Additional Settings."},
     {OS_RECORD, 2, "Convert Sample",
      "The selected pad's sound sampled again at a new rate, bits and pitch, as an old sampler "
@@ -195,6 +197,8 @@ static const struct {
     {OS_MIDI, -1, "MIDI Settings",
      "Ports (Ext, USB), Base and Receive channels, Sync send or receive, Local Mode, Soft "
      "Thru, Sustain pedal.\n"
+     "Sustain FOOTSWITCH: the pedal (on Base Chn) is a Footswitch: PLAY/STOP, REC/OVERDUB, or "
+     "AUDIO REC, which is <Rec> and <Stop> on Audiotrack Record and Live Looper.\f"
      "<CC>: Mixer CC, the mixer under MIDI CC.\n"
      "<Notes>: the note each pad sends and answers to. <Learn> on either listens for one."},
     {OS_CCMAP, -1, "CC Map",
