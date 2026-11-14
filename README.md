@@ -6,16 +6,16 @@ Sampler and sequencer OS for the **Akai MPC Sample**, based on the design of the
 
 | | |
 |---|---|
-| **[⬇ OS (mpc-os.zip)](../../releases/latest/download/mpc-os.zip)** | SD-card package |
+| **[⬇ OS v1.2 (MPC-600-S-OS-v1.2.zip)](../../releases/latest/download/MPC-600-S-OS-v1.2.zip)** | SD-card package |
 | **[⬇ Quick Start (PDF)](../../releases/latest/download/MPC-600-S-Quick-Start.pdf)** | Installation, 3 pages |
-| **[⬇ Operator's Manual (PDF)](../../releases/latest/download/MPC-600-S-Manual.pdf)** | Full reference |
+| **[⬇ Operator's Manual v1.2 (PDF)](../../releases/latest/download/MPC-600-S-Manual-v1.2.pdf)** | Full reference |
 | [⬇ Stems models (107 MB, optional)](../../releases/latest/download/MPC600S-stems.zip) | Required only by the Stems page |
 
 Links resolve to the latest release. Earlier versions: [Releases](../../releases).
 
 ## Install
 
-1. Extract **mpc-os.zip**. Copy the `autorun` folder to the SD card root (FAT32 or exFAT). Do not rename or edit its files: the stock runner verifies `autorun.check` (SHA-256) before execution.
+1. Extract **MPC-600-S-OS-v1.2.zip**. Copy the `autorun` folder to the SD card root (FAT32 or exFAT). Do not rename or edit its files: the stock runner verifies `autorun.check` (SHA-256) before execution.
 2. Power on with the card inserted. The stock OS boots; the MPC 600 S stops it and takes over the display and panel within 45 s of power-on.
 3. Stock OS: power off, remove the card. Update: replace the `autorun` folder. User data in `MPC600S/` is not touched.
 
