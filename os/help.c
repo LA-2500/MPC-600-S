@@ -27,6 +27,7 @@ static const struct {
     {OS_SAMPLE, -1, "Edit Sound",
      "Edits the pad last pressed. K1-K3 set the three values shown; the slider moves the "
      "framed one.\n"
+     "Hold SAMPLE and press a pad: selected without playing it (a loop keeps going as it is).\n"
      "Pages:\nB1: Trim, Vol.\nB2: Tune, Poly, Envel, Vel Mod.\nB3: Filter, Flt Env.\nPress a B key again "
      "for the next page in its group.\f"
      "Hidden keys:\n"
@@ -107,6 +108,7 @@ static const struct {
      "<Del Take>: the last take's sound and note go, and its pad is selected to try again. "
      "Pressed again, the take before.\n"
      "<Stop> lets a take go. <Back>: Audiotrack Record.\n"
+     "SAMPLE + pad: select a loop to edit without retriggering it.\n"
      "How a take is converted: Loop Conv on Additional Settings."},
     {OS_RECORD, 2, "Convert Sample",
      "The selected pad's sound sampled again at a new rate, bits and pitch, as an old sampler "

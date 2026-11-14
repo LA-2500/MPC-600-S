@@ -319,6 +319,7 @@
   <li>The take is always one pass: the sequence&rsquo;s length, lined up with its first tick, with the input&rsquo;s delay taken out as on Audiotrack Record.</li>
   <li>The conversion runs on its own thread, away from the audio, the pads and the screen: playing never stalls while a take is made.</li>
   <li>The metronome during a take follows Audio Rec, and after it After Loop, on the metronome page.</li>
+  <li>To set a loop&rsquo;s volume (or anything else) while it plays, hold <span class="key">SAMPLE</span> and press its pad: it is selected without sounding or retriggering (Chapter 8).</li>
 </ul>
 {{shot:livelooper_done|A take dropped in, the sequence still looping}}
 <h4>Live Loop Conversion</h4>
@@ -533,6 +534,7 @@
 
 <h2>A Pad&rsquo;s Settings</h2>
 <p><span class="key">SAMPLE</span> opens the settings of the pad last played (on an MPC program). The page opens on <strong>Vol</strong>. <span class="key">B1</span> steps Trim and Vol, <span class="key">B2</span> Tune, Poly, Envel and Vel Mod, <span class="key">B3</span> Filter and Flt Env; <span class="key">K1</span>&ndash;<span class="key">K3</span> set the three values shown. <strong>Sample:</strong> at the top swaps the pad&rsquo;s sound for any in memory.</p>
+<p><strong>Selecting a pad without playing it:</strong> hold <span class="key">SAMPLE</span> and press the pad. It becomes the selected pad, and nothing else happens: it does not sound, Note Repeat does not start, nothing goes out over MIDI (Local Mode off, or a MIDI track), and no note is recorded, even while the sequence records. Useful for setting a looping pad&rsquo;s volume while it plays, without starting it again. (The first press of SAMPLE also opens this page, or the S600 page on an S600 program.)</p>
 <ul>
   <li><strong>Trim</strong>: Zone Start, Zone End, and <strong>Do</strong> (on <span class="key">K3</span>): Discard, Normalize, Extract, Silence Zone, Reverse Zone, Delete Zone, Copy Zone&rarr;Temp, Insert Temp at Zone Start or End, Convert 44.1k. <span class="key">B3</span> does it. On Trim the slider steps Zone Start through the hits found in the sound. <span class="key">SHIFT + Pad 13</span> opens Trim from anywhere.</li>
   <li><strong>Vol</strong>: Volume, Pan. <strong>Tune</strong>: Semi, Fine. <strong>Poly</strong>: Poly/Mono, Mute Group, Also Play. <strong>Envel</strong>: Attack, Decay, Decay Mode. <strong>Vel Mod</strong>: velocity to level, attack and start.</li>

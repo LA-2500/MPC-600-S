@@ -2877,6 +2877,29 @@ static void test_live_looper(const char *shot_dir) {
     lp_run(0);
     CHECK(os.lp_state == LP_IDLE && !os.pads[8].s && os.seq.mode != SEQ_STOPPED);
 
+    // SAMPLE + pad selects a looping pad to edit without playing it: not with Note Repeat on,
+    // not out with Local Mode off, not on a MIDI track, and nothing recorded.
+    os.screen = OS_SAMPLE, os.bank = 0, os.selected = 0;
+    seq_rec_button(&os.seq); // overdubbing as it loops
+    int notes = k->count;
+    for (int mode = 0; mode < 3; mode++) {
+        os.seq.repeat = mode == 0, os.midi.local = mode != 1;
+        os.seq.sequence[0].track[0].type = mode == 2 ? TRACK_MIDI : TRACK_DRUM;
+        os.seq.sequence[0].track[0].channel = mode == 2 ? 1 : 0;
+        int before = voices();
+        struct input sel = blank();
+        sel.pad_hit[6] = 100, sel.pad_down[6] = 1, sel.held = 1u << IN_SAMPLE;
+        frame(&sel);
+        render(128);
+        CHECK(os.selected == 6 && !os.repeat_pad[6] && os.live_midi[6] < 0 && os.sounding[6] < 0 && voices() <= before);
+        sel = blank();
+        sel.pad_release[6] = 1, sel.held = 1u << IN_SAMPLE;
+        frame(&sel);
+        os.selected = 0;
+    }
+    CHECK(k->count == notes);
+    os.seq.repeat = 0, os.midi.local = 1, os.seq.sequence[0].track[0].type = TRACK_DRUM, os.seq.sequence[0].track[0].channel = 0;
+
     // How long a take takes to become a sound: 10 s of stereo at 26.04 kHz, 12 bits, +12.
     struct recorder r;
     memset(&r, 0, sizeof r);

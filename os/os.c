@@ -980,10 +980,14 @@ static void pad_down(struct os *s, struct ui *u, const struct input *in, int i) 
     if (s->screen == OS_ERASE) seq_erase_pad(s, note);
     if (padnotes_pad(s, u, slot)) return; // Pad Notes: a pad picks the one to set
     infx_pad_pressed(s, slot);            // Pad Effects: the chain goes to the pad pressed
+    if (in->held & (1u << IN_SAMPLE)) { // SAMPLE + pad: selects it only; nothing plays, repeats, goes out or records
+        select_pad(s, type == TRACK_MIDI ? slot : note);
+        return;
+    }
     if (s->screen == OS_STEP) step_pad(s, note, tune, vel); // Step Edit: a note at Now
     int midi = type == TRACK_MIDI && s->screen != OS_SAMPLE && s->screen != OS_LOOP && s->screen != OS_S600;
-    int record = !(in->held & (1u << IN_SAMPLE)); // SAMPLE + pad only selects
-    if (record) seq_wait_start(&s->seq); // waiting for a key: this hit starts the recording
+    int record = 1; // (SAMPLE + pad, which only selects, has returned above)
+    seq_wait_start(&s->seq); // waiting for a key: this hit starts the recording
     if (!s->midi.local && type != TRACK_MIDI && !s->seq.repeat) { // Local Mode off: MIDI out, no sound here
         int ch = channel > 0 ? channel : s->midi.base, out = s->levels_on || os_plays_s600(s) ? 60 + tune : seq_pad_note(note);
         out = out < 0 ? 0 : out > 127 ? 127 : out;
@@ -1008,7 +1012,6 @@ static void pad_down(struct os *s, struct ui *u, const struct input *in, int i) 
         }
     } else {
         select_pad(s, note);
-        if (in->held & (1u << IN_SAMPLE)) return;
         // A press with no release seen since the last (a missed release, or the bank or 16 Levels
         // root changed under a held pad): the note it was holding goes first, so none is left on.
         if (s->sounding[i] >= 0) {
