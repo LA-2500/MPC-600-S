@@ -12,7 +12,7 @@ enum {
     F_TRK, F_TYPE, F_ON, F_CHN, F_VEL, F_PGM,
     F_TC_NOTE, F_TC_SWING, F_TC_SHIFT, F_TC_AMOUNT, F_TC_TRACK,
     F_FROM_BAR, F_FROM_BEAT, F_FROM_TICK, F_TO_BAR, F_TO_BEAT, F_TO_TICK, F_TC_NOTES,
-    F_CLICK, F_INPLAY, F_CVOL, F_RATE, F_CAUDIO, F_CLOOP, F_CIN, F_CTYPE, F_CBARS, F_KIT, F_PSND, F_PTYPE,
+    F_CLICK, F_INPLAY, F_CVOL, F_RATE, F_CAUDIO, F_CLOOP, F_CIN, F_CTYPE, F_CBARS, F_KIT, F_PSND, F_PTYPE, F_PINST,
     F_REP_TYPE, F_REP_RATE, F_ARP_PAT, F_REP_KEYS, F_ARP_CAT, F_ARP_OCT, F_ARP_GATE, F_ARP_LATCH, F_ARP_TRANS,
     F_E_SEQ, F_E_TRK, F_E_FROM_BAR, F_E_FROM_BEAT, F_E_FROM_TICK, F_E_TO_BAR, F_E_TO_BEAT, F_E_TO_TICK, F_E_NOTES,
 };
@@ -176,7 +176,16 @@ static void value(struct os *s, int id, char *b, size_t n) {
         else snprintf(b, n, "OFF");
         break;
     case F_KIT: snprintf(b, n, "%2d-%.16s", k->kit + 1, s->programs[k->kit].name); break;
-    case F_PTYPE: snprintf(b, n, "%s", s->programs[k->kit].s600 ? "S600 Program" : "MPC"); break;
+    case F_PTYPE: {
+        static const char *const TYPES[PROG_TYPES] = {"MPC", "S600", "S600 MULTI"};
+        snprintf(b, n, "%s", TYPES[s->programs[k->kit].s600 % PROG_TYPES]);
+        break;
+    }
+    case F_PINST: // the pad MIDI keys play: S600 and S600 MULTI
+        if (!s->programs[k->kit].s600) snprintf(b, n, "--");
+        else if (s->programs[k->kit].inst < 0) snprintf(b, n, "LAST PAD");
+        else snprintf(b, n, "%c%02d", 'A' + s->programs[k->kit].inst / 16, s->programs[k->kit].inst % 16 + 1);
+        break;
     case F_PSND: {
         const struct os_pad *p = &s->pads[s->selected];
         snprintf(b, n, "%.15s", p->s ? p->name : "(empty)");
@@ -292,9 +301,20 @@ static void change(struct os *s, int id, int d, int fine) {
         else k->program = clampi(k->program + d, 0, 128);
         break;
     case F_KIT: k->kit = clampi(k->kit + d, 0, OS_PROGRAMS - 1); break;
-    case F_PTYPE: // the lock is held here: both set directly
-        s->programs[k->kit].s600 = d > 0;
-        sq->kit_s600[k->kit] = (unsigned char)(d > 0);
+    case F_PTYPE: { // the lock is held here: set directly, the key maps after (they take no lock)
+        int t = clampi(s->programs[k->kit].s600 + d, 0, PROG_TYPES - 1);
+        s->programs[k->kit].s600 = t;
+        sq->kit_s600[k->kit] = (unsigned char)(t != 0);
+        if (t == PROG_MULTI && s->programs[k->kit].inst < 0) s->programs[k->kit].inst = 0; // MULTI: a pad, not LAST PAD
+        s->prog_refresh = k->kit + 1;
+        break;
+    }
+    case F_PINST:
+        if (s->programs[k->kit].s600) {
+            int lo = s->programs[k->kit].s600 == PROG_MULTI ? 0 : -1;
+            s->prog_inst = clampi(s->programs[k->kit].inst + d, lo, OS_PADS - 1) + 2; // set once the lock is let go
+            s->prog_refresh = k->kit + 1;
+        }
         break;
     case F_PSND: // the lock is held here, and assigning takes none of it
         os_pad_step_sound(s, s->selected, d);
@@ -771,7 +791,7 @@ void seq_tc_frame(struct os *s, struct ui *u, const struct input *in) {
     pthread_mutex_unlock(&sq->lock);
 }
 
-static const struct field PROGRAM_FIELDS[] = {{F_KIT, 2, 5}, {F_PTYPE, 3, 6}, {F_PSND, 13, 5}};
+static const struct field PROGRAM_FIELDS[] = {{F_KIT, 2, 5}, {F_PTYPE, 3, 6}, {F_PINST, 4, 6}, {F_PSND, 13, 5}};
 
 // The Program Config screen (Shift + SAMPLE): picks the active track's program, copies and empties programs, and
 // shows the bank's pads. Hitting a pad picks it, as everywhere.
@@ -780,6 +800,11 @@ static void pad_name(int slot, char *b, size_t n) {
 }
 
 int seq_program_pad(struct os *s, struct ui *u, int slot) {
+    if (s->screen == OS_PROGRAM && s->pgm_mode == PGM_NONE && PROGRAM_FIELDS[s->cursor_program].id == F_PINST &&
+        s->programs[s->program].s600) { // Inst: the pad pressed is the Instrument (and it plays as usual)
+        os_set_instrument(s, s->program, slot);
+        return 0;
+    }
     if (s->screen != OS_PROGRAM || (s->pgm_mode != PGM_COPY && s->pgm_mode != PGM_SWAP)) return 0;
     char a[8], b[8], msg[32];
     pad_name(s->selected, a, sizeof a);
@@ -859,6 +884,14 @@ void seq_program_frame(struct os *s, struct ui *u, const struct input *in) {
     int asking = s->pgm_ask || s->pgm_mode != PGM_NONE;
     if (!asking) edit_fields(s, in, PROGRAM_FIELDS, COUNT(PROGRAM_FIELDS), &s->cursor_program);
     int kit = sq->sequence[sq->current].track[sq->track].kit;
+    if (s->prog_refresh) { // Type or Inst changed: the instrument's keygroups (the lock let go: they take none)
+        int g = s->prog_refresh - 1, inst = s->prog_inst - 2;
+        s->prog_refresh = s->prog_inst = 0;
+        pthread_mutex_unlock(&sq->lock);
+        if (inst >= -1) os_set_instrument(s, g, inst);
+        else os_multi_refresh(s, g);
+        pthread_mutex_lock(&sq->lock);
+    }
     if (s->pgm_ask || s->pgm_mode == PGM_DELETE) {
         lcd_text(u, 0, KEY_ROW, "<No>");
         lcd_text(u, 21, KEY_ROW, "<Yes>");
@@ -875,6 +908,7 @@ void seq_program_frame(struct os *s, struct ui *u, const struct input *in) {
     // No title: Pgm: and Type: on the title's row and the next, then a row of space.
     lcd_text(u, 0, 2, "Pgm:");
     lcd_text(u, 0, 3, "Type:");
+    lcd_text(u, 0, 4, "Inst:");
     snprintf(line, sizeof line, "Bank %c", 'A' + s->bank);
     lcd_text(u, 20, 3, line);
     // The bank's 16 pads in two columns: 1 to 8 on the left, 9 to 16 on the right.

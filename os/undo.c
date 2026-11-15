@@ -23,7 +23,7 @@ struct snapshot {
     } memory[OS_MEMORY];
     int nmemory;
     char names[OS_PROGRAMS][17];
-    int s600[OS_PROGRAMS];
+    int s600[OS_PROGRAMS], inst[OS_PROGRAMS];
     struct seq_sequence *seqs; // SEQ_COUNT, their notes and moves copied
 };
 
@@ -50,7 +50,7 @@ static struct snapshot *take(struct os *s, const char *label) {
     }
     for (int p = 0; p < OS_PROGRAMS; p++) {
         memcpy(n->names[p], s->programs[p].name, sizeof n->names[p]);
-        n->s600[p] = s->programs[p].s600;
+        n->s600[p] = s->programs[p].s600, n->inst[p] = s->programs[p].inst;
         for (int i = 0; i < OS_PADS; i++) {
             const struct os_pad *pad = &s->programs[p].pads[i];
             if (!pad->s) continue;
@@ -124,12 +124,14 @@ static void apply(struct os *s, struct snapshot *n) {
         for (int k = 0; k < n->npads; k++)
             if (n->pads[k].program == p) pads[n->pads[k].slot] = n->pads[k].pad; // its reference moves with it
         memcpy(s->programs[p].name, n->names[p], sizeof n->names[p]);
+        s->programs[p].inst = n->inst[p];
         os_program_set_s600(s, p, n->s600[p]);
         for (int i = 0; i < OS_PADS; i++) {
             int same = was[i].s == pads[i].s && !memcmp(&was[i].p, &pads[i].p, sizeof pads[i].p) &&
-                       !memcmp(&was[i].sp, &pads[i].sp, sizeof pads[i].sp);
+                       !memcmp(&was[i].sp, &pads[i].sp, sizeof pads[i].sp) && !memcmp(&was[i].kgs, &pads[i].kgs, sizeof pads[i].kgs);
             if (!same) os_slot_refresh(s, p, i);
         }
+        os_multi_refresh(s, p); // their zones' pads may have changed under them
         for (int i = 0; i < OS_PADS; i++) os_sample_release(s, was[i].s); // after: a sound in both stays
     }
     struct sample *old[OS_MEMORY];

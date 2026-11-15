@@ -58,6 +58,16 @@ static void apply_template(struct s600_params *q, int env, int t) {
     else q->env2_tpl = t;
 }
 
+// An envelope template by name (MULTI's instrument templates set both): 1 when found.
+int s600_env_template(struct s600_params *q, int env, const char *name) {
+    for (int t = 0; t < TEMPLATE_COUNT; t++)
+        if (!strcmp(TEMPLATES[t].name, name)) {
+            apply_template(q, env, t);
+            return 1;
+        }
+    return 0;
+}
+
 void s600_defaults(struct s600_params *q) {
     memset(q, 0, sizeof *q);
     apply_template(q, 1, DEFAULT_TEMPLATE);
@@ -72,6 +82,7 @@ void s600_defaults(struct s600_params *q) {
     q->note_on = 1; // a synth note holds while the pad or key is held
     q->layers = 1;
     q->l2_vol = 100;
+    q->root = 60;
 }
 
 void s600_effective(const struct os_pad *pads, int i, struct pad_params *out, const struct sample **s2) {
@@ -79,6 +90,7 @@ void s600_effective(const struct os_pad *pads, int i, struct pad_params *out, co
     const struct s600_params *q = &pad->sp;
     *out = pad->p; // trim, loop, volume, pan and tuning are shared
     out->synth = 1;
+    out->fine += q->root_fine; // in tune at its ROOT
     out->gate = q->note_on;
     out->decay_end = 0;
     out->attack_ms = q->attack;
@@ -107,7 +119,7 @@ void s600_effective(const struct os_pad *pads, int i, struct pad_params *out, co
     out->mod_pitch = q->mod_pitch;
     // Layer 2: its own sample's trim and loop, its own level and tuning.
     const struct os_pad *src = q->l2_pad > 0 && q->l2_pad <= OS_PADS ? &pads[q->l2_pad - 1] : pad;
-    out->layers = q->layers == 2 && src->s ? 2 : 1;
+    out->layers = q->layers == 2 && src->s && !q->multi ? 2 : 1; // MULTI: its keygroups instead
     out->l2_volume = q->l2_vol;
     out->l2_semi = q->l2_semi;
     out->l2_fine = q->l2_fine;
@@ -121,7 +133,7 @@ void s600_effective(const struct os_pad *pads, int i, struct pad_params *out, co
 // ---- The S600 screen ----
 
 enum { PG_ENV1, PG_ENV2, PG_FILTER, PG_LFO, PG_MAIN, PG_LAYER, PG_COUNT };
-enum { V_MS, V_PCT, V_SEMI, V_CENTS, V_DEPTH, V_TPL1, V_TPL2, V_FILTER, V_SHAPE, V_POLY, V_ONOFF, V_SOUND, V_NUM };
+enum { V_MS, V_PCT, V_SEMI, V_CENTS, V_DEPTH, V_TPL1, V_TPL2, V_FILTER, V_SHAPE, V_POLY, V_ONOFF, V_SOUND, V_NUM, V_NOTE };
 
 struct s6field {
     const char *label;
@@ -132,7 +144,7 @@ struct s6field {
 
 #define S6(l, r, f, lo, hi, fm, k) {l, r, 0, offsetof(struct s600_params, f), lo, hi, fm, k}
 #define SH(l, r, f, lo, hi, fm, k) {l, r, 1, offsetof(struct pad_params, f), lo, hi, fm, k}
-#define S6_FIELDS 10
+#define S6_FIELDS 11
 #define VALUE_COL 14
 #define GRAPH_Y 68
 #define GRAPH_H 72
@@ -150,7 +162,8 @@ static const struct s6field PAGES6[PG_COUNT][S6_FIELDS] = {
                 S6("Pitch", 11, lfo_pitch, 0, 100, V_NUM, 1), S6("Filter", 12, lfo_filter, 0, 100, V_NUM, 2),
                 S6("Level", 13, lfo_amp, 0, 100, V_NUM, -1), S6("Delay", 9, lfo_delay, 0, 5000, V_MS, -1)},
     [PG_MAIN] = {SH("Volume", 3, volume, 0, 100, V_NUM, 0), SH("Semi", 4, semi, -36, 36, V_SEMI, 1),
-                 SH("Fine", 5, fine, -100, 100, V_CENTS, 2), S6("Poly", 7, mono, 0, 1, V_POLY, -1),
+                 SH("Fine", 5, fine, -100, 100, V_CENTS, 2), S6("Root", 6, root, 0, 127, V_NOTE, -1),
+                 S6("Poly", 7, mono, 0, 1, V_POLY, -1),
                  S6("Note On", 8, note_on, 0, 1, V_ONOFF, -1), S6("Legato", 9, legato, 0, 1, V_ONOFF, -1),
                  S6("Portamento", 10, porta, 0, 5000, V_MS, -1), S6("Bend Up", 11, bend_up, 0, 24, V_SEMI, -1),
                  S6("Bend Down", 12, bend_down, 0, 24, V_SEMI, -1), S6("Mod>Pitch", 13, mod_pitch, 0, 100, V_NUM, -1)},
@@ -235,7 +248,7 @@ static int catch_up(int *caught, int last, int now, int at) {
     return *caught;
 }
 
-// Where the cursor starts on a page. Main's first three are on K1-K3, so it starts on Poly;
+// Where the cursor starts on a page. Main's first three are on K1-K3, so it starts on Root;
 // Filter starts on Cutoff.
 static int first_field(int page) {
     return page == PG_MAIN ? 3 : page == PG_FILTER ? 1 : 0;
@@ -283,6 +296,7 @@ static void format6(const struct os_pad *pads, const struct os_pad *pad, const s
     case V_FILTER: snprintf(b, n, "%s", FILTER_NAMES6[v >= 0 && v < FILTER_TYPES ? v : 0]); break;
     case V_SHAPE: snprintf(b, n, "%s", SHAPE_NAMES[v >= 0 && v < LFO_SHAPES ? v : 0]); break;
     case V_POLY: snprintf(b, n, "%s", v ? "MONO" : "POLY"); break;
+    case V_NOTE: multi_note_name(v, b, n); break; // ROOT: the key that plays it at its own pitch
     case V_ONOFF: snprintf(b, n, "%s", v ? "ON" : "OFF"); break;
     case V_SOUND:
         if (v <= 0) snprintf(b, n, "Same");
@@ -358,6 +372,9 @@ static void draw_keys6(struct ui *u, const struct os *s) {
 
 void s600_frame(struct os *s, struct ui *u, const struct input *in) {
     struct os_pad *pad = &s->pads[s->selected];
+    // An S600 MULTI program has no Layer page: its velocity layers are its keygroups' zones.
+    int multi_prog = s->programs[s->program].s600 == PROG_MULTI;
+    if (multi_prog && s->s600_page == PG_LAYER) s->s600_page = PG_MAIN;
     int page = s->s600_page, n = field_count(page, pad);
     if (s->s600_cursor >= n) s->s600_cursor = 0;
     // B1 Env1, Env2, Trim (the Sample screen's), B2 Filter/LFO, B3 Main/Layer. No way from here
@@ -372,6 +389,12 @@ void s600_frame(struct os *s, struct ui *u, const struct input *in) {
     if (input_down(in, IN_B3) && in->shift) { // Edit All Pads on or off
         s->edit_all = !s->edit_all;
         os_toast(s, u, s->edit_all ? "Edit All Pads: On" : "Edit All Pads: Off");
+    } else if (input_down(in, IN_B3) && (page == PG_LAYER || (page == PG_MAIN && multi_prog))) {
+        // Main, Layer, then MULTI (an S600 MULTI program: Main, then MULTI); SAMPLE comes back to Main
+        set_page(s, PG_MAIN);
+        multi_open(s);
+        ui_wake(u, 1);
+        return;
     } else if (input_down(in, IN_B3)) {
         set_page(s, page == PG_MAIN ? PG_LAYER : PG_MAIN);
     }
@@ -425,7 +448,7 @@ void s600_frame(struct os *s, struct ui *u, const struct input *in) {
     if (page == PG_ENV1) draw_env(u, q->attack, q->decay, q->sustain, q->release);
     if (page == PG_ENV2) draw_env(u, q->f_attack, q->f_decay, q->f_sustain, q->f_release);
     if (page == PG_LFO) draw_lfo(u, q->lfo_shape);
-    if (page == PG_MAIN) lcd_rule(u, 6, 0); // the knobs' Volume, Semi, Fine above, the rest below
+    (void)0; // Main: the knobs' Volume, Semi, Fine, then Root and the rest
     if (page == PG_LAYER) {
         lcd_rule(u, 4, "Layer 1");
         if (pad->sp.layers == 2) lcd_rule(u, 8, "Layer 2");

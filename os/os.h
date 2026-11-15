@@ -22,7 +22,7 @@ enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where s
 
 #define OS_POWER_FORCE_MS 15000 // if an orderly shutdown has not finished by then, cut the power
 
-enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT };
+enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI };
 enum { DISK_SAVE, DISK_LOAD, DISK_EXPORT, DISK_MODES };
 enum { DISK_PROJECT, DISK_PROGRAM, DISK_SAMPLE, DISK_SETTINGS, DISK_AUTOLOAD, DISK_FX, DISK_ARP, DISK_TRACKFX, DISK_WAVE, DISK_SEQUENCE, DISK_SONG,
        DISK_MIX_SEQ, DISK_MIX_SONG, DISK_TYPES }; // the last four: EXPORT's; the mixdowns write only the stereo mix
@@ -116,6 +116,32 @@ struct s600_params {
     int32_t layers;                    // 1 or 2
     int32_t l2_pad;                    // 0: the pad's own sample, else 1 + the pad whose sample it plays
     int32_t l2_vol, l2_semi, l2_fine;
+    // MULTI: the pad is a multisample instrument, its keygroups (struct s600_kgs) spreading
+    // other pads' samples across the keyboard. KEY>PAN, KEY>FILTER, KEY>LEVEL, KEY>ENV as in
+    // struct keymap; the instrument template last applied.
+    int32_t multi; // (no longer used: an S600 MULTI program's Instrument pad is its instrument)
+    int32_t kt_pan, kt_filter, kt_level, kt_env;
+    int32_t inst_tpl;
+    // ROOT: the note the sample is at its own pitch (60 = C4), with its cents (ROOT FINE puts it in
+    // tune): MIDI keys play it from there. Found from its name and pitch when loaded (Auto Root).
+    int32_t root, root_fine;
+    int32_t ranges_manual; // MULTI: Lo and Hi set by hand (else AUTO: midway between the roots)
+};
+
+// A MULTI instrument's keygroups, as on the S3000XL: LO NOTE to HI NOTE play ZONE 1's sample,
+// or with ZONE 2 set, ZONE 1 up to VEL SPLIT and ZONE 2 above it. Each zone is a pad of the
+// same program (1 + its number, 0 none): its sample, with that pad's trim and loop. ROOT is the
+// note the samples play at their own pitch (60 = C4).
+#define S600_KGS 32
+struct s600_kg {
+    int32_t lo, hi, root;
+    int32_t semi, fine, level, pan; // TUNE, LEVEL 0..100, PAN -50..50
+    int32_t split;                  // VEL SPLIT: ZONE 1 to here, ZONE 2 above (with ZONE 2 set)
+    int32_t zone[2];
+};
+struct s600_kgs {
+    int32_t n;
+    struct s600_kg kg[S600_KGS];
 };
 
 struct os_pad {
@@ -126,15 +152,18 @@ struct os_pad {
     signed char lo[OS_WAVE_W], hi[OS_WAVE_W];
     struct pad_params p;
     struct s600_params sp;
+    struct s600_kgs kgs; // MULTI: the keygroups (kept when MULTI is off, so turning it back on finds them)
 };
 
 #define OS_PADS ENGINE_PROGRAM_PADS
 #define OS_PROGRAMS ENGINE_PROGRAMS
 
 // A program: a whole pad setup, which sound is on each pad and every pad setting.
+enum { PROG_MPC, PROG_S600, PROG_MULTI, PROG_TYPES }; // a program's Type: MPC, S600, S600 MULTI
 struct os_program {
     char name[17];
-    int s600; // Type S600: an instrument, played through its pads' S600 settings on any track
+    int s600; // Type (PROG_*): S600 and S600 MULTI play through the pads' S600 settings on any track
+    int inst; // S600 and S600 MULTI: the Instrument, the pad MIDI keys play (0..127), or -1 LAST PAD (S600)
     struct os_pad pads[OS_PADS];
 };
 
@@ -160,6 +189,20 @@ struct os {
     int mixer_track;            // the track mixer's selected channel, 0..SEQ_TRACKS-1
     int mixer_ask;              // the mixer's Reset EQ question is up
     struct midi_settings midi;
+    int km_owner[ENGINE_KEYMAPS]; // MULTI: which S600 slot (1 + it) each engine key map is, or 0
+    int prog_refresh, prog_inst;  // Program Config: a program (1 + it) whose Type or Inst changed, and its new Inst (+ 2)
+    int auto_root;                // Auto Root (Additional Settings 2): a sound's ROOT found when it is loaded
+    int multi_pressed;            // the pad last pressed on the MULTI screen (the instrument stays selected)
+    int multi_page, multi_cursor, multi_kg, multi_view; // the MULTI screen: KEYGROUP / KEY TRACK / AUTO MAP, its field, the keygroup
+    int map_from, map_to, map_by, map_span, map_zones, map_exact; // AUTO MAP's settings
+    // The Auto Sampler: you play each sample asked for (one or two velocity layers each), the
+    // takes go onto pads in pitch order and become the S600 MULTI program's instrument. Its
+    // settings (Length in tenths of a second, 0 MANUAL; Threshold -61 OFF), then where a run is.
+    int as_samples, as_layers, as_len, as_thres, as_norm, as_tpl;
+    int as_state, as_at, as_total, as_silent, as_ask, as_clear, as_note_k, as_why;
+    int as_root[OS_PADS], as_fine[OS_PADS]; // each sample's note (-1 none found, -2 left out)
+    int64_t as_t0;
+    struct sample *as_take[OS_PADS];
     int midi_return, cursor_midi, cursor_ccmap, pad_note_sel;
     int cc_learn;               // CC Map <Learn>: 1 + the control waiting for a CC, or 0
     int note_learn;             // Pad Notes <Learn>: the next note in goes to the selected pad
@@ -201,7 +244,7 @@ struct os {
         int count_bars, length;  // Audiotrack: 1 or 2 bars of count-in; RLEN_*
         int start_force, what;   // Resample: start at once (else at the threshold); 0 LIVE, 1 SEQUENCE
         int thru_record;         // Resample: Input Thru 0 MUTE, 1 RECORD (in the take)
-    } rec_set[6]; // [3]: Stems, which has no recording settings; [4]: Resample; [5]: Live Looper
+    } rec_set[7]; // [3]: Stems, which has no recording settings; [4]: Resample; [5]: Live Looper; [6]: Auto Sampler
     int record_page;             // which is shown: 0-1 SAMPLE REC, 2-3 Shift + SAMPLE REC, 4 Resample, 5 Live Looper
     // Live Looper: a take of one pass of the playing sequence, dropped onto the selected pad as it loops.
     int lp_state;                // LP_*
@@ -426,6 +469,28 @@ void os_pad_load(struct os *s, int slot, struct sample *n, const char *name);
 void os_pad_push(struct os *s, int slot);
 int os_track_type(struct os *s); // the active track's TRACK_*
 int os_plays_s600(struct os *s);  // the active track plays as S600: an S600 track, or an S600 program
+int s600_env_template(struct s600_params *q, int env, const char *name); // Env1 or Env2 from a template, by name
+void os_multi_refresh(struct os *s, int program);
+int os_instrument(const struct os *s, int program); // the pad MIDI keys play in an S600 or S600 MULTI program
+void os_set_instrument(struct os *s, int program, int pad); // MULTI: its keygroups move with it
+void os_auto_root(struct os *s, int slot); // a sound just loaded or recorded: its ROOT from its name and pitch
+// MULTI (multi.c)
+void multi_open(struct os *s);
+void multi_frame(struct os *s, struct ui *u, const struct input *in);
+void multi_note_in(struct os *s, int note);
+void multi_pad(struct os *s, int slot);
+void multi_respan(struct os_pad *p, int extend);
+void multi_note_name(int note, char *b, size_t n);
+int multi_name_note(const char *name, int *pitch_class);
+int multi_detect_pitch(const struct sample *smp, double *note);
+int multi_root_of(const struct os_pad *p, int by, int *fine);
+int multi_auto_map(struct os *s, int inst, int from, int to, int by, int span, int zones, int extend, int *skipped);
+int multi_kg_at(const struct os_pad *p, int note);
+int multi_template_count(void);
+const char *multi_template_name(int t);
+void multi_apply_template(struct os *s, int pad, int t);
+void record_open_autosampler(struct os *s); // the Auto Sampler (record.c)
+void record_note_in(struct os *s, int note); // a key played: the note the Auto Sampler is asking for // every MULTI instrument's key map to the engine again
 void os_program_set_s600(struct os *s, int program, int on); // its Type, also told to the sequencer
 // Keeps a sound in memory without a pad. The pool takes a reference. 0, or -1 when full.
 int os_memory_add(struct os *s, struct sample *n, const char *name);

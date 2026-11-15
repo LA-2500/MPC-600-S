@@ -137,6 +137,62 @@ static void release_sample(struct os *s, struct sample *old) {
     if (old && --old->refs <= 0) engine_retire(s->engine, old);
 }
 
+// The pad MIDI keys play: an S600 MULTI program's Instrument; an S600 program's, or with
+// LAST PAD the pad pressed last.
+int os_instrument(const struct os *s, int program) {
+    int inst = s->programs[program].inst;
+    if (inst < 0) return s->programs[program].s600 == PROG_MULTI || program != s->program ? 0 : s->selected;
+    return inst < OS_PADS ? inst : 0;
+}
+
+// Is pad i of a program a MULTI instrument: its keygroups played? (Its own sound is needed too.)
+static int is_multi(const struct os *s, int program, int i) {
+    const struct os_pad *pad = &s->programs[program].pads[i];
+    return s->programs[program].s600 == PROG_MULTI && i == os_instrument(s, program) && pad->s && pad->kgs.n > 0;
+}
+
+// Is engine key map `at` still some pad's? Its owner must still be a MULTI instrument.
+static int keymap_used(const struct os *s, int at) {
+    int slot = s->km_owner[at] - 1;
+    if (slot < ENGINE_S600) return 0;
+    return is_multi(s, (slot - ENGINE_S600) / OS_PADS, (slot - ENGINE_S600) % OS_PADS);
+}
+
+// A MULTI instrument's key map to the engine (on its S600 slot), built from its keygroups and
+// the pads their zones name; or, no longer MULTI, taken off.
+static void keymap_push(struct os *s, int program, int i) {
+    const struct os_pad *pads = s->programs[program].pads, *pad = &pads[i];
+    int slot = ENGINE_S600 + program * OS_PADS + i, at = -1;
+    for (int k = 0; k < ENGINE_KEYMAPS && at < 0; k++)
+        if (s->km_owner[k] == slot + 1) at = k;
+    int want = is_multi(s, program, i);
+    if (!want) {
+        if (at >= 0) engine_set_keymap(s->engine, slot, at, 0), s->km_owner[at] = 0;
+        return;
+    }
+    for (int k = 0; k < ENGINE_KEYMAPS && at < 0; k++)
+        if (!s->km_owner[k] || !keymap_used(s, k)) at = k;
+    if (at < 0) return; // all 64 in use: it plays its own sample
+    static struct keymap km;
+    memset(&km, 0, sizeof km);
+    km.kt_pan = pad->sp.kt_pan, km.kt_filter = pad->sp.kt_filter, km.kt_level = pad->sp.kt_level, km.kt_env = pad->sp.kt_env;
+    for (int k = 0; k < pad->kgs.n && k < S600_KGS; k++) {
+        const struct s600_kg *g = &pad->kgs.kg[k];
+        int two = g->zone[1] > 0 && g->zone[1] <= OS_PADS && pads[g->zone[1] - 1].s;
+        for (int z = 0; z < 2 && km.n < ENGINE_KM_ZONES; z++) {
+            int src = g->zone[z] - 1;
+            if (src < 0 || src >= OS_PADS || !pads[src].s) continue;
+            const struct pad_params *sp = &pads[src].p;
+            int split = g->split < 1 ? 1 : g->split > 126 ? 126 : g->split;
+            km.z[km.n++] = (struct km_zone){pads[src].s, sp->start, sp->end, sp->loop, sp->loop_on,
+                                            (int16_t)g->lo, (int16_t)g->hi, (int16_t)g->root,
+                                            (int16_t)(z == 1 ? split + 1 : 1), (int16_t)(z == 0 && two ? split : 127),
+                                            (int16_t)g->semi, (int16_t)g->fine, (int16_t)g->level, (int16_t)g->pan};
+        }
+    }
+    if (engine_set_keymap(s->engine, slot, at, &km) == 0) s->km_owner[at] = slot + 1;
+}
+
 // Sends a pad's DRUM settings and its S600 ones (to the S600 slots) to the engine. With
 // the sample too when it changed.
 static void push_slot(struct os *s, int program, int i, int with_sample) {
@@ -148,15 +204,63 @@ static void push_slot(struct os *s, int program, int i, int with_sample) {
     if (with_sample) engine_set_pad(s->engine, slot, pad->s, &pad->p);
     else engine_update(s->engine, slot, &pad->p);
     // The S600 slot always gets its samples again: its second layer may be another pad's.
+    if (is_multi(s, program, i)) sp.fine -= pad->sp.root_fine, sp.layers = 1, s2 = 0; // its keygroups: their own tuning, no Layer 2
     engine_set_pad_layers(s->engine, ENGINE_S600 + slot, pad->s, s2, &sp);
     engine_update(s->engine, ENGINE_S600 + slot, &sp);
+    keymap_push(s, program, i);
 }
 
-// Pads whose second layer plays pad i's sample follow its changes.
+// A MULTI instrument whose keygroups play pad i's sample.
+static int multi_uses(const struct os *s, int program, int j, int i) {
+    if (!is_multi(s, program, j)) return 0;
+    const struct os_pad *pad = &s->programs[program].pads[j];
+    for (int k = 0; k < pad->kgs.n && k < S600_KGS; k++)
+        if (pad->kgs.kg[k].zone[0] == i + 1 || pad->kgs.kg[k].zone[1] == i + 1) return 1;
+    return 0;
+}
+
+// Pads whose second layer plays pad i's sample follow its changes, and MULTI instruments
+// with a zone on it.
 static void push_layer_users(struct os *s, int program, int i) {
     const struct os_pad *pads = s->programs[program].pads;
     for (int j = 0; j < OS_PADS; j++)
-        if (j != i && pads[j].s && pads[j].sp.layers == 2 && pads[j].sp.l2_pad == i + 1) push_slot(s, program, j, 0);
+        if (j != i && pads[j].s && ((pads[j].sp.layers == 2 && pads[j].sp.l2_pad == i + 1) || multi_uses(s, program, j, i)))
+            push_slot(s, program, j, 0);
+}
+
+// Every MULTI instrument of a program to the engine again: after a program is loaded or put
+// back by Undo, when the pads its zones name may have come after it.
+void os_multi_refresh(struct os *s, int program) {
+    for (int i = 0; i < OS_PADS; i++) // the instrument, and any pad that was one (its key map taken off)
+        if (s->programs[program].pads[i].s && s->programs[program].pads[i].kgs.n > 0) push_slot(s, program, i, 0);
+}
+
+// A new Instrument. In a MULTI program the keygroups go with it, so nothing is lost.
+void os_set_instrument(struct os *s, int program, int pad) {
+    struct os_program *g = &s->programs[program];
+    int was = os_instrument(s, program);
+    if (pad < -1 || pad >= OS_PADS || (pad < 0 && g->s600 == PROG_MULTI)) return;
+    g->inst = pad;
+    if (g->s600 == PROG_MULTI && pad != was && g->pads[was].kgs.n > 0 && g->pads[pad].kgs.n == 0) {
+        g->pads[pad].kgs = g->pads[was].kgs;
+        memset(&g->pads[was].kgs, 0, sizeof g->pads[was].kgs);
+        g->pads[pad].sp.kt_pan = g->pads[was].sp.kt_pan, g->pads[pad].sp.kt_filter = g->pads[was].sp.kt_filter;
+        g->pads[pad].sp.kt_level = g->pads[was].sp.kt_level, g->pads[pad].sp.kt_env = g->pads[was].sp.kt_env;
+        if (g->pads[was].s) push_slot(s, program, was, 0);
+    }
+    os_multi_refresh(s, program);
+}
+
+// Auto Root: a sound just loaded or recorded onto a pad of an S600 program gets its ROOT (and
+// the fine tuning that puts it in tune) from the note in its name and the pitch heard in it.
+// None found: it stays at C4.
+void os_auto_root(struct os *s, int slot) {
+    struct os_pad *pad = &s->pads[slot];
+    if (!s->auto_root || !s->programs[s->program].s600 || !pad->s) return;
+    int fine, root = multi_root_of(pad, 0, &fine);
+    if (root < 0) return;
+    pad->sp.root = root, pad->sp.root_fine = fine;
+    os_pad_push(s, slot);
 }
 
 void os_slot_refresh(struct os *s, int program, int slot) {
@@ -229,6 +333,8 @@ void os_init(struct os *s, struct engine *e) {
     s->fader_last = -1;
     s->temp_pad = -1;
     s->disk_tracks = 2, s->disk_mix = 1;
+    s->map_zones = 1; // AUTO MAP: one zone a keygroup, NAME+PITCH, MIDWAY, EXTEND
+    s->auto_root = 1;
     s->button_lights = BUTTON_RED, s->pad_lights = PAD_LIGHT_OFF, s->screen_scheme = SCREEN_MPC3000;
     s->start_bpm10 = 1200, s->start_bars = 2, s->start_tc = TC_16, s->start_swing = 50;
     s->inst_gain = 12, s->inst_bright = 50, s->pad_threshold = 12;
@@ -375,6 +481,8 @@ void os_program_copy(struct os *s, int from, int to) {
     }
     snprintf(s->programs[to].name, sizeof s->programs[to].name, "%s", s->programs[from].name);
     os_program_set_s600(s, to, s->programs[from].s600); // an instrument copies as an instrument
+    s->programs[to].inst = s->programs[from].inst;
+    os_multi_refresh(s, to);
 }
 
 static void normalize_trim(struct pad_params *p, int32_t frames) {
@@ -463,6 +571,12 @@ static void press_tab(struct os *s, int group) {
 }
 
 static void select_pad(struct os *s, int slot) {
+    // An S600 MULTI program's S600 and MULTI screens stay on its instrument: a pad pressed there is
+    // remembered (for <Add Pad> and the zones) but the instrument stays selected.
+    if (s->programs[s->program].s600 == PROG_MULTI && (s->screen == OS_S600 || s->screen == OS_MULTI)) {
+        s->multi_pressed = slot;
+        slot = os_instrument(s, s->program);
+    }
     if (slot != s->selected) {
         reset_knobs(s);
         if (s->temp) clear_temp(s); // another sample: temp cannot go into it
@@ -692,10 +806,11 @@ int os_plays_s600(struct os *s) {
 }
 
 void os_program_set_s600(struct os *s, int program, int on) {
-    s->programs[program].s600 = on;
+    s->programs[program].s600 = on < 0 ? 0 : on >= PROG_TYPES ? PROG_S600 : on;
     pthread_mutex_lock(&s->seq.lock);
-    s->seq.kit_s600[program] = (unsigned char)on;
+    s->seq.kit_s600[program] = (unsigned char)(on != 0);
     pthread_mutex_unlock(&s->seq.lock);
+    os_multi_refresh(s, program); // MULTI on or off: the instrument's keygroups played or not
 }
 
 int os_memory_add(struct os *s, struct sample *n, const char *name) {
@@ -910,12 +1025,16 @@ static void midi_in(struct os *s, struct ui *u, const unsigned char *m, int from
     s->midi_rec[key] = -1;
     if (!vel) return;
     seq_wait_start(&s->seq);
+    multi_note_in(s, key); // on the MULTI screen: the keygroup it falls in
+    record_note_in(s, key); // the Auto Sampler asking a sample's note
     int type = os_track_type(s);
     if (type == TRACK_MIDI) return;
     int pad, tune = 0;
     if (s->levels_on || os_plays_s600(s)) {
-        pad = s->levels_on ? s->levels_pad : s->selected;
-        if (!s->levels_on || s->levels_type == LEVELS_TUNE) tune = key - 60 < -64 ? -64 : key - 60 > 63 ? 63 : key - 60;
+        pad = s->levels_on ? s->levels_pad : os_instrument(s, s->program);
+        // From the sound's ROOT (an S600 pad); a MULTI instrument's keygroups take the note itself.
+        int root = s->levels_on || s->programs[s->program].s600 == PROG_MULTI ? 60 : s->pads[pad].sp.root;
+        if (!s->levels_on || s->levels_type == LEVELS_TUNE) tune = key - root < -64 ? -64 : key - root > 63 ? 63 : key - root;
     } else {
         pad = seq_note_pad(key); // the pad note map
         if (pad < 0 || pad >= OS_PADS) return;
@@ -1019,6 +1138,7 @@ static void pad_down(struct os *s, struct ui *u, const struct input *in, int i) 
     if (s->screen == OS_ERASE) seq_erase_pad(s, note);
     if (padnotes_pad(s, u, slot)) return; // Pad Notes: a pad picks the one to set
     infx_pad_pressed(s, slot);            // Pad Effects: the chain goes to the pad pressed
+    multi_pad(s, slot);                   // MULTI, the cursor on a Zone: that pad is the zone
     if (in->held & (1u << IN_SAMPLE)) { // SAMPLE + pad: selects it only; nothing plays, repeats, goes out or records
         select_pad(s, type == TRACK_MIDI ? slot : note);
         return;
@@ -1993,6 +2113,7 @@ static void browser_load(struct os *s, const struct ui *u, const char *path, con
     if (dot) *dot = 0;
     os_undo_save(s, "Load");
     os_pad_load(s, s->selected, n, name);
+    os_auto_root(s, s->selected);
     reset_knobs(s);
 }
 
@@ -2125,10 +2246,23 @@ static void handle_browser(struct os *s, struct ui *u, const struct input *in) {
 static void draw_toast(struct ui *u, struct os *s) {
     int64_t now = now_ms(u);
     if (now >= s->toast_until) return;
-    int n = (int)strlen(s->toast);
-    int col = (LCD_COLS - n) / 2;
-    lcd_fill(u, LCD_X + (col - 1) * CELL_W, 5 * CELL_H - 4, (n + 2) * CELL_W, CELL_H + 8, LCD_FG);
-    lcd_inverse(u, col, 5, s->toast);
+    // One line; too long for one (the box leaves 24 columns), two, broken at a space.
+    char line[2][LCD_COLS + 1];
+    int n = (int)strlen(s->toast), rows = 1, w = LCD_COLS - 2;
+    snprintf(line[0], sizeof line[0], "%.*s", w, s->toast);
+    if (n > w) {
+        int cut = w;
+        while (cut > 0 && s->toast[cut] != ' ') cut--;
+        if (cut == 0) cut = w;
+        snprintf(line[0], sizeof line[0], "%.*s", cut, s->toast);
+        snprintf(line[1], sizeof line[1], "%.*s", w, s->toast + cut + (s->toast[cut] == ' '));
+        rows = 2;
+    }
+    int widest = (int)strlen(line[0]);
+    if (rows == 2 && (int)strlen(line[1]) > widest) widest = (int)strlen(line[1]);
+    int col = (LCD_COLS - widest) / 2;
+    lcd_fill(u, LCD_X + (col - 1) * CELL_W, 5 * CELL_H - 4, (widest + 2) * CELL_W, rows * CELL_H + 8, LCD_FG);
+    for (int r = 0; r < rows; r++) lcd_inverse(u, col + (widest - (int)strlen(line[r])) / 2, 5 + r, line[r]);
     ui_wake(u, (int)(s->toast_until - now));
 }
 
@@ -2304,7 +2438,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         s->screen == OS_PRINT || s->screen == OS_INFX || s->screen == OS_MUTE || s->screen == OS_HELP ||
         s->screen == OS_MASTER || s->screen == OS_SENDS || s->screen == OS_SONG || s->screen == OS_STEP ||
         s->screen == OS_WARP || s->screen == OS_PREFS || s->screen == OS_DISK || s->screen == OS_SEQCOPY ||
-        s->screen == OS_ARPEDIT) {
+        s->screen == OS_ARPEDIT || s->screen == OS_MULTI) {
         if (input_down(in, IN_MUTE) && !in->shift) mute_open(s); // the Track Mute page
         if (input_down(in, IN_SAMPLE_REC) && in->shift) { // the main page: back a bar. Elsewhere: help
             if (s->screen == OS_MAIN) seq_locate_bar(&s->seq, -1);
@@ -2505,6 +2639,9 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         break;
     case OS_S600:
         s600_frame(s, u, in);
+        break;
+    case OS_MULTI:
+        multi_frame(s, u, in);
         break;
     case OS_LEVELS:
         levels_frame(s, u, in);

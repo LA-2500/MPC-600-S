@@ -58,6 +58,67 @@ static int voices(void) {
     return atomic_load(&e.voices);
 }
 
+// A MULTI instrument's key map: the zone for the note and velocity gives the sample and its
+// tuning (from its root); KEY>PAN moves with the note; no zone, no note; no key map, the pad's own.
+static const struct voice *voice_of(const struct sample *smp) {
+    for (int i = 0; i < ENGINE_VOICES; i++)
+        if (e.voice[i].stage != 0 && e.voice[i].s == smp) return &e.voice[i];
+    return 0;
+}
+
+static void test_keymap(void) {
+    engine_init(&e);
+    struct sample *a = constant(44100), *b = constant(44100), *c = constant(44100), *own = constant(44100);
+    struct pad_params p = params(44100);
+    p.synth = 1, p.gate = 1, p.sustain = 100;
+    int slot = ENGINE_S600 + 5;
+    engine_set_pad(&e, slot, own, &p);
+    static struct keymap km;
+    memset(&km, 0, sizeof km);
+    km.n = 3, km.kt_pan = 50;
+    km.z[0] = (struct km_zone){a, 0, 44100, 0, 0, 0, 59, 48, 1, 127, 0, 0, 100, 0};
+    km.z[1] = (struct km_zone){b, 0, 44100, 0, 0, 60, 127, 72, 1, 80, 0, 0, 100, 0};
+    km.z[2] = (struct km_zone){c, 0, 44100, 0, 0, 60, 127, 72, 81, 127, 2, 0, 50, 0};
+    CHECK(engine_set_keymap(&e, slot, 0, &km) == 0);
+    render(16);
+    engine_note_on_layers(&e, slot, 100, -12, own, 0, &p, 0, 100, 0); // C3: zone 1, at its root
+    render(16);
+    const struct voice *v = voice_of(a);
+    CHECK(v && v->p.semi == 12 && v->key == -12 && v->p.pan == -25 && !voice_of(own));
+    engine_note_off_key(&e, slot, -12);
+    engine_note_on_layers(&e, slot, 50, 12, own, 0, &p, 0, 100, 0); // C5 soft: zone 2
+    render(16);
+    v = voice_of(b);
+    CHECK(v && v->p.semi == -12 && v->p.pan == 25); // root C5: key +12 and -12, its own pitch
+    engine_note_on_layers(&e, slot, 120, 0, own, 0, &p, 0, 100, 0); // C4 hard: zone 3, TUNE +2, LEVEL 50
+    render(16);
+    v = voice_of(c);
+    CHECK(v && v->p.semi == -12 + 2 && v->p.volume == 50 && v->p.pan == 0);
+    engine_play_pad_mix(&e, slot, 100, -12, 0, 0, 100, 0); // the sequencer's way in, the same
+    CHECK(voice_of(a) != 0);
+    // KEY>FILTER: an octave up opens the cutoff by an octave's worth (100 / 9.97 of the scale).
+    engine_kill_all(&e);
+    km.kt_pan = 0, km.kt_filter = 100;
+    p.cutoff = 50;
+    engine_set_keymap(&e, slot, 0, &km);
+    for (int i = 0; i < 40; i++) render(128); // the old notes faded out
+    CHECK(atomic_load(&e.voices) == 0 || !voice_of(b));
+    engine_note_on_layers(&e, slot, 100, 12, own, 0, &p, 0, 100, 0); // C5 hard: zone 3
+    render(16);
+    v = voice_of(c);
+    CHECK(v && v->p.cutoff == 60);
+    // No key map: the pad's own sound again.
+    engine_kill_all(&e);
+    engine_set_keymap(&e, slot, 0, 0);
+    render(512);
+    engine_note_on_layers(&e, slot, 100, 0, own, 0, &p, 0, 100, 0);
+    render(16);
+    CHECK(voice_of(own) && !voice_of(c));
+    engine_kill_all(&e);
+    render(512);
+    sample_free(a), sample_free(b), sample_free(c), sample_free(own);
+}
+
 static void test_one_shot(void) {
     engine_init(&e);
     struct sample *s = ramp(256);
@@ -2229,16 +2290,18 @@ static void test_s600_track(const char *shot_dir) {
     CHECK(e.pad[ENGINE_S600 + 0].p.synth == 1 && e.pad[ENGINE_S600 + 0].p.decay_ms == 2000);
     CHECK(e.pad[0].p.synth == 0);
     tap(IN_B3); // Main: Volume, Semi, Fine are the pad's own, on K1-K3
-    CHECK(os.s600_page == 4 && os.s600_cursor == 3); // so the cursor starts on Poly
+    CHECK(os.s600_page == 4 && os.s600_cursor == 3); // so the cursor starts on Root
     in = blank();
     in.knob_moved[0] = 1, in.knob[0] = 127; // K1 catches Volume at the top
     frame(&in);
     in.knob[0] = 114;
     frame(&in);
     CHECK(pad->p.volume == 90 && os.s600_cursor == 0);
-    tap(IN_B3); // B3 goes on to Layer, then back to Main: the DRUM pages are not reachable
+    tap(IN_B3); // B3 goes on to Layer, then MULTI; SAMPLE back to Main: the DRUM pages are not reachable
     CHECK(os.screen == OS_S600 && os.s600_page == 5 && os.s600_cursor == 0);
     tap(IN_B3);
+    CHECK(os.screen == OS_MULTI);
+    tap(IN_SAMPLE);
     CHECK(os.screen == OS_S600 && os.s600_page == 4);
     CHECK(pad->sp.note_on == 1);
     in = blank();
@@ -2413,6 +2476,7 @@ static void test_midi_in_s600(void) {
     load_pad(2);
     os.selected = 2;
     os_program_set_s600(&os, 0, 1);
+    os.programs[0].inst = -1; // Instrument LAST PAD: the pad pressed last
     os.midi_in_read = fake_midi_read;
     midi_qn = midi_qat = 0;
     seq_rec_button(&os.seq);
@@ -2963,6 +3027,395 @@ static void test_live_looper(const char *shot_dir) {
     os.screen = OS_MAIN;
 }
 
+// ---- MULTI ----
+
+static struct sample *tone(double hz, int rate, int frames, float level) {
+    struct sample *t = sample_new(frames, 1, rate);
+    for (int i = 0; i < frames; i++) t->data[i] = level * (float)sin(2 * M_PI * hz * i / rate);
+    return t;
+}
+
+static double note_hz(double note) {
+    return 440.0 * pow(2.0, (note - 69) / 12.0);
+}
+
+// A synth outside, played by MIDI: what it sends back to the input for the notes it is given.
+static int synth_note = -1, synth_vel;
+static long synth_t;
+static __attribute__((unused)) void synth_midi(const unsigned char *m, int n) {
+    if (n < 3) return;
+    if ((m[0] & 0xf0) == 0x90 && m[2]) synth_note = m[1], synth_vel = m[2], synth_t = 0;
+}
+
+static void test_multi(const char *shot_dir) {
+    // Note names in sample names: 60 is C4.
+    CHECK(multi_name_note("Piano C3", 0) == 48 && multi_name_note("pno_F#2", 0) == 42 && multi_name_note("Rhodes-Bb1", 0) == 34);
+    CHECK(multi_name_note("Bass E-1", 0) == 4 && multi_name_note("Grand", 0) < 0 && multi_name_note("Kick 01", 0) < 0);
+    CHECK(multi_name_note("C10", 0) < 0 && multi_name_note("AS C3 v2", 0) == 48 && multi_name_note("Cb4", 0) == 59 &&
+          multi_name_note("B#3", 0) == 60 && multi_name_note("EP_A4", 0) == 69);
+    char nn[8];
+    multi_note_name(61, nn, sizeof nn);
+    CHECK(strcmp(nn, "C#4") == 0);
+    multi_note_name(0, nn, sizeof nn);
+    CHECK(strcmp(nn, "C-1") == 0);
+
+    // Pitch heard: a sine and a bright saw, at a low rate too; noise has none.
+    double heard = 0;
+    struct sample *a4 = tone(440, 29760, 29760, 0.5f);
+    CHECK(multi_detect_pitch(a4, &heard) && fabs(heard - 69) < 0.05);
+    struct sample *saw = sample_new(44100, 1, 44100);
+    for (int i = 0; i < 44100; i++) saw->data[i] = 0.4f * (float)(fmod(i * note_hz(45) / 44100, 1.0) * 2 - 1);
+    CHECK(multi_detect_pitch(saw, &heard) && fabs(heard - 45) < 0.1);
+    struct sample *noise = sample_new(44100, 1, 44100);
+    uint32_t r = 1;
+    for (int i = 0; i < 44100; i++) r = r * 1664525u + 1013904223u, noise->data[i] = (float)(r >> 8) / (1 << 24) - 0.5f;
+    CHECK(!multi_detect_pitch(noise, &heard));
+    sample_free(a4), sample_free(saw), sample_free(noise);
+
+    // S600: a sound loaded gets its ROOT (Auto Root); MIDI keys play the Instrument (A01 to start)
+    // from there: E2 played sounds it at its own pitch.
+    seq_fresh();
+    os_program_set_s600(&os, 0, PROG_S600);
+    CHECK(os.programs[0].inst == 0 && os.auto_root == 1);
+    os_pad_load(&os, 0, tone(note_hz(40.1), 44100, 22050, 0.5f), "Bass");
+    os_auto_root(&os, 0);
+    CHECK(os.pads[0].sp.root == 40 && os.pads[0].sp.root_fine == -10);
+    os_pad_load(&os, 3, tone(note_hz(60), 44100, 22050, 0.5f), "Other");
+    os.selected = 3; // pressed last; the Instrument is still A01
+    os.midi_in_read = fake_midi_read;
+    midi_qn = midi_qat = 0;
+    midi_push(0x90, 40, 100);
+    struct input idle = blank();
+    frame(&idle);
+    const struct voice *v = voice_on(ENGINE_S600 + 0);
+    CHECK(v && v->key == 0 && v->p.fine == os.pads[0].p.fine - 10);
+    midi_qn = midi_qat = 0;
+    midi_push(0x80, 40, 0);
+    frame(&idle);
+    os.midi_in_read = 0;
+
+    // S600 MULTI: the Instrument's keygroups; AUTO MAP from every pad, roots from names and
+    // pitch (a set counting middle C as C3 is heard an octave up: the octave heard wins).
+    seq_fresh();
+    os_program_set_s600(&os, 0, PROG_MULTI);
+    os_pad_load(&os, 0, tone(note_hz(48), 44100, 22050, 0.5f), "Pno C3");
+    os_pad_load(&os, 1, tone(note_hz(52), 44100, 22050, 0.5f), "Pno E3");
+    os_pad_load(&os, 2, tone(note_hz(55), 44100, 22050, 0.5f), "Pno G3");
+    os_pad_load(&os, 3, tone(note_hz(64.2), 44100, 22050, 0.5f), "Sound");
+    os_pad_load(&os, 4, tone(note_hz(72), 44100, 22050, 0.5f), "Set C4");
+    int fine, skipped;
+    CHECK(multi_root_of(&os.pads[3], 0, &fine) == 64 && fine == -20);
+    CHECK(multi_root_of(&os.pads[4], 1, &fine) == 60 && multi_root_of(&os.pads[4], 0, &fine) == 72);
+    CHECK(multi_auto_map(&os, 0, 0, OS_PADS - 1, 0, 0, 1, 1, &skipped) == 5 && skipped == 0);
+    const struct s600_kgs *k = &os.pads[0].kgs;
+    CHECK(k->kg[0].root == 48 && k->kg[0].lo == 0 && k->kg[0].hi == 50 && k->kg[1].lo == 51 && k->kg[1].hi == 53 &&
+          k->kg[3].root == 64 && k->kg[3].fine == -20 && k->kg[4].hi == 127 && k->kg[4].zone[0] == 5);
+    render(16);
+    int slot = ENGINE_S600 + 0;
+    CHECK(e.km_of[slot] && e.km[e.km_of[slot] - 1].n == 5 && e.km[e.km_of[slot] - 1].z[1].s == os.pads[1].s);
+    CHECK(!e.km_of[ENGINE_S600 + 1]); // only the Instrument plays keygroups
+    // A MIDI key plays the keygroup's sample, through the Instrument whatever pad was pressed.
+    os.selected = 2;
+    os.midi_in_read = fake_midi_read;
+    midi_qn = midi_qat = 0;
+    midi_push(0x90, 52, 100); // E3
+    frame(&idle);
+    CHECK(voice_of(os.pads[1].s) && voice_of(os.pads[1].s)->key == 52 - 60);
+    midi_qn = midi_qat = 0;
+    midi_push(0x80, 52, 0);
+    frame(&idle);
+    os.midi_in_read = 0;
+    // NAME only, ROOT UP, not extended, 2 ZONES: the unnamed pad is left out; two on one root are
+    // its soft and loud zones.
+    os_pad_load(&os, 5, tone(note_hz(48), 44100, 22050, 0.9f), "Pno C3 loud");
+    CHECK(multi_auto_map(&os, 0, 0, OS_PADS - 1, 1, 1, 2, 0, &skipped) == 4 && skipped == 1);
+    CHECK(k->kg[0].lo == 48 && k->kg[0].hi == 51 && k->kg[0].zone[0] == 1 && k->kg[0].zone[1] == 6 && k->kg[3].root == 60 &&
+          k->kg[3].hi == 60 && os.pads[0].sp.ranges_manual);
+    CHECK(multi_auto_map(&os, 0, 0, OS_PADS - 1, 0, 0, 2, 1, &skipped) == 5 && !os.pads[0].sp.ranges_manual);
+
+    // Saved and loaded with the project: Type, Instrument and keygroups.
+    char dir[] = "/tmp/claude-mpc-multi-XXXXXX";
+    CHECK(mkdtemp(dir) != 0);
+    os.data_dir = dir;
+    os.programs[0].inst = 0;
+    CHECK(disk_project_save(&os, dir) == 0);
+    struct s600_kgs keep = *k;
+    os.pads[0].kgs.n = 0;
+    os_program_set_s600(&os, 0, PROG_MPC);
+    CHECK(disk_project_load(&os, dir) == 0);
+    render(16);
+    CHECK(os.programs[0].s600 == PROG_MULTI && os.programs[0].inst == 0 && !memcmp(&os.pads[0].kgs, &keep, sizeof keep) &&
+          e.km_of[slot]);
+    // Loading a program asks first, naming the program it goes into; Cancel leaves it be.
+    char pp[700];
+    snprintf(pp, sizeof pp, "%s/programs/PNO", dir);
+    CHECK(disk_program_save(&os, 0, pp) == 0);
+    disk_open(&os, DISK_LOAD, DISK_PROGRAM);
+    int at_pno = -1;
+    for (int i = 0; i < os.disk_nfiles; i++)
+        if (!strcmp(os.disk_files[i], "PNO")) at_pno = i;
+    CHECK(at_pno >= 0);
+    os.disk_file = at_pno, os.disk_which = 3;
+    tap(IN_B3); // <Load>
+    CHECK(os.disk_ask == 'P');
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "disk_load_program");
+    tap(IN_B1); // <Cancel>
+    frame(&idle);
+    CHECK(os.disk_ask == 0 && !os_program_sounds(&os, 3));
+    tap(IN_B3);
+    struct input wh = blank();
+    wh.encoder = 2; // the wheel: into Program 06 instead
+    frame(&wh);
+    CHECK(os.disk_ask == 'P' && os.disk_which == 5);
+    tap(IN_B3); // <Yes>
+    frame(&idle);
+    CHECK(os.programs[5].s600 == PROG_MULTI && os.programs[5].pads[0].kgs.n == keep.n && !os_program_sounds(&os, 3));
+    // <To Empty>: straight into the first program with no sounds.
+    tap(IN_B3);
+    CHECK(os.disk_ask == 'P');
+    int first_empty = -1;
+    for (int g = 0; g < OS_PROGRAMS && first_empty < 0; g++)
+        if (!os_program_sounds(&os, g)) first_empty = g;
+    tap(IN_B2);
+    frame(&idle);
+    CHECK(os.disk_ask == 0 && first_empty >= 0 && os.programs[first_empty].s600 == PROG_MULTI &&
+          os.programs[first_empty].pads[0].kgs.n == keep.n);
+    os.screen = OS_MAIN;
+    // A zone's pad changes: the instrument plays the new sound.
+    struct sample *was = os.pads[1].s;
+    os_pad_assign(&os, 1, tone(note_hz(52), 44100, 11025, 0.5f), "Pno E3 new");
+    render(16);
+    int found_new = 0;
+    for (int i = 0; i < e.km[e.km_of[slot] - 1].n; i++) found_new |= e.km[e.km_of[slot] - 1].z[i].s == os.pads[1].s;
+    CHECK(found_new && os.pads[1].s != was);
+    // A new Instrument: the keygroups move with it.
+    os_set_instrument(&os, 0, 7);
+    os_pad_load(&os, 7, tone(note_hz(60), 44100, 4410, 0.5f), "Inst");
+    os_pad_push(&os, 7);
+    render(16);
+    CHECK(os.pads[7].kgs.n == keep.n && os.pads[0].kgs.n == 0 && e.km_of[ENGINE_S600 + 7] && !e.km_of[slot]);
+    os_set_instrument(&os, 0, 0);
+    render(16);
+    CHECK(os.pads[0].kgs.n == keep.n && e.km_of[slot]);
+
+    // Program Config: Type MPC, S600, S600 MULTI; Inst set by the wheel or a pad pressed.
+    struct input sp = blank();
+    sp.down = sp.held = (1u << IN_SAMPLE) | (1u << IN_SHIFT), sp.shift = 1;
+    frame(&sp);
+    CHECK(os.screen == OS_PROGRAM);
+    os.cursor_program = 2; // Inst
+    struct input pd = blank();
+    pd.pad_hit[2] = 100, pd.pad_down[2] = 1;
+    frame(&pd);
+    pd = blank(), pd.pad_release[2] = 1;
+    frame(&pd);
+    CHECK(os.programs[0].inst == 2 && os.pads[2].kgs.n == keep.n);
+    os.toast_until = 0;
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "program_multi");
+    os_set_instrument(&os, 0, 0);
+
+    // The MULTI screen: on the Instrument whatever pad is pressed; K1 the keygroup; a key played
+    // selects its keygroup, or (the cursor on Root) sets it; a pad pressed on a Zone sets it.
+    os.selected = 0;
+    s600_open(&os);
+    os.s600_page = 4; // Main: in an S600 MULTI program B3 goes straight to MULTI (no Layer page)
+    tap(IN_B3);
+    CHECK(os.screen == OS_MULTI && os.multi_page == 0);
+    tap(IN_SAMPLE);
+    CHECK(os.screen == OS_S600 && os.s600_page == 4);
+    os.s600_page = 5; // a Layer page left over from an S600 program: shown as Main
+    frame(&idle);
+    CHECK(os.s600_page == 4);
+    tap(IN_B3);
+    CHECK(os.screen == OS_MULTI);
+    pd = blank(), pd.pad_hit[3] = 100, pd.pad_down[3] = 1;
+    frame(&pd);
+    pd = blank(), pd.pad_release[3] = 1;
+    frame(&pd);
+    CHECK(os.selected == 0 && os.multi_pressed == 3);
+    struct input kn = blank();
+    kn.knob_moved[0] = 1, kn.knob[0] = 127;
+    frame(&kn);
+    CHECK(os.multi_kg == k->n - 1);
+    os.toast_until = 0;
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "multi_kg");
+    os.midi_in_read = fake_midi_read;
+    midi_qn = midi_qat = 0;
+    midi_push(0x90, 50, 100); // a key played selects its keygroup
+    midi_push(0x80, 50, 0);
+    frame(&idle);
+    CHECK(os.multi_kg == multi_kg_at(&os.pads[0], 50) && os.multi_kg == 0);
+    os.multi_cursor = 2; // Root: a key played sets it, and AUTO ranges follow
+    midi_qn = midi_qat = 0;
+    midi_push(0x90, 47, 100);
+    midi_push(0x80, 47, 0);
+    frame(&idle);
+    CHECK(k->kg[0].root == 47 && k->kg[0].hi == (47 + k->kg[1].root) / 2);
+    os.midi_in_read = 0;
+    os.multi_cursor = 7; // Zone 2 (Zone 2 From Velocity shows once it is set)
+    pd = blank(), pd.pad_hit[4] = 100, pd.pad_down[4] = 1;
+    frame(&pd);
+    pd = blank(), pd.pad_release[4] = 1;
+    frame(&pd);
+    CHECK(k->kg[0].zone[1] == 5);
+    os.toast_until = 0;
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "multi_kg_zone2");
+    // A message too long for one line takes two.
+    snprintf(os.toast, sizeof os.toast, "Press a pad with a sound first");
+    os.toast_until = 999999;
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "toast_two_lines");
+    os.toast_until = 0;
+    struct input sh = blank();
+    // <Add Pad>: a pad loaded by hand, at the root its pitch gives; SHIFT + B2 <Remove>.
+    os_pad_load(&os, 10, tone(note_hz(84), 44100, 22050, 0.5f), "Whistle");
+    os.multi_cursor = 0; // off the Zones: a pad pressed is only remembered
+    int n0 = k->n;
+    pd = blank(), pd.pad_hit[10] = 100, pd.pad_down[10] = 1;
+    frame(&pd);
+    pd = blank(), pd.pad_release[10] = 1;
+    frame(&pd);
+    sh.down = sh.held = (1u << IN_B3) | (1u << IN_SHIFT), sh.shift = 1; // SHIFT + B3 <Add Pad>
+    frame(&sh);
+    CHECK(k->n == n0 + 1 && k->kg[k->n - 1].root == 84 && k->kg[k->n - 1].zone[0] == 11 && k->kg[k->n - 1].hi == 127);
+    sh.down = sh.held = (1u << IN_B2) | (1u << IN_SHIFT), sh.shift = 1; // SHIFT + B2 <Remove>
+    frame(&sh);
+    CHECK(k->n == n0);
+    tap(IN_B1); // KEY TRACK
+    CHECK(os.multi_page == 1);
+    struct input w = blank();
+    w.encoder = 1; // Template: Flat to Piano
+    frame(&w);
+    CHECK(os.pads[0].sp.inst_tpl == 1 && os.pads[0].sp.kt_pan == 20 && os.pads[0].sp.kt_env == 60 && os.pads[0].sp.release == 400);
+    render(16);
+    CHECK(e.km[e.km_of[slot] - 1].kt_pan == 20);
+    os.toast_until = 0;
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "multi_kt");
+    tap(IN_B1);
+    tap(IN_B3); // AUTO MAP: its box, then <Do It> on every pad
+    CHECK(os.multi_page == 2);
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "multi_map");
+    tap(IN_B3);
+    CHECK(os.multi_page == 0 && k->n >= 5);
+
+    // The Auto Sampler, played by hand: two samples with two velocity layers; a Re-Do; a sample
+    // with no pitch is asked its note. The program has sounds: asked to clear them (kept in memory).
+    tap(IN_B2); // B2 <Smplr>: the Auto Sampler
+    CHECK(os.screen == OS_RECORD && os.record_page == 6);
+    CHECK(os.rec_set[6].rate == 29760 && os.rec_set[6].bits == 12 && os.rec_set[6].mode == REC_MONO_LR && os.as_layers == 1 &&
+          os.as_thres == -30 && os.as_len == 30);
+    os.toast_until = 0;
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "autosampler");
+    os.as_samples = 2, os.as_layers = 2, os.as_len = 3; // 0.3 s each
+    atomic_store(&os.rec.present, 1);
+    int memory0 = os.nmemory;
+    tap(IN_B3); // <Rec>
+    CHECK(os.as_ask == 'C');
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "autosampler_clear");
+    tap(IN_B1); // Yes
+    CHECK(os.as_ask == 0 && os_program_sounds(&os, 0) == 0 && os.nmemory > memory0 && os.as_total == 4);
+    struct ui au = {.px = px, .now_ms = 5000, .track_led = -1};
+    static float in2[256];
+    // What is played: sample 1 an A3, soft then loud; sample 2 noise (no pitch), soft then loud.
+    // The first loud take is played wrong and done again (<Re-Do>).
+    int redone = 0, noted = 0;
+    for (int b = 0; b < 400000 && (os.as_state != 0 || os.as_ask); b++) {
+        long long clock = atomic_load(&e.clock);
+        if (os.as_ask == 'N' && !noted) {
+            CHECK(os.as_note_k == 1);
+            os.toast_until = 0;
+            frame(&idle);
+            if (shot_dir) write_shot(shot_dir, "autosampler_note");
+            struct input wn = blank();
+            wn.encoder = 2; // C4 to D4
+            frame(&wn);
+            tap(IN_B3); // <OK>
+            noted = 1;
+            continue;
+        }
+        int take = os.as_at, layer = take % 2, sample = take / 2;
+        int waiting = os.as_state == 1, recording = os.as_state == 2;
+        if (take == 2 && waiting && !redone) { // after the first loud take: Re-Do it
+            tap(IN_B2);
+            redone = 1;
+            CHECK(os.as_at == 2 || os.as_state == 3);
+        }
+        float level = layer ? 0.6f : 0.2f;
+        for (int i = 0; i < 128; i++) {
+            float x = 0;
+            if (waiting || recording) {
+                if (sample == 0) x = level * (float)sin(2 * M_PI * note_hz(57) * (clock + i) / 44100);
+                else r = r * 1664525u + 1013904223u, x = level * ((float)(r >> 8) / (1 << 24) - 0.5f) * 2;
+            }
+            in2[i * 2] = in2[i * 2 + 1] = x;
+        }
+        recorder_input(&os.rec, in2, 128, clock);
+        recorder_service(&os.rec);
+        render(128);
+        au.now_ms += 3;
+        os_frame(&au, &idle, &os);
+        if (os.as_state == 2 && take == 1 && shot_dir && b % 50 == 0) {
+            os.toast_until = 0;
+            write_shot(shot_dir, "autosampler_rec");
+        }
+    }
+    CHECK(redone && noted && os.as_state == 0);
+    int inst = os_instrument(&os, 0);
+    const struct s600_kgs *ak = &os.pads[inst].kgs;
+    CHECK(os.screen == OS_MULTI && inst == 0 && ak->n == 2);
+    CHECK(ak->kg[0].root == 57 && ak->kg[0].zone[0] == 1 && ak->kg[0].zone[1] == 2 && ak->kg[0].split == 64);
+    CHECK(ak->kg[1].root == 62 && ak->kg[1].zone[0] == 3 && ak->kg[1].zone[1] == 4 && ak->kg[0].lo == 0 && ak->kg[1].hi == 127);
+    CHECK(strcmp(os.pads[0].name, "AS A3") == 0 && strcmp(os.pads[1].name, "AS A3 v2") == 0 && strcmp(os.pads[3].name, "AS D4 v2") == 0);
+    CHECK(os.pads[0].s->rate == 29760 && os.pads[0].s->channels == 1);
+    float soft = 0, loud = 0;
+    for (int i = 0; i < os.pads[0].s->frames; i++) soft = fmaxf(soft, fabsf(os.pads[0].s->data[i]));
+    for (int i = 0; i < os.pads[1].s->frames; i++) loud = fmaxf(loud, fabsf(os.pads[1].s->data[i]));
+    CHECK(soft > 0.25f && soft < 0.4f && loud > 0.6f); // normalized ALL: the layers keep their levels
+    CHECK(multi_detect_pitch(os.pads[0].s, &heard) && fabs(heard - 57) < 0.1);
+    os.toast_until = 0;
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "autosampler_done");
+
+    // <End> part way: map what is recorded.
+    record_open_autosampler(&os);
+    os.as_samples = 3, os.as_layers = 1;
+    tap(IN_B3);
+    CHECK(os.as_ask == 'C');
+    tap(IN_B2); // No: the pads stay; takes go on empty pads after them
+    CHECK(os.as_ask == 0 && os.as_state == 1);
+    for (int b = 0; b < 400000 && os.as_at < 1; b++) {
+        long long clock = atomic_load(&e.clock);
+        for (int i = 0; i < 128; i++) in2[i * 2] = in2[i * 2 + 1] = 0.3f * (float)sin(2 * M_PI * note_hz(69) * (clock + i) / 44100);
+        recorder_input(&os.rec, in2, 128, clock);
+        recorder_service(&os.rec);
+        render(128);
+        au.now_ms += 3;
+        os_frame(&au, &idle, &os);
+    }
+    tap(IN_B1); // <End>
+    for (int b = 0; b < 10 && os.as_ask != 'E'; b++) {
+        memset(in2, 0, sizeof in2);
+        recorder_input(&os.rec, in2, 128, atomic_load(&e.clock));
+        au.now_ms += 3;
+        os_frame(&au, &idle, &os);
+    }
+    CHECK(os.as_ask == 'E');
+    tap(IN_B1); // Yes
+    CHECK(os.as_state == 0 && os.pads[4].s && strcmp(os.pads[4].name, "AS A4") == 0 && os.pads[0].kgs.n == 1);
+    os.seq.midi_send = 0;
+    atomic_store(&os.rec.present, 0);
+    os.data_dir = 0;
+    os.screen = OS_MAIN;
+}
+
 // SAMPLE REC again: Audiotrack Record. The take starts on the sequence's first tick after the
 // count-in (as it comes back through the input) and runs the sequence's length; a pad, which
 // must be empty, gets it with a note at the start of the active track.
@@ -3157,7 +3610,7 @@ static void test_program_pads(const char *shot_dir) {
     CHECK(os.pgm_mode == PGM_DELETE && os.pads[4].s);
     tap(IN_B3);
     CHECK(os.pgm_mode == PGM_NONE && !os.pads[4].s);
-    os.cursor_program = 2; // Snd: the empty pad takes a sound from memory
+    os.cursor_program = 3; // Snd: the empty pad takes a sound from memory
     in = blank();
     in.encoder = 1;
     frame(&in);
@@ -4368,7 +4821,7 @@ static void test_s600_trim(const char *shot_dir) {
     // Main: Mono Legato after Note On, before Portamento.
     os.s600_page = 4;
     s600_open(&os);
-    os.s600_cursor = 5;
+    os.s600_cursor = 6; // (Root sits before Poly)
     in = blank();
     in.encoder = 1;
     frame(&in);
@@ -4766,7 +5219,8 @@ static void test_help_and_locate(const char *shot_dir) {
                      OS_ERASE, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_SENDS, OS_MASTER, OS_MUTE, OS_SONG, OS_STEP,
                      OS_WARP, OS_PREFS, OS_DISK, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT};
         for (int i = 0; i < (int)(sizeof all / sizeof all[0]); i++) help_dump(&os, all[i]);
-        for (int r = 0; r < 6; r++) os.record_page = r, help_dump(&os, OS_RECORD);
+        for (int r = 0; r < 7; r++) os.record_page = r, help_dump(&os, OS_RECORD);
+        for (int m = 0; m < 3; m++) os.multi_page = m, help_dump(&os, OS_MULTI);
     }
     os.screen = OS_MAIN;
     CHECK(help_open(&os, 0) == 0); // the main page has none
@@ -5813,11 +6267,22 @@ static void test_prefs(const char *shot_dir) {
     CHECK(os.loop_conv == LOOP_CONV_IMMEDIATE);
     frame(&in);
     CHECK(os.loop_conv == LOOP_CONV_AFTER);
+    // Auto Root: ON to start; OFF and back.
+    in = blank();
+    in.encoder_press = 1;
+    frame(&in);
+    CHECK(os.cursor_prefs == 10 && os.auto_root == 1);
+    in = blank(), in.encoder = -1;
+    frame(&in);
+    CHECK(os.auto_root == 0);
+    in.encoder = 1;
+    frame(&in);
+    CHECK(os.auto_root == 1);
     // Sample Rate: the wheel steps the slider's rates, then SET; pushed in on SET, any rate.
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(os.cursor_prefs == 10 && os.start_rate == 29760);
+    CHECK(os.cursor_prefs == 11 && os.start_rate == 29760);
     in = blank();
     in.encoder = 1;
     frame(&in);
@@ -5829,7 +6294,7 @@ static void test_prefs(const char *shot_dir) {
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(os.rate_edit && os.cursor_prefs == 10); // pushed in: the number, the cursor stays
+    CHECK(os.rate_edit && os.cursor_prefs == 11); // pushed in: the number, the cursor stays
     in = blank();
     in.encoder = -3;
     frame(&in);
@@ -5838,7 +6303,7 @@ static void test_prefs(const char *shot_dir) {
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(!os.rate_edit && os.cursor_prefs == 10);
+    CHECK(!os.rate_edit && os.cursor_prefs == 11);
     in = blank();
     in.encoder = -1; // off SET: back to the slider's rates
     frame(&in);
@@ -5846,18 +6311,18 @@ static void test_prefs(const char *shot_dir) {
     in.encoder = -1;
     frame(&in);
     CHECK(os.start_rate == 29760);
-    os.cursor_prefs = 11; // Bit Rate
+    os.cursor_prefs = 12; // Bit Rate
     frame(&in);
     CHECK(os.start_bits == 8 && os.rec_set[2].bits == 8);
     in.encoder = 1;
     frame(&in);
-    os.cursor_prefs = 14; // Input Thru: OFF, then on by hand
+    os.cursor_prefs = 15; // Input Thru: OFF, then on by hand
     in.encoder = -1;
     frame(&in);
     CHECK(os.start_thru == 0 && os.input_thru == 0);
     in.encoder = 1;
     frame(&in);
-    os.cursor_prefs = 15; // Rec Mode
+    os.cursor_prefs = 16; // Rec Mode
     frame(&in);
     CHECK(os.start_mode == REC_MONO_L && os.rec_set[4].mode == REC_MONO_L && os.rec_set[2].mode == REC_MONO_LR);
     in.encoder = -1;
@@ -6242,8 +6707,79 @@ static void test_s600_automation(void) {
     for (int i = 0; i < 40; i++) render(128);
 }
 
+// ---- The demo piano (DEMO_PIANO=folder): an S600 MULTI program for the card ----
+//
+// Synthesized, not sampled: each note a struck string, its partials a little sharp as a real
+// string's are (stiffness), each decaying faster the higher it is, three strings a fraction of a
+// cent apart so they beat, and a short felt-hammer knock at the start. The loud layer is struck
+// harder: more partials, brighter. 16 notes, C2 to C7 every major third, two layers each, as
+// 12-bit mono at 29.76 kHz.
+static struct sample *piano_note(int note, int loud) {
+    const int rate = 29760;
+    double f0 = note_hz(note), secs = 4.5 - (note - 36) * 0.05;
+    if (secs < 1.8) secs = 1.8;
+    int n = (int)(secs * rate);
+    struct sample *t = sample_new(n, 1, rate);
+    double B = 0.00012 * pow(2.0, (note - 36) / 18.0); // inharmonicity: more in the treble
+    double t60 = 9.0 * pow(0.5, (note - 36) / 14.0);   // how long the fundamental rings
+    double bright = loud ? 1.0 : 0.45;
+    uint32_t r = 12345u + (uint32_t)note * 7u + (uint32_t)loud;
+    double detune[3] = {1.0, pow(2.0, 0.6 / 1200.0), pow(2.0, -0.45 / 1200.0)};
+    double lp = 0;
+    for (int i = 0; i < n; i++) {
+        double tt = (double)i / rate, x = 0;
+        for (int k = 1; k <= 24; k++) {
+            double fk = k * f0 * sqrt(1.0 + B * k * k);
+            if (fk > rate * 0.45) break;
+            double amp = pow(k, -1.1) * exp(-(k - 1) * (1.6 - bright) * 0.35); // a harder hit: more highs
+            double decay = exp(-tt * 6.9 / (t60 / (1.0 + 0.35 * (k - 1))));
+            for (int st = 0; st < 3; st++) x += amp * decay * sin(2 * M_PI * fk * detune[st] * tt + st * 0.7);
+        }
+        x /= 3.0;
+        if (tt < 0.012) { // the hammer: a soft knock of filtered noise
+            r = r * 1664525u + 1013904223u;
+            double nz = (double)(r >> 8) / (1 << 24) * 2 - 1;
+            lp += 0.25 * (nz - lp);
+            x += lp * (0.6 + 0.6 * bright) * (1.0 - tt / 0.012);
+        }
+        double att = tt < 0.004 ? tt / 0.004 : 1.0;
+        t->data[i] = (float)(x * att * (loud ? 0.55 : 0.28));
+    }
+    float q = 2048.0f; // 12 bits
+    for (int i = 0; i < n; i++) t->data[i] = roundf(t->data[i] * q) / q;
+    return t;
+}
+
+static int demo_piano(const char *dir) {
+    seq_fresh();
+    os_program_set_s600(&os, 0, PROG_MULTI);
+    snprintf(os.programs[0].name, sizeof os.programs[0].name, "DEMO PIANO");
+    int pad = 0;
+    for (int note = 36; note <= 96; note += 4)
+        for (int loud = 0; loud < 2; loud++) {
+            char nn[8], name[24];
+            multi_note_name(note, nn, sizeof nn);
+            snprintf(name, sizeof name, loud ? "Piano %s v2" : "Piano %s", nn);
+            os_pad_load(&os, pad++, piano_note(note, loud), name);
+        }
+    os.programs[0].inst = 0;
+    int skipped, got = multi_auto_map(&os, 0, 0, OS_PADS - 1, 0, 0, 2, 1, &skipped);
+    multi_apply_template(&os, 0, 1); // Piano
+    os_multi_refresh(&os, 0);
+    char p[700];
+    snprintf(p, sizeof p, "%s/MPC600S/programs/DEMO PIANO", dir);
+    int rc = disk_program_save(&os, 0, p);
+    printf("demo piano: %d pads, %d keygroups, %d skipped, saved %s (%s)\n", pad, got, skipped, p, rc == 0 ? "ok" : "FAILED");
+    // Read back into another program: it must load as it was saved.
+    CHECK(rc == 0 && got == 16 && skipped == 0 && disk_program_load(&os, 1, p) == 0);
+    CHECK(os.programs[1].s600 == PROG_MULTI && os.programs[1].pads[0].kgs.n == 16 && os.programs[1].pads[0].kgs.kg[0].zone[1] == 2);
+    return rc;
+}
+
 int main(int argc, char **argv) {
+    if (getenv("DEMO_PIANO")) return demo_piano(getenv("DEMO_PIANO")) != 0 || failures != 0;
     test_one_shot();
+    test_keymap();
     test_reverse();
     test_loop_toggle();
     test_reverse_loop_stays_in_bounds();
@@ -6294,6 +6830,7 @@ int main(int argc, char **argv) {
     test_record_page(argc > 1 ? argv[1] : 0);
     test_audio_track(argc > 1 ? argv[1] : 0);
     test_live_looper(argc > 1 ? argv[1] : 0);
+    test_multi(argc > 1 ? argv[1] : 0);
     test_stems(argc > 1 ? argv[1] : 0);
     test_input_select();
     test_resample(argc > 1 ? argv[1] : 0);

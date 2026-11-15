@@ -180,6 +180,31 @@ int engine_kill_all(struct engine *e) {
     return engine_send(e, &ev);
 }
 
+// The key map goes into a staging copy (one the audio thread has finished with), and the
+// event points the audio thread at it. With every copy still in flight, it waits for one, up
+// to a quarter second.
+int engine_set_keymap(struct engine *e, int slot, int at, const struct keymap *km) {
+    struct event ev = {.type = EV_KEYMAP, .pad = slot, .key = km ? at : -1};
+    if (km) {
+        int free_at = -1;
+        for (int tries = 0; tries < 250 && free_at < 0; tries++) {
+            uint32_t ack = atomic_load_explicit(&e->km_ack, memory_order_acquire);
+            for (int i = 0; i < ENGINE_KM_STAGE && free_at < 0; i++)
+                if (!e->km_stage_seq[i] || (int32_t)(ack - e->km_stage_seq[i]) >= 0) free_at = i;
+            if (free_at < 0) {
+                struct timespec t = {0, 1000000};
+                nanosleep(&t, 0);
+            }
+        }
+        if (free_at < 0) return -1;
+        e->km_stage[free_at] = *km;
+        ev.km = &e->km_stage[free_at];
+        ev.seq = ++e->km_seq;
+        e->km_stage_seq[free_at] = ev.seq;
+    }
+    return engine_send(e, &ev);
+}
+
 void engine_retire(struct engine *e, struct sample *s) {
     if (!s) return;
     int slot = -1;
@@ -341,9 +366,48 @@ static struct voice *start_voice(struct engine *e, const struct event *ev, int o
     return v;
 }
 
+// A MULTI instrument's note: the zone its note and velocity fall in gives the sample, its trim
+// and loop and tuning (from the zone's root note); key tracking moves pan, filter, level and
+// envelope times with the note. 0 when no zone answers: the note is silent.
+static int keymap_note(const struct engine *e, const struct event *ev, struct event *out) {
+    const struct keymap *km = &e->km[e->km_of[ev->pad] - 1];
+    int note = 60 + ev->key, vel = ev->vel < 1 ? 1 : ev->vel > 127 ? 127 : ev->vel;
+    const struct km_zone *z = 0;
+    for (int i = 0; i < km->n && !z; i++)
+        if (km->z[i].s && note >= km->z[i].lo && note <= km->z[i].hi && vel >= km->z[i].vlo && vel <= km->z[i].vhi) z = &km->z[i];
+    if (!z) return 0;
+    *out = *ev;
+    struct pad_params *p = &out->p;
+    out->s = z->s;
+    out->s2 = 0;
+    p->layers = 1;
+    p->start = z->start, p->end = z->end, p->loop = z->loop, p->loop_on = z->loop_on;
+    p->semi += 60 - z->root + z->semi;
+    p->fine += z->fine;
+    double from = note - 60, oct = from / 12.0;
+    int pan = p->pan + z->pan + (int)lround(km->kt_pan * from / 24.0);
+    p->pan = pan < -50 ? -50 : pan > 50 ? 50 : pan;
+    // The cutoff's scale is 20 Hz to 20 kHz over 0..100: an octave is 100 / log2(1000) of it.
+    p->cutoff += (int)lround(km->kt_filter / 100.0 * from * 100.0 / (12.0 * 9.9658));
+    double db = km->kt_level / 100.0 * 6.0 * oct; // the level is volume squared: a quarter of the dB in volume
+    double vol = p->volume * (z->level / 100.0) * pow(10.0, db / 40.0);
+    p->volume = (int32_t)lround(vol < 0 ? 0 : vol > 200 ? 200 : vol);
+    if (km->kt_env) {
+        double f = pow(2.0, -oct * km->kt_env / 100.0);
+        p->decay_ms = (int32_t)lround(p->decay_ms * f), p->release_ms = (int32_t)lround(p->release_ms * f);
+        p->flt_decay_ms = (int32_t)lround(p->flt_decay_ms * f), p->flt_release_ms = (int32_t)lround(p->flt_release_ms * f);
+    }
+    return 1;
+}
+
 // A pad, and the pad set as its Also Play, together. Only one step, so two pads that name
 // each other cannot set each other off forever.
 static void note_on(struct engine *e, const struct event *ev, int offset) {
+    struct event multi;
+    if (ev->pad >= ENGINE_S600 && ev->pad < ENGINE_SLOTS && e->km_of[ev->pad] && ev->p.synth) {
+        if (!keymap_note(e, ev, &multi)) return;
+        ev = &multi;
+    }
     struct voice *first = start_voice(e, ev, offset, 0);
     if (first && ev->p.synth && ev->p.layers == 2 && ev->s2) { // the S600's second layer
         struct event two = *ev;
@@ -374,7 +438,19 @@ static void process_events(struct engine *e) {
                 e->pad[ev->pad].s = ev->s;
                 e->pad[ev->pad].s2 = ev->s2;
                 e->pad[ev->pad].p = ev->p;
+                if (!ev->s) e->km_of[ev->pad] = 0; // an emptied pad plays no key map either
             }
+            break;
+        case EV_KEYMAP:
+            if (ev->pad >= 0 && ev->pad < ENGINE_SLOTS) {
+                if (ev->km && ev->key >= 0 && ev->key < ENGINE_KEYMAPS) {
+                    e->km[ev->key] = *ev->km;
+                    e->km_of[ev->pad] = (unsigned char)(ev->key + 1);
+                } else {
+                    e->km_of[ev->pad] = 0;
+                }
+            }
+            if (ev->km) atomic_store_explicit(&e->km_ack, ev->seq, memory_order_release);
             break;
         case EV_OFF:
             for (int i = 0; i < ENGINE_VOICES; i++) {
@@ -435,6 +511,9 @@ static void process_events(struct engine *e) {
                 if (e->pad[i].s == ev->s) e->pad[i].s = 0;
                 if (e->pad[i].s2 == ev->s) e->pad[i].s2 = 0;
             }
+            for (int k = 0; k < ENGINE_KEYMAPS; k++) // a key map's zone playing it falls silent
+                for (int i = 0; i < e->km[k].n; i++)
+                    if (e->km[k].z[i].s == ev->s) e->km[k].z[i].s = 0;
             atomic_store_explicit(&e->retire_ack, ev->seq, memory_order_release);
             break;
         }

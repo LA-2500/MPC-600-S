@@ -239,16 +239,54 @@ static struct sample **read_sounds(const char *dir, int n) {
     return out;
 }
 
+#define KGS_MAGIC 0x4b475253 // "KGRS": a pad's keygroups follow
+
 static void write_program(struct bin *b, struct sound_list *l, const struct os_program *g) {
     wstr(b, g->name);
-    w32(b, g->s600);
+    // The Type, and from S600 on the Instrument (+ 2: 1 LAST PAD, 2 A01 ...) above it. An older
+    // OS reads any of them as an S600 program.
+    w32(b, g->s600 ? g->s600 | (g->inst + 2) << 8 : 0);
     w32(b, OS_PADS);
     for (int i = 0; i < OS_PADS; i++) {
         const struct os_pad *p = &g->pads[i];
         w32(b, p->s ? sound_index(l, p->s) : -1);
         wstr(b, p->name);
         wints(b, &p->p, (int)(sizeof p->p / 4));
-        wints(b, &p->sp, (int)(sizeof p->sp / 4));
+        if (p->sp.multi || p->kgs.n > 0) { // the keygroups ride after the S600 settings, marked
+            static int32_t all[sizeof(struct s600_params) / 4 + 2 + sizeof(struct s600_kgs) / 4];
+            int sp_n = (int)(sizeof p->sp / 4);
+            memcpy(all, &p->sp, sizeof p->sp);
+            all[sp_n] = KGS_MAGIC, all[sp_n + 1] = sp_n;
+            memcpy(all + sp_n + 2, &p->kgs, sizeof p->kgs);
+            wints(b, all, (int)(sizeof all / 4));
+        } else {
+            wints(b, &p->sp, (int)(sizeof p->sp / 4));
+        }
+    }
+}
+
+// A pad's S600 settings, and after them (MULTI) its keygroups: KGS_MAGIC, then how many ints
+// the settings were, then the keygroups. Older files have no keygroups; an older OS reads the
+// settings and skips the rest.
+static void read_s600(struct bin *b, struct s600_params *sp, struct s600_kgs *kgs) {
+    static int32_t buf[4096];
+    int32_t n = r32(b);
+    if (n < 0 || n > 1 << 20) b->ok = 0;
+    if (!b->ok) return;
+    int take = n < 4096 ? n : 4096;
+    if (take && fread(buf, 4, (size_t)take, b->f) != (size_t)take) b->ok = 0;
+    if (n > take) fseek(b->f, (long)(n - take) * 4, SEEK_CUR);
+    if (!b->ok) return;
+    int sp_n = take, at = -1;
+    for (int i = 0; i + 1 < take && at < 0; i++)
+        if (buf[i] == KGS_MAGIC && buf[i + 1] == i) at = i, sp_n = i;
+    int fit = sp_n < (int)(sizeof *sp / 4) ? sp_n : (int)(sizeof *sp / 4);
+    memcpy(sp, buf, (size_t)fit * 4);
+    memset(kgs, 0, sizeof *kgs);
+    if (at >= 0) {
+        int k = take - at - 2, cap = (int)(sizeof *kgs / 4);
+        memcpy(kgs, buf + at + 2, (size_t)(k < cap ? k : cap) * 4);
+        if (kgs->n < 0 || kgs->n > S600_KGS) kgs->n = 0;
     }
 }
 
@@ -256,7 +294,7 @@ static void write_program(struct bin *b, struct sound_list *l, const struct os_p
 static void read_program(struct os *s, struct bin *b, struct sample **sounds, int nsounds, int to) {
     char name[64];
     rstr(b, name, sizeof name);
-    int s600 = r32(b), npads = r32(b);
+    int type = r32(b), npads = r32(b), s600 = type & 0xff, inst = (type >> 8) - 2;
     if (!b->ok) return;
     int keep = s->program;
     os_program_clear(s, to);
@@ -268,17 +306,20 @@ static void read_program(struct os *s, struct bin *b, struct sample **sounds, in
         rstr(b, pname, sizeof pname);
         struct pad_params p;
         struct s600_params sp;
+        static struct s600_kgs kgs;
         memset(&p, 0, sizeof p);
         s600_defaults(&sp);
         rints(b, &p, (int)(sizeof p / 4));
-        rints(b, &sp, (int)(sizeof sp / 4));
+        read_s600(b, &sp, &kgs);
         if (i >= OS_PADS || idx < 0 || idx >= nsounds || !sounds[idx]) continue;
         os_pad_load(s, i, sounds[idx], pname);
         s->pads[i].p = p;
         s->pads[i].sp = sp;
+        s->pads[i].kgs = kgs;
         os_pad_push(s, i);
     }
-    os_program_set_s600(s, to, s600 != 0);
+    s->programs[to].inst = inst >= -1 && inst < OS_PADS ? inst : 0; // none stored: A01
+    os_program_set_s600(s, to, s600); // and every MULTI instrument's keygroups, with every pad they name loaded
     os_set_program(s, keep);
 }
 
@@ -899,6 +940,7 @@ static void perform(struct os *s, struct ui *u, int action) {
             if (x) {
                 os_undo_save(s, "Load Sample");
                 os_pad_assign(s, s->selected, x, file);
+                if (s->disk_type == DISK_SAMPLE) os_auto_root(s, s->selected);
                 rc = 0;
             }
             break;
@@ -1009,15 +1051,37 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     }
     if (s->disk_ask) { // a question first: replacing or deleting
         if (input_down(in, IN_B1)) s->disk_ask = 0;
-        if (input_down(in, IN_B3)) s->disk_pending = s->disk_ask, s->disk_ask = 0;
-        lcd_text(u, 0, KEY_ROW, "<No>");
+        if (s->disk_ask == 'P') { // the wheel picks the program it goes into
+            int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
+            s->disk_which = clampi(s->disk_which + d, 0, OS_PROGRAMS - 1);
+            if (input_down(in, IN_B2)) { // <To Empty>: the first program with no sounds, nothing cleared
+                int to = -1;
+                for (int g = 0; g < OS_PROGRAMS && to < 0; g++)
+                    if (!os_program_sounds(s, g)) to = g;
+                if (to < 0) {
+                    os_toast(s, u, "No empty program");
+                } else {
+                    s->disk_which = to;
+                    s->disk_pending = 'L', s->disk_ask = 0;
+                }
+            }
+        }
+        if (input_down(in, IN_B3)) s->disk_pending = s->disk_ask == 'P' ? 'L' : s->disk_ask, s->disk_ask = 0;
+        lcd_text(u, 0, KEY_ROW, s->disk_ask == 'P' ? "<Cancel>" : "<No>");
+        if (s->disk_ask == 'P') lcd_text(u, 9, KEY_ROW, "<To Empty>");
         lcd_text(u, 21, KEY_ROW, "<Yes>");
         lcd_rule(u, TITLE_ROW, "Save/Load");
         char q[48];
         if (s->disk_ask == 'D') snprintf(q, sizeof q, "Delete %.16s?", s->disk_files[s->disk_file]);
+        else if (s->disk_ask == 'P') snprintf(q, sizeof q, "Load into Program %02d?", s->disk_which + 1);
         else snprintf(q, sizeof q, "Replace %.16s?", s->disk_name);
         lcd_center(u, 6, q);
         if (s->disk_ask == 'D') lcd_center(u, 8, "This cannot be undone");
+        if (s->disk_ask == 'P') { // which program, and that what is there goes
+            snprintf(q, sizeof q, "%02d-%.16s", s->disk_which + 1, s->programs[s->disk_which].name);
+            lcd_center(u, 7, q);
+            lcd_center(u, 9, "Data will be cleared");
+        }
         lcd_rule(u, BOTTOM_ROW, 0);
         ui_wake(u, 1);
         return;
@@ -1041,6 +1105,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         }
         if (input_down(in, IN_B2) && on_item) s->disk_ask = 'D'; // <Delete>
         if (input_down(in, IN_B3) && on_folder) open_folder(s, s->disk_file); // <Open>
+        else if (input_down(in, IN_B3) && on_item && s->disk_type == DISK_PROGRAM) s->disk_ask = 'P'; // <Load>: asked first
         else if (input_down(in, IN_B3) && on_item) s->disk_pending = 'L'; // <Load>
     } else if (m != DISK_LOAD && s->disk_type != DISK_AUTOLOAD && input_down(in, IN_B1)) { // <New Dir>
         snprintf(s->disk_keep, sizeof s->disk_keep, "%s", s->disk_name);

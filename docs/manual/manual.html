@@ -87,12 +87,13 @@
   <li><a href="#ch7">Chapter 7: Song Mode</a><span class="dots"></span></li>
   <li><a href="#ch8">Chapter 8: Programs and Pad Sounds</a><span class="dots"></span></li>
   <li><a href="#ch9">Chapter 9: S600 Programs</a><span class="dots"></span></li>
-  <li><a href="#ch10">Chapter 10: Sampling: Sample Rate and Bit Depth</a><span class="dots"></span></li>
-  <li><a href="#ch11">Chapter 11: Editing Sounds</a><span class="dots"></span></li>
-  <li><a href="#ch12">Chapter 12: Warp and the S-Series Timestretch</a><span class="dots"></span></li>
-  <li><a href="#ch13">Chapter 13: The Mixer and Effects</a><span class="dots"></span></li>
-  <li><a href="#ch14">Chapter 14: Saving, Loading and Exporting</a><span class="dots"></span></li>
-  <li><a href="#ch15">Chapter 15: MIDI and Additional Settings</a><span class="dots"></span></li>
+  <li><a href="#ch10">Chapter 10: S600 MULTI: Multisample Instruments</a><span class="dots"></span></li>
+  <li><a href="#ch11">Chapter 11: Sampling: Sample Rate and Bit Depth</a><span class="dots"></span></li>
+  <li><a href="#ch12">Chapter 12: Editing Sounds</a><span class="dots"></span></li>
+  <li><a href="#ch13">Chapter 13: Warp and the S-Series Timestretch</a><span class="dots"></span></li>
+  <li><a href="#ch14">Chapter 14: The Mixer and Effects</a><span class="dots"></span></li>
+  <li><a href="#ch15">Chapter 15: Saving, Loading and Exporting</a><span class="dots"></span></li>
+  <li><a href="#ch16">Chapter 16: MIDI and Additional Settings</a><span class="dots"></span></li>
   <li><a href="#appx">Appendix: Specifications and Quick Reference</a><span class="dots"></span></li>
 </ol>
 </section>
@@ -101,7 +102,7 @@
 <h1 class="chapter" id="ch1"><small>Chapter 1</small>Introduction</h1>
 
 <h2>Welcome</h2>
-<p>The MPC 600 S is a pad-based sampler and sequencer for the Akai MPC Sample, built around sequences, tracks, programs and sounds. It has S600 programs based on Akai&rsquo;s S-series samplers, an arpeggiator with step patterns, warping and timestretching, effects for the input, the tracks and the master output, stem separation, and a sampler that records at low sample rates and bit depths.</p>
+<p>The MPC 600 S is a pad-based sampler and sequencer for the Akai MPC Sample, built around sequences, tracks, programs and sounds. It has S600 programs based on Akai&rsquo;s S-series samplers (two-oscillator synths, and S600 MULTI multisample instruments with an Auto Sampler that records them note by note), an arpeggiator with step patterns, warping and timestretching, effects for the input, the tracks and the master output, stem separation, and a sampler that records at low sample rates and bit depths.</p>
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
@@ -287,7 +288,7 @@
   <tr><td>Input, Mode</td><td>As on Sample New Sound: LINE or MIC; STEREO, MONO LFT, MONO RGT or MONO LR.</td></tr>
   <tr><td>Count In</td><td>2 bars (the default) or 1 bar of clicks before the sequence starts.</td></tr>
   <tr><td>Length</td><td><strong>SEQ</strong>: the length of the sequence. <strong>x2</strong>: twice it. <strong>STOP</strong>: until you stop it. A take of SEQ or x2 is trimmed to that length exactly.</td></tr>
-  <tr><td>Pitch, Bit Rate, Sample Rate, Anti-Aliasing, Normalize</td><td>As on Sample New Sound (Chapter 10). An audio track can be recorded at 26.04 kHz and 12 bits like any sample.</td></tr>
+  <tr><td>Pitch, Bit Rate, Sample Rate, Anti-Aliasing, Normalize</td><td>As on Sample New Sound (Chapter 11). An audio track can be recorded at 26.04 kHz and 12 bits like any sample.</td></tr>
 </table>
 <h3>How It Stays in Time</h3>
 <ul>
@@ -319,12 +320,12 @@
   <li>The take is always one pass: the sequence&rsquo;s length, lined up with its first tick, with the input&rsquo;s delay taken out as on Audiotrack Record.</li>
   <li>The conversion runs on its own thread, away from the audio, the pads and the screen: playing never stalls while a take is made.</li>
   <li>The metronome during a take follows Audio Rec, and after it After Loop, on the metronome page.</li>
-  <li>A MIDI footswitch set to <strong>AUDIO REC</strong> (MIDI Settings, Chapter 15) is <span class="key">&lt;Rec&gt;</span> and <span class="key">&lt;Stop&gt;</span>, here and on any page once takes have started.</li>
+  <li>A MIDI footswitch set to <strong>AUDIO REC</strong> (MIDI Settings, Chapter 16) is <span class="key">&lt;Rec&gt;</span> and <span class="key">&lt;Stop&gt;</span>, here and on any page once takes have started.</li>
   <li>To set a loop&rsquo;s volume (or anything else) while it plays, hold <span class="key">SAMPLE</span> and press its pad: it is selected without sounding or retriggering (Chapter 8).</li>
 </ul>
 {{shot:livelooper_done|A take dropped in, the sequence still looping}}
 <h4>Live Loop Conversion</h4>
-<p>A take is recorded at 44.1 kHz and 16 bits. Turning it into a sound at the page&rsquo;s settings is the same work as on Sample New Sound: for each new sample, a windowed-sinc filter (the anti-aliasing, and the pitch-up) reads the take between its samples; then the take is normalized to its peak and rounded to its bits. The filter is nearly all of the work, and normalizing needs the whole take, since its loudest point can come last. <strong>Loop Conv</strong> on Additional Settings (Chapter 15) chooses when that work is done:</p>
+<p>A take is recorded at 44.1 kHz and 16 bits. Turning it into a sound at the page&rsquo;s settings is the same work as on Sample New Sound: for each new sample, a windowed-sinc filter (the anti-aliasing, and the pitch-up) reads the take between its samples; then the take is normalized to its peak and rounded to its bits. The filter is nearly all of the work, and normalizing needs the whole take, since its loudest point can come last. <strong>Loop Conv</strong> on Additional Settings (Chapter 16) chooses when that work is done:</p>
 <table>
   <tr><th>Loop Conv</th><th>How it works</th><th>What you hear</th></tr>
   <tr><td><strong>IMMEDIATE</strong> (default)</td><td>The filter runs while the pass is recorded, a background thread following a few milliseconds behind the input. When the pass ends, only its last few milliseconds, the normalize and the bits are left: well under a millisecond&rsquo;s work for 10 seconds of stereo on a computer, a few milliseconds on the MPC Sample.</td><td>The take at its own rate, bits and pitch from the start of the next pass, a few milliseconds in (the input&rsquo;s delay and that work), faded in.</td></tr>
@@ -336,7 +337,7 @@
 <ul>
   <li>Record several takes onto different pads, and mute or solo them on Track Mute (PAD MUTE) to pick the best.</li>
   <li>Put each take on a separate track to give it a mixer channel, EQ and effect sends.</li>
-  <li>Use Warp (Chapter 12) to fit a take to a new tempo, and Print Effects to commit an effect to it.</li>
+  <li>Use Warp (Chapter 13) to fit a take to a new tempo, and Print Effects to commit an effect to it.</li>
   <li>If the sequence plays from the middle, the take does not start: it is started by its note at the beginning, as any one-shot sound would be.</li>
 </ul>
 
@@ -351,7 +352,7 @@
 <p>Swing works on pairs of steps. With a 1/16 note value, each pair of 1/16 notes makes an 1/8 note; the first note of the pair stays where it is and the second is moved later. The <strong>Swing %</strong> says how far through the pair the second note lands: 50% is straight (half-way), 66% is a triplet feel (two thirds of the way), and 75% is the most.</p>
 <p>Swing applies to the straight note values <strong>1/8, 1/16 and 1/32</strong>. The triplet values are never swung. It applies to notes as they are recorded, to Move Existing, and to Note Repeat and the arpeggiator as they play.</p>
 <p>The sequencer counts 96 ticks per quarter note (96 PPQN). A 1/16 note is 24 ticks, an 1/8 is 48, a 1/32 is 12. At 90 BPM one tick lasts about 6.9 milliseconds.</p>
-<p>The MPC 600 S has four swing timings, because the way a Swing % becomes a delay differs from machine to machine, and the difference is audible. <strong>Sequencer Res</strong> on Additional Settings (Chapter 15) chooses which: <strong>MPC 3000</strong>, <strong>MPC60</strong>, <strong>MPC 2000</strong> or <strong>SP12</strong>.</p>
+<p>The MPC 600 S has four swing timings, because the way a Swing % becomes a delay differs from machine to machine, and the difference is audible. <strong>Sequencer Res</strong> on Additional Settings (Chapter 16) chooses which: <strong>MPC 3000</strong>, <strong>MPC60</strong>, <strong>MPC 2000</strong> or <strong>SP12</strong>.</p>
 
 <h3>MPC 3000: Fixed Steps</h3>
 <p>The MPC 3000 setting moves in fixed steps: the swung 1/32 note moves a whole number of ticks, from 0 to 6, and the delay doubles for each larger note value.</p>
@@ -530,7 +531,7 @@
 <h1 class="chapter" id="ch8"><small>Chapter 8</small>Programs and Pad Sounds</h1>
 
 <h2>Program Config</h2>
-<p><span class="key">SHIFT + SAMPLE</span> opens Program Config: the program&rsquo;s pads and their sounds, a bank at a time. <strong>Type</strong> is MPC (drums) or S600 (Chapter 9). <span class="key">B1 &lt;Copy&gt;</span>, <span class="key">B2 &lt;Swap&gt;</span> and <span class="key">B3 &lt;Delete&gt;</span> work on single pads; with <span class="key">SHIFT</span> they copy or clear the whole program. <strong>Snd:</strong> gives the selected pad any sound in memory.</p>
+<p><span class="key">SHIFT + SAMPLE</span> opens Program Config: the program&rsquo;s pads and their sounds, a bank at a time. <strong>Type</strong> is MPC (drums), S600 (each pad a two-oscillator synth, Chapter 9) or S600 MULTI (a multisample instrument, Chapter 10). <strong>Inst</strong> (S600 and S600 MULTI) is the Instrument, the pad MIDI keys play: A01 to start; turn the wheel, or with the cursor on Inst press a pad. On S600, <strong>LAST PAD</strong> plays the pad pressed last. <span class="key">B1 &lt;Copy&gt;</span>, <span class="key">B2 &lt;Swap&gt;</span> and <span class="key">B3 &lt;Delete&gt;</span> work on single pads; with <span class="key">SHIFT</span> they copy or clear the whole program. <strong>Snd:</strong> gives the selected pad any sound in memory.</p>
 {{shot:program|Program Config}}
 
 <h2>A Pad&rsquo;s Settings</h2>
@@ -550,14 +551,16 @@
 <h1 class="chapter" id="ch9"><small>Chapter 9</small>S600 Programs</h1>
 
 <h2>What an S600 Program Is</h2>
-<p>An S600 program plays its pads as instruments rather than as drums. Set a program&rsquo;s <strong>Type</strong> to S600 on Program Config and every pad in it gets a second set of settings, its S600 settings, kept apart from its drum settings. The pad&rsquo;s sound, trim, loop, volume and tuning are shared; everything else is the S600&rsquo;s own. Switch the program back to MPC and its drum settings are exactly as you left them.</p>
-<p>On an S600 program, <span class="key">SAMPLE</span> opens the S600 pages instead of the drum pages, MIDI keys play the selected pad chromatically from note 60, and 16 Levels Tune plays it across the pads.</p>
+<p>An S600 program plays its pads as instruments rather than as drums: each pad is a <strong>two-oscillator synth</strong>, its own sound the first oscillator and Layer 2 (another pad&rsquo;s sound) the second, both through the same envelopes, filter and LFO. (For an instrument built from many samples across the keyboard, see S600 MULTI, Chapter 10.) Set a program&rsquo;s <strong>Type</strong> to S600 on Program Config and every pad in it gets a second set of settings, its S600 settings, kept apart from its drum settings. The pad&rsquo;s sound, trim, loop, volume and tuning are shared; everything else is the S600&rsquo;s own. Switch the program back to MPC and its drum settings are exactly as you left them.</p>
+<p>On an S600 program, <span class="key">SAMPLE</span> opens the S600 pages instead of the drum pages, and MIDI keys play the <strong>Instrument</strong> (Inst on Program Config: A01 to start, or LAST PAD for the pad pressed last) chromatically from its <strong>Root</strong>. 16 Levels Tune plays a sound across the pads.</p>
+<h3>Root and Auto Root</h3>
+<p><strong>Root</strong> (on the Main page) is the key at which the sound plays at its own pitch: a bass note sampled at E1 has Root E1, so E1 on the keyboard plays it as recorded and E2 an octave up. Pressing the pad itself always plays the sound at its own pitch. With <strong>Auto Root</strong> ON (Additional Settings, page 2; ON to start), a sound loaded or recorded onto a pad of an S600 program gets its Root found for it, from the note in its name and the pitch heard in it, as Auto Map finds them (Chapter 10), with the fine tuning that puts it in tune. A sound with neither (a drum, noise) stays at C4. Set Root by hand any time.</p>
 
 <h2>Structure</h2>
 <p>An S600 program makes a sample into a playable instrument, laid out the way Akai&rsquo;s S-series samplers did it. A sample feeds a filter; an amplitude envelope and a separate filter envelope shape it; an LFO adds vibrato and movement; velocity, pitch bend and modulation respond; it plays polyphonically or monophonically with portamento; and more than one sample can sound on each note.</p>
 
 <h2>The Pages</h2>
-<p><span class="key">B1</span>: Env1, Env2, Trim &nbsp;&middot;&nbsp; <span class="key">B2</span>: Filter, LFO &nbsp;&middot;&nbsp; <span class="key">B3</span>: Main, Layer. <span class="key">SHIFT + B3</span> is Edit All Pads. <span class="key">SHIFT + CHOP</span> turns Note On on and off.</p>
+<p><span class="key">B1</span>: Env1, Env2, Trim &nbsp;&middot;&nbsp; <span class="key">B2</span>: Filter, LFO &nbsp;&middot;&nbsp; <span class="key">B3</span>: Main, Layer, MULTI (an S600 MULTI program: Main, MULTI). <span class="key">SHIFT + B3</span> is Edit All Pads. <span class="key">SHIFT + CHOP</span> turns Note On on and off.</p>
 <table>
   <tr><th>Page</th><th>Settings</th></tr>
   <tr><td>Env1 (level)</td><td>Template, Attack, Decay, Sustain, Release.</td></tr>
@@ -565,8 +568,8 @@
   <tr><td>Trim</td><td>The same Trim page as an MPC program.</td></tr>
   <tr><td>Filter</td><td>Type, Cutoff, Resonance, Env2 Depth.</td></tr>
   <tr><td>LFO</td><td>Shape (Triangle, Sine, Square, Saw Up, Saw Down, Random), Rate, Pitch, Filter, Level, Delay.</td></tr>
-  <tr><td>Main</td><td>Volume, Semi, Fine (on K1&ndash;K3), Poly/Mono, Note On, Legato, Portamento, Bend Up, Bend Down, Mod&gt;Pitch.</td></tr>
-  <tr><td>Layer</td><td>Layers (1 or 2); layer 1&rsquo;s level and tuning; layer 2&rsquo;s sound, level and tuning.</td></tr>
+  <tr><td>Main</td><td>Volume, Semi, Fine (on K1&ndash;K3), Root, Poly/Mono, Note On, Legato, Portamento, Bend Up, Bend Down, Mod&gt;Pitch.</td></tr>
+  <tr><td>Layer</td><td>The second oscillator: Layers (1 or 2); layer 1&rsquo;s level and tuning; layer 2&rsquo;s sound, level and tuning.</td></tr>
 </table>
 {{shot:s600_env1|S600 Env1}}
 <h3>Envelope Templates</h3>
@@ -595,7 +598,202 @@
 
 
 <!-- ===================================================================================== -->
-<h1 class="chapter" id="ch10"><small>Chapter 10</small>Sampling: Sample Rate and Bit Depth</h1>
+<h1 class="chapter" id="ch10"><small>Chapter 10</small>S600 MULTI: Multisample Instruments</h1>
+
+<h2>What an S600 MULTI Program Is</h2>
+<p>The MPC 600 S has three kinds of program, set by <strong>Type</strong> on Program Config:</p>
+<table>
+  <tr><th>Type</th><th>What it is</th><th>How MIDI keys play it</th></tr>
+  <tr><td><strong>MPC</strong></td><td>A drum kit: each pad its own sound, with drum settings (Chapter 8).</td><td>Each key plays the pad its note is mapped to (Pad Notes).</td></tr>
+  <tr><td><strong>S600</strong></td><td>Each pad a two-oscillator synth: its sound (oscillator 1) and Layer 2 (oscillator 2), through shared envelopes, filter and LFO (Chapter 9).</td><td>The Instrument pad across the keyboard, from its Root.</td></tr>
+  <tr><td><strong>S600 MULTI</strong></td><td>A multisample instrument: one pad, the <strong>Instrument</strong>, plays samples from the program&rsquo;s pads across the keyboard, a different sample for each part of it and, if you like, for soft and hard playing.</td><td>The Instrument: each key plays the sample its keygroup holds.</td></tr>
+</table>
+<p>A single sample stretched across the keyboard sounds less and less like itself the further it goes: an octave up, a piano note is thin and fast; an octave down, slow and dull. A multisample instrument avoids this by sampling the instrument at several notes (every few semitones) and, often, at two strengths, and playing each key from the nearest sample. The keygroups, zones and key tracking of S600 MULTI are taken from Akai&rsquo;s S-series samplers (the S3000XL above all), streamlined: one instrument a program, two velocity zones a keygroup, and one set of envelopes, filter and LFO for the whole instrument.</p>
+<p>An S600 MULTI program is still an S600 program: its Instrument has the S600 pages (Env1, Env2, Filter, LFO, Main), and those shape every note it plays. Its other pads are where its samples live; pressed, each plays its own sample at its own pitch, so you can hear it on its own.</p>
+
+<h3>The Words</h3>
+<table>
+  <tr><th>Term</th><th>Meaning</th></tr>
+  <tr><td>Instrument</td><td>The pad MIDI keys play: Inst on Program Config, A01 to start. Its keygroups, key tracking and S600 settings are the instrument.</td></tr>
+  <tr><td>Keygroup</td><td>A range of keys (Lo to Hi) playing one sample, pitched from its Root. Up to 32.</td></tr>
+  <tr><td>Root</td><td>The key at which a keygroup&rsquo;s sample plays at its own pitch. Keys above and below play it higher and lower, as on any sampler.</td></tr>
+  <tr><td>Zone 1, Zone 2</td><td>The pads whose samples a keygroup plays: Zone 1 for softer notes, Zone 2 (if set) for harder ones. Each brings its pad&rsquo;s trim and loop.</td></tr>
+  <tr><td>Zone 2 From Velocity</td><td>The softest velocity that plays Zone 2: the velocity split.</td></tr>
+  <tr><td>Key tracking</td><td>The sound changing with the key: pan, filter, level and envelope times (KEY&gt;PAN, KEY&gt;FILTER, KEY&gt;LEVEL, KEY&gt;ENV).</td></tr>
+</table>
+
+<h2>Setting One Up</h2>
+<ol>
+  <li><span class="key">SHIFT + SAMPLE</span> opens Program Config. Set <strong>Type: S600 MULTI</strong>. <strong>Inst</strong> is the Instrument pad (A01 to start): turn the wheel, or with the cursor on Inst press the pad you want. A new Instrument takes the keygroups with it, so nothing is lost.</li>
+  <li>Put the samples on the program&rsquo;s pads, or record them with the Auto Sampler, which does it for you.</li>
+  <li>Press <span class="key">SAMPLE</span> for the S600 pages, then <span class="key">B3</span> from Main: the <strong>MULTI</strong> screen. (An S600 MULTI program has no Layer page: its second sound on a note is its keygroups&rsquo; Zone 2.) <span class="key">SAMPLE</span> comes back to Main.</li>
+  <li>Put the program on a track (the main page&rsquo;s Pgm, or Program Config&rsquo;s Pgm) and play it from a MIDI keyboard.</li>
+</ol>
+{{shot:program_multi|Program Config: Type S600 MULTI, Inst A03}}
+<p>There are three ways to build the keygroups, used alone or together:</p>
+<ul>
+  <li><strong>The Auto Sampler</strong> records an instrument note by note and maps it, by pitch and velocity, when you finish. Nothing to set up by hand.</li>
+  <li><strong>Auto Map</strong> maps samples already on the pads (loaded from the card, say), finding each one&rsquo;s note from its name and the pitch heard in it.</li>
+  <li><strong>By hand</strong>: <span class="key">&lt;Add Pad&gt;</span> adds one pad at a time at the note it detects, and every keygroup setting can be set directly.</li>
+</ul>
+
+<h2>The MULTI Screen</h2>
+<p>The MULTI screen always shows the Instrument, whatever pad you press. Its keys:</p>
+<table>
+  <tr><th>Key</th><th>Alone</th><th>With SHIFT</th></tr>
+  <tr><td>B1</td><td>&lt;KeyGrp&gt; / &lt;KeyTrk&gt;: the Keygroup page and the Key Track page</td><td></td></tr>
+  <tr><td>B2</td><td>&lt;Smplr&gt;: the Auto Sampler</td><td>&lt;Remove&gt;: removes the keygroup shown</td></tr>
+  <tr><td>B3</td><td>&lt;AutoMap&gt;: Auto Map</td><td>&lt;AddPad&gt;: adds the pad last pressed</td></tr>
+</table>
+
+<h3>The Keygroup Page</h3>
+{{shot:multi_kg|The Keygroup page: the last keygroup, its bar solid over the keyboard}}
+<table>
+  <tr><th>Field</th><th>What it does</th></tr>
+  <tr><td>KG</td><td>The keygroup shown, and how many there are. <span class="key">K1</span> moves through them; so does playing a key (the keygroup it falls in) and the wheel.</td></tr>
+  <tr><td>Ranges</td><td><strong>AUTO</strong> (the default): every keygroup reaches midway to the roots either side, and the lowest and highest reach the ends of the keyboard. Moving a Root, adding or removing a keygroup spreads them again by itself. <strong>MANUAL</strong>: Lo and Hi stay where you put them. Setting Lo or Hi by hand turns MANUAL on; turning back to AUTO spreads them again.</td></tr>
+  <tr><td>Root</td><td>The key at which the sample plays at its own pitch.</td></tr>
+  <tr><td>Level</td><td>The keygroup&rsquo;s level, 0&ndash;100, under the Instrument&rsquo;s Volume: evens out samples recorded louder or softer.</td></tr>
+  <tr><td>Lo, Hi</td><td>The keygroup&rsquo;s lowest and highest key.</td></tr>
+  <tr><td>Zone 1</td><td>The pad whose sample the keygroup plays, with that pad&rsquo;s Zone Start, Zone End and loop (set them on the pad&rsquo;s Trim and Loop pages).</td></tr>
+  <tr><td>Zone 2</td><td>A second pad, for harder playing; --- for none.</td></tr>
+  <tr><td>Zone 2 From Velocity</td><td>The softest velocity that plays Zone 2 (65 to start): velocities 1 to 64 play Zone 1, 65 to 127 Zone 2. Shown only with a Zone 2 set.</td></tr>
+  <tr><td>Tune, Fine</td><td>The keygroup&rsquo;s tuning: &plusmn;36 semitones, &plusmn;99 cents. Fine is set for you when a sample&rsquo;s pitch is found (Auto Map, Add Pad, the Auto Sampler), so it plays in tune.</td></tr>
+  <tr><td>Pan</td><td>The keygroup&rsquo;s pan, &minus;50 to +50, on top of the Instrument&rsquo;s and of KEY&gt;PAN.</td></tr>
+</table>
+<p><strong>Faster than the wheel:</strong></p>
+<ul>
+  <li>With the cursor on <strong>Root</strong>, <strong>Lo</strong> or <strong>Hi</strong>, play a key on the MIDI keyboard: it is set to that key.</li>
+  <li>With the cursor on <strong>Zone 1</strong> or <strong>Zone 2</strong>, press a pad: that pad is the zone.</li>
+  <li>Anywhere else, play a key: the keygroup it falls in is shown (as on the S3000XL).</li>
+</ul>
+<p><strong>The keyboard</strong> along the bottom shows three octaves at a time, following the keygroup shown: each keygroup is a bar over its keys (neighbours on alternate rows, so where one ends and the next begins shows), the one shown solid; each root is marked on its key; each C is named.</p>
+{{shot:multi_kg_zone2|A keygroup with two zones: Zone 2 From Velocity appears}}
+<p><strong>Adding and removing</strong>: press a pad (it plays; the screen stays on the Instrument), then <span class="key">SHIFT + B3 &lt;AddPad&gt;</span>. The pad&rsquo;s note is found from its name and the pitch heard (as Auto Map does), a keygroup is made at that root, and the ranges are spread again. A root that already has a keygroup with no Zone 2 takes the pad as its Zone 2 instead: add a sample&rsquo;s soft take, then its loud one, and they pair up. A pad already in a keygroup is not added twice: the message says which keygroup it is in. With no note found, the pad goes in at C4 and the message says so; set its Root. <span class="key">SHIFT + B2 &lt;Remove&gt;</span> takes the keygroup shown out; the rest spread to cover its keys.</p>
+<p>The first time an Instrument is used it has one keygroup across the whole keyboard: its own sample at C4. The first pad added replaces it, unless you have changed it.</p>
+
+<h3>The Key Track Page</h3>
+{{shot:multi_kt|The Key Track page}}
+<p>Real instruments change across their range: a piano&rsquo;s low notes ring long and sit to the left of the player, its high notes are short and to the right; strings sound duller as they go up unless the player brightens them. Key tracking does the same, around <strong>C4</strong> (middle C, note 60):</p>
+<table>
+  <tr><th>Field</th><th>Range</th><th>What it does</th></tr>
+  <tr><td>KEY&gt;PAN</td><td>&minus;50 to +50</td><td>Pan with the key. + puts low notes left and high notes right (a player&rsquo;s view of a piano), &minus; the other way. The full amount is reached two octaves from C4: at +20, C2 is 20 left, C6 20 right.</td></tr>
+  <tr><td>KEY&gt;FILTER</td><td>0 to 100</td><td>The cutoff follows the key: at 100 it moves an octave for each octave played, so every note is equally bright; at 50, half an octave. It acts only when the filter is not fully open (Cutoff on the Filter page).</td></tr>
+  <tr><td>KEY&gt;LEVEL</td><td>&minus;100 to +100</td><td>Level with the key, 6 dB an octave at 100. &minus; makes high notes softer, + louder.</td></tr>
+  <tr><td>KEY&gt;ENV</td><td>0 to 100</td><td>Decay and release times with the key. At 100 they halve an octave up and double an octave down: high notes ring shorter, low notes longer.</td></tr>
+</table>
+<p><strong>Template</strong> sets up the whole Instrument for a kind of instrument at once: Env1 and Env2 (from the S600 envelope templates), the filter&rsquo;s type, cutoff and resonance, Poly or Mono and Legato, and the four KEY&gt; values. A <span class="lcd">*</span> after its name means something has been changed since. Everything stays editable, here and on the S600 pages.</p>
+<table>
+  <tr><th>Template</th><th>Envelopes</th><th>Filter</th><th>KEY&gt;PAN</th><th>KEY&gt;FILTER</th><th>KEY&gt;LEVEL</th><th>KEY&gt;ENV</th></tr>
+  <tr><td>Flat</td><td>MPC Bass</td><td>LPF, open</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+  <tr><td>Piano</td><td>Piano</td><td>LPF 85</td><td>+20</td><td>50</td><td>&minus;20</td><td>60</td></tr>
+  <tr><td>Elec. Piano</td><td>Elec. Piano</td><td>LPF 80</td><td>+15</td><td>40</td><td>&minus;10</td><td>40</td></tr>
+  <tr><td>Organ</td><td>Elec. Organ</td><td>LPF, open</td><td>+10</td><td>0</td><td>&minus;10</td><td>0</td></tr>
+  <tr><td>Strings</td><td>String/Vox</td><td>LPF 80</td><td>+25</td><td>30</td><td>0</td><td>0</td></tr>
+  <tr><td>Choir</td><td>String/Vox</td><td>LPF 75</td><td>+10</td><td>20</td><td>0</td><td>0</td></tr>
+  <tr><td>Brass</td><td>Brass</td><td>LPF 70</td><td>+10</td><td>40</td><td>0</td><td>0</td></tr>
+  <tr><td>Woodwind</td><td>Woodwind</td><td>LPF 80</td><td>+5</td><td>30</td><td>0</td><td>0</td></tr>
+  <tr><td>Guitar</td><td>Guitar/Bass</td><td>LPF 85</td><td>+10</td><td>40</td><td>&minus;10</td><td>50</td></tr>
+  <tr><td>Bass</td><td>Guitar/Bass</td><td>LPF 80</td><td>0</td><td>30</td><td>0</td><td>30</td></tr>
+  <tr><td>Synth Pad</td><td>Slow String</td><td>S600 LPF 70</td><td>+20</td><td>30</td><td>0</td><td>0</td></tr>
+  <tr><td>Synth Lead</td><td>Synth Lead (Mono, Legato)</td><td>S600 LPF 60</td><td>0</td><td>50</td><td>0</td><td>0</td></tr>
+  <tr><td>Mallets</td><td>Tuned Perc</td><td>LPF 90</td><td>+20</td><td>40</td><td>&minus;10</td><td>70</td></tr>
+  <tr><td>Bells</td><td>Bell</td><td>LPF, open</td><td>+15</td><td>0</td><td>&minus;10</td><td>50</td></tr>
+</table>
+
+<h2>Auto Map</h2>
+{{shot:multi_map|Auto Map, before <Do It>}}
+<p><span class="key">B3 &lt;AutoMap&gt;</span> builds every keygroup from the program&rsquo;s pads in one go: each pad with a sound gets a keygroup at its root, and the ranges are spread between them. The Instrument&rsquo;s keygroups are replaced (Undo brings them back). Its settings:</p>
+<table>
+  <tr><th>Setting</th><th>Choices</th></tr>
+  <tr><td>Root From</td><td><strong>NAME+PITCH</strong> (the default): the note in the sample&rsquo;s name, in the octave nearest the pitch heard. <strong>NAME</strong>: the name alone. <strong>PITCH</strong>: the pitch heard alone.</td></tr>
+  <tr><td>Span</td><td><strong>MIDWAY</strong> (the default): each keygroup reaches midway to the roots either side. <strong>ROOT UP</strong>: from its root up to the next root. <strong>ROOT DOWN</strong>: from the one below up to its root.</td></tr>
+  <tr><td>Velocity</td><td><strong>1 ZONE</strong>: a keygroup a root; a second sample on the same root is left out. <strong>2 ZONES</strong>: two samples on one root become its soft and loud zones, the quieter one (by its average level) Zone 1.</td></tr>
+  <tr><td>Extend Last Note</td><td><strong>ON</strong> (the default): the lowest and highest keygroups reach the ends of the keyboard, so every key plays. <strong>OFF</strong>: they stop at their roots, and keys beyond are silent.</td></tr>
+</table>
+<p><span class="key">B3 &lt;Do It&gt;</span> maps; the message says how many keygroups were made and how many samples had no note found (they are left out: add them by hand). <span class="key">B1 &lt;Cancel&gt;</span> leaves things as they were.</p>
+<h3>How a Sample&rsquo;s Note Is Found</h3>
+<p><strong>From its name.</strong> A note name not inside a word, with an octave: <span class="lcd">Piano C3</span>, <span class="lcd">pno_F#2</span>, <span class="lcd">EP-Bb1</span>, <span class="lcd">Bass E-1</span>, <span class="lcd">AS C3 v2</span>. Sharps as # (or s), flats as b; the last such note in the name counts. Numbers are not notes (<span class="lcd">Kick 01</span>, <span class="lcd">C10</span>), nor are letters inside words (<span class="lcd">Bass</span>, <span class="lcd">Grand</span>). The MPC 600 S counts middle C as <strong>C4</strong> (note 60).</p>
+<p><strong>From its pitch.</strong> The pitch is measured on a stretch just after the attack (from 60 ms after it gets loud, up to a tenth of a second), with the YIN method: how alike the sound is to itself shifted by each possible period, the period where it is most alike giving the pitch, refined between samples. It finds pitches from A0 (27.5 Hz) to about C8 (4.2 kHz), in sounds with a steady pitch: notes of any instrument, synths, voices. Drums, noise and sounds with no clear pitch give none. The measured pitch also gives the <strong>Fine</strong> tuning that puts the sample in tune: a C4 sample 12 cents sharp gets Root C4, Fine &minus;12.</p>
+<p><strong>From both (NAME+PITCH).</strong> Sample sets number their octaves differently: in some, middle C is C3. The name gives the note; the pitch heard decides its octave. A sample named C3 that is heard at middle C gets Root C4. With only one of them, that one is used.</p>
+
+<h2>The Auto Sampler</h2>
+{{shot:autosampler|The Auto Sampler}}
+<p>The Auto Sampler records an instrument outside (a keyboard, a synth, a guitar through INST L, a voice) note by note, and makes the S600 MULTI program&rsquo;s Instrument from it. You play each note it asks for; when you are done, it finds each sample&rsquo;s note and maps everything by pitch and velocity. <span class="key">B2 &lt;Smplr&gt;</span> on the MULTI screen opens it; <span class="key">B1 &lt;Back&gt;</span> returns.</p>
+<h3>Settings</h3>
+<table>
+  <tr><th>Field</th><th>What it sets</th><th>Default</th></tr>
+  <tr><td>In</td><td>The input: LINE, INST L, MIC or USB (as on Sample New Sound).</td><td>as set</td></tr>
+  <tr><td>Mode</td><td>STEREO, MONO L, MONO R or MONO LR. INST L always records mono.</td><td>MONO LR</td></tr>
+  <tr><td>Threshold</td><td>The level that starts each take, &minus;60 to 0 dB; a moment before it is kept, so attacks are whole. OFF starts each take at once.</td><td>&minus;30 dB</td></tr>
+  <tr><td>Samples</td><td>How many notes you will play, 1 to 32.</td><td>8</td></tr>
+  <tr><td>Layers</td><td>Velocity layers: 1, or 2 (a soft and a loud take of each note).</td><td>1</td></tr>
+  <tr><td>Length</td><td>How long each take records from the threshold, 0.5 to 20 s; or MANUAL, until you press ENTER.</td><td>3.0 s</td></tr>
+  <tr><td>Rate, Bits, AA</td><td>The sound&rsquo;s sample rate, bit depth and anti-aliasing, as on Sample New Sound (Chapter 11).</td><td>29.76 kHz, 12, ON</td></tr>
+  <tr><td>Normalize</td><td><strong>ALL</strong>: every take raised by the same amount, so soft takes stay softer than loud ones. <strong>EACH</strong>: each to full level (the layers then differ only in tone). <strong>OFF</strong>: as played.</td><td>ALL</td></tr>
+  <tr><td>Key Tracking</td><td>The Key Track template the Instrument gets.</td><td>Flat</td></tr>
+</table>
+<h3>Recording</h3>
+<ol>
+  <li>Press <span class="key">B3 &lt;Rec&gt;</span>. If the program already has sounds, it asks <span class="lcd">Clear all existing samples in program?</span>: <span class="key">&lt;Yes&gt;</span> takes them off its pads (each is kept in memory, and Undo puts them back); <span class="key">&lt;No&gt;</span> leaves them, and the takes go on the empty pads; <span class="key">&lt;Cancel&gt;</span> starts nothing. If there are not enough empty pads from the Instrument on, it says how many it needs. An empty program is not asked about.</li>
+  <li>The screen asks, in a box: <span class="lcd">Ready for Sample 1 of 8 / Velocity 1</span>. Play the note. It records from the threshold for the Length (MANUAL: until ENTER), the box reading <span class="lcd">Recording</span>.</li>
+  <li>The next is asked for at once, with no key to press: with 2 layers, <span class="lcd">Sample 1, Velocity 2</span> (play the same note harder), then <span class="lcd">Sample 2, Velocity 1</span>, and so on.</li>
+</ol>
+{{shot:autosampler_rec|Recording: the take asked for, in a box}}
+<p>While recording:</p>
+<table>
+  <tr><th>Key</th><th>What it does</th></tr>
+  <tr><td>B1 &lt;End&gt;</td><td>Stops here and asks <span class="lcd">Map current recorded samples?</span>: Yes maps what has been recorded, as if the run had finished; No lets the whole recording go.</td></tr>
+  <tr><td>B2 &lt;Re-Do&gt;</td><td>Records a take again: while a take records, that one; while waiting for the next, the last one.</td></tr>
+  <tr><td>B3 &lt;Skip&gt;</td><td>Leaves out the take asked for. A note skipped altogether is covered by the keygroups either side.</td></tr>
+  <tr><td>ENTER</td><td>With Length MANUAL, ends the take.</td></tr>
+</table>
+<h3>When It Is Done</h3>
+<p><span class="lcd">Multi Sample Recording Complete</span>. Each sample&rsquo;s note is found from the pitch heard in it (its clearest layer). A sample with no clear pitch is asked about: turn the wheel or play a key for its note, <span class="key">B2 &lt;Play&gt;</span> to hear it, <span class="key">B3 &lt;OK&gt;</span>; or <span class="key">B1 &lt;Leave Out&gt;</span> (it goes on a pad, but in no keygroup).</p>
+{{shot:autosampler_note|A sample with no pitch found: its note asked for}}
+<p>Then:</p>
+<ul>
+  <li>The takes are converted to the Rate, Bits and AA set, and normalized as set.</li>
+  <li>They go onto pads <strong>in pitch order</strong>, from the Instrument up (skipping pads in use), each note&rsquo;s soft and loud takes side by side: A01 the lowest note&rsquo;s Velocity 1, A02 its Velocity 2, A03 the next note&rsquo;s Velocity 1 &hellip; so the pads read low to high whatever order you played in.</li>
+  <li>Each is named for its note: <span class="lcd">AS C3</span>, <span class="lcd">AS C3 v2</span> (left-out ones by their sample number).</li>
+  <li>The keygroups are made: one a note, Velocity 1 its Zone 1, Velocity 2 its Zone 2 (Zone 2 From Velocity 65), Fine set from the pitch heard, Ranges AUTO (midway between the notes, the ends to the ends of the keyboard). Two samples found on the same note: the first is mapped, the other stays on its pad.</li>
+  <li>The Key Tracking template is applied, and the Keygroup page opens on the new instrument.</li>
+</ul>
+<h3>Tips</h3>
+<ul>
+  <li>Spacing: a sample every three or four semitones gives a natural instrument, each sample stretched at most a couple of semitones. One an octave apart gives a more stretched, lo-fi one, and is quick to record.</li>
+  <li>Play notes in any order: they are sorted by pitch at the end.</li>
+  <li>Length: long enough for the sound to ring out (pianos 3&ndash;5 s; plucks and basses 1&ndash;2 s). For a sound that sustains, record a shorter take and set a loop on each pad afterwards (Loop page).</li>
+  <li>Memory: a 3-second take at 29.76 kHz mono is about 360 KB in memory; 32 notes with two layers, about 23 MB.</li>
+  <li>Two layers want Normalize ALL, so the soft takes stay soft.</li>
+</ul>
+
+<h2>Playing an S600 MULTI Program</h2>
+<ul>
+  <li><strong>MIDI keys</strong> play the Instrument, whatever pad was pressed last. The key picks the keygroup; the velocity picks its zone; the sample plays at the key&rsquo;s pitch from the keygroup&rsquo;s Root, with its Tune and Fine; the Instrument&rsquo;s envelopes, filter and LFO shape it; key tracking moves its pan, cutoff, level and envelope times. A key in no keygroup is silent.</li>
+  <li><strong>The sequencer</strong> plays the notes recorded on an S600 track the same way: change the keygroups and the recorded part plays the new ones.</li>
+  <li><strong>16 Levels Tune</strong> on the Instrument plays it across the pads, from C4.</li>
+  <li><strong>The pads</strong> play their own sounds, so you can audition each sample; the Instrument&rsquo;s own pad plays its C4 keygroup.</li>
+  <li>To edit a pad&rsquo;s trim or loop without playing it, hold <span class="key">SAMPLE</span> and press it.</li>
+</ul>
+
+<h2>Saving and Loading Instruments</h2>
+<p>An S600 MULTI program saves with the project, or on its own as a PROGRAM (Chapter 15): its Type, Instrument, keygroups, key tracking and every pad&rsquo;s sample go with it. Loading a program asks first: <span class="lcd">Load into Program 04? / 04-Program04 / Data will be cleared</span>. Turn the wheel to choose another program, <span class="key">B3 &lt;Yes&gt;</span> to load into it, <span class="key">B2 &lt;To Empty&gt;</span> to load into the first empty program instead, or <span class="key">B1 &lt;Cancel&gt;</span>.</p>
+
+<h2>Specifications</h2>
+<table>
+  <tr><th></th><th></th></tr>
+  <tr><td>Instruments</td><td>One a program; up to 64 across all 24 programs</td></tr>
+  <tr><td>Keygroups</td><td>Up to 32 an instrument, each with up to two velocity zones (64 samples)</td></tr>
+  <tr><td>Notes</td><td>MIDI 0&ndash;127, C&minus;1 to G9, middle C = C4 = 60</td></tr>
+  <tr><td>Voices</td><td>32, shared with the rest of the MPC 600 S</td></tr>
+  <tr><td>Pitch detection</td><td>YIN, 27.5 Hz to 4.2 kHz, to a few cents; on 0.1 s from 60 ms after the attack</td></tr>
+  <tr><td>Key tracking</td><td>Centred on C4: pan full at &plusmn;2 octaves; filter 0&ndash;1 octave an octave; level &plusmn;6 dB an octave; envelope times &times;2<sup>&minus;octaves</sup> at 100</td></tr>
+  <tr><td>Auto Sampler</td><td>1&ndash;32 samples &times; 1&ndash;2 velocity layers; 0.5&ndash;20 s a take or manual; 7&ndash;44.1 kHz, 4&ndash;16 bits</td></tr>
+</table>
+
+<!-- ===================================================================================== -->
+<h1 class="chapter" id="ch11"><small>Chapter 11</small>Sampling: Sample Rate and Bit Depth</h1>
 
 <h2>The Recording Pages</h2>
 <p><span class="key">SAMPLE REC</span> steps through four pages: <strong>Sample New Sound</strong>, <strong>Audiotrack Record</strong>, <strong>Convert Sample</strong> and <strong>Stems</strong>. <span class="key">SHIFT + Pad 11</span> opens <strong>Resample</strong>.</p>
@@ -684,7 +882,7 @@
 </ul>
 
 <!-- ===================================================================================== -->
-<h1 class="chapter" id="ch11"><small>Chapter 11</small>Editing Sounds</h1>
+<h1 class="chapter" id="ch12"><small>Chapter 12</small>Editing Sounds</h1>
 <h2>Loop</h2>
 <p><span class="key">LOOP</span> opens the Loop page: Loop on/off, <span class="key">K1</span> Loop Start, <span class="key">K2</span> Loop End, <span class="key">K3</span> a Do: Find St and Find End search for where the loop joins most smoothly; X-Fade blends the join; Discard keeps Zone Start to Loop End. <span class="key">SHIFT + LOOP</span> turns Reverse on and off.</p>
 {{shot:loop|The Loop page}}
@@ -695,7 +893,7 @@
 {{shot:print_fx|Print Effects}}
 
 <!-- ===================================================================================== -->
-<h1 class="chapter" id="ch12"><small>Chapter 12</small>Warp and the S-Series Timestretch</h1>
+<h1 class="chapter" id="ch13"><small>Chapter 13</small>Warp and the S-Series Timestretch</h1>
 
 <h2>Warp</h2>
 <p><span class="key">SHIFT + Pad 15</span> opens Warp: the selected pad&rsquo;s length and pitch changed independently. <span class="key">K1</span> Length (25&ndash;400%), <span class="key">K2</span> Pitch (&plusmn;12), <span class="key">K3</span> Fine. <strong>Bars</strong> tells it how long the loop is, so it can show its BPM; <span class="key">B2 &lt;Seq BPM&gt;</span> stretches it to the sequence&rsquo;s tempo. Each change renders again in the background and plays; <span class="key">B3 &lt;To Pad&gt;</span> puts it on the pad, keeping the original in memory. Only one warped sound is kept at a time.</p>
@@ -722,7 +920,7 @@
 <p>The parameters and modes are taken from the S1000&rsquo;s TIME page. <span class="key">&lt;Play&gt;</span> hears the result; <span class="key">&lt;GO&gt;</span> puts it on the pad, keeping the original in memory.</p>
 
 <!-- ===================================================================================== -->
-<h1 class="chapter" id="ch13"><small>Chapter 13</small>The Mixer and Effects</h1>
+<h1 class="chapter" id="ch14"><small>Chapter 14</small>The Mixer and Effects</h1>
 
 <h2>The Track Mixer</h2>
 <p><span class="key">SHIFT + Pad 9</span> opens the track mixer: 16 strips a bank (<span class="key">PAD BANK</span> for the next). A pad picks its track&rsquo;s strip; the slider sets its level (catching up), the wheel its pan; <span class="key">K1</span>&ndash;<span class="key">K3</span> its EQ gains. <span class="key">B1</span> Mute, <span class="key">B2</span> Solo, <span class="key">B3 &lt;EQ&gt;</span> the EQ page. Hidden: <span class="key">SHIFT + B1</span> resets every EQ, <span class="key">SHIFT + B2</span> turns MIDI CC control on and off, <span class="key">SHIFT + B3</span> opens FX Sends.</p>
@@ -732,7 +930,7 @@
 <h2>Input Effects</h2>
 <p><span class="key">KNOB FX</span> opens Input Effects: nine effects, used in one of three ways (<strong>Type</strong>). At every power-on they start off and empty (Type INPUT, each Type on its blank first preset), whatever was used last or came with an autoload project.</p>
 <ul>
-  <li><strong>INPUT</strong>: a chain on the input, heard through Input Thru and recorded. <strong>Input</strong> takes MONO L, MONO R, STEREO, INST L (a guitar or bass straight in, with its Gain and Bright beside it: see Chapter 10), the MIC, or USB (a computer&rsquo;s audio, in stereo).</li>
+  <li><strong>INPUT</strong>: a chain on the input, heard through Input Thru and recorded. <strong>Input</strong> takes MONO L, MONO R, STEREO, INST L (a guitar or bass straight in, with its Gain and Bright beside it: see Chapter 11), the MIC, or USB (a computer&rsquo;s audio, in stereo).</li>
   <li><strong>TRACK/MIXER</strong>: nine send effects for the mixer. Each track sends to each effect on the <strong>FX Sends</strong> page (mixer, <span class="key">SHIFT + B3</span>). A send of 0 is a true bypass. Reverbs and delays come back as effect only; compressors and drives come back whole, for parallel processing.</li>
   <li><strong>PAD</strong>: the chain on one pad&rsquo;s sound. Press a pad on the page to move it there.</li>
 </ul>
@@ -878,12 +1076,12 @@
 </table>
 
 <!-- ===================================================================================== -->
-<h1 class="chapter" id="ch14"><small>Chapter 14</small>Saving, Loading and Exporting</h1>
+<h1 class="chapter" id="ch15"><small>Chapter 15</small>Saving, Loading and Exporting</h1>
 <p><span class="key">SHIFT + Pad 16</span> opens Save/Load (<span class="key">SHIFT + SAMPLE SELECT</span> opens it ready to save the pad&rsquo;s sound). <strong>Mode</strong>: SAVE, LOAD or EXPORT.</p>
 <table>
   <tr><th>Type</th><th>Saves and loads</th></tr>
   <tr><td>PROJECT</td><td>Everything: every program and sound, the sounds in memory, the sequences, songs, mixer, effects and Master Effects. Master Effects are kept only in projects (and the Autoload project): with no Autoload, they start off at power-on.</td></tr>
-  <tr><td>PROGRAM</td><td>One program and its sounds, from or into any of the 24.</td></tr>
+  <tr><td>PROGRAM</td><td>One program and its sounds (an S600 MULTI program with its Instrument and keygroups), from or into any of the 24. Saving: <strong>Pgm:</strong> picks which. Loading: <strong>Into:</strong> picks where (the program in use, to start), and <span class="key">&lt;Load&gt;</span> asks first, naming it: <span class="lcd">Load into Program 04? / Data will be cleared</span>. The wheel changes the program; <span class="key">B3 &lt;Yes&gt;</span> loads into it (Undo brings back what was there); <span class="key">B2 &lt;To Empty&gt;</span> loads into the first program with no sounds instead; <span class="key">B1 &lt;Cancel&gt;</span>.</td></tr>
   <tr><td>SAMPLE</td><td>The selected pad&rsquo;s sound as a 24-bit WAV.</td></tr>
   <tr><td>SETTINGS</td><td>Your settings and preferences.</td></tr>
   <tr><td>AUTOLOAD</td><td>A project loaded at power-on.</td></tr>
@@ -910,7 +1108,7 @@
 {{shot:disk_save|Save/Load}}
 
 <!-- ===================================================================================== -->
-<h1 class="chapter" id="ch15"><small>Chapter 15</small>MIDI and Additional Settings</h1>
+<h1 class="chapter" id="ch16"><small>Chapter 16</small>MIDI and Additional Settings</h1>
 <h2>MIDI Settings</h2>
 <p><span class="key">SHIFT + Pad 8</span>: Ext and USB MIDI, Base and Receive channels, Sync (send or receive MIDI clock), Local Mode, Soft Thru, and the sustain pedal (normal, to duration, or footswitch).</p>
 <p><strong>Footswitch</strong>: with Sustain set to FOOTSWITCH, a pedal works the transport instead of holding notes. Most footswitches reach the MPC through a MIDI keyboard or controller, which sends the pedal as a MIDI CC (usually 64, the sustain pedal) on its own channel. Four more fields, under Footswitch, make it work with whatever is sending it:</p>
@@ -959,6 +1157,7 @@
 <p>Page 2:</p>
 <ul>
   <li><strong>Loop Conv</strong> (Live Loop Conversion): how a Live Looper take becomes a sound at its Pitch, Sample Rate, Bit Rate, Anti-Aliasing and Normalize. <strong>IMMEDIATE</strong> (the default) or <strong>AFTER 1ST LOOP</strong>, which suits longer takes; see Live Looper in Chapter 3.</li>
+  <li><strong>Auto Root</strong>: ON (the default) finds a sound&rsquo;s Root (S600 Main page) when it is loaded or recorded onto a pad of an S600 or S600 MULTI program, from the note in its name and the pitch heard in it (Chapters 9 and 10). OFF leaves it at C4.</li>
 </ul>
 <p><strong>Recording Starts With</strong>: one set of starting values for every recording page: Sample New Sound, Audiotrack Record, Convert Sample, Resample and Live Looper. They are what each page has at power-on, and changing one here sets it on all of them at once. Each page can still be changed on its own afterwards, for that take.</p>
 <table>
@@ -994,7 +1193,7 @@
   <tr><th>Item</th><th>Specification</th></tr>
   <tr><td>Capture</td><td>44.1 kHz, 16-bit; LINE (stereo or either side), MIC, INST L (the left input, mono, through the instrument stage: 40 Hz high-pass, Bright up to +9 dB at 3.5 kHz, 0&ndash;30 dB gain, soft limit), or USB (a computer&rsquo;s audio through the USB audio gadget, 44.1 kHz stereo, its clock followed by an adaptive resampler)</td></tr>
   <tr><td>Sample rate / bit depth</td><td>7.0&ndash;44.1 kHz; 16, 12, 8 or 4 bits; stored at that rate and depth</td></tr>
-  <tr><td>Anti-aliasing</td><td>Blackman-windowed sinc, &minus;6 dB at 0.45 &times; the new rate; full table in Chapter 10</td></tr>
+  <tr><td>Anti-aliasing</td><td>Blackman-windowed sinc, &minus;6 dB at 0.45 &times; the new rate; full table in Chapter 11</td></tr>
   <tr><td>Pitch (sampling)</td><td>0 to +24 semitones, the pad tuned down to match</td></tr>
   <tr><td>Saved samples</td><td>24-bit WAV</td></tr>
   <tr><td>Stems</td><td>Open-Unmix separation, up to 20 s: drums, bass, vocals or music, extracted or removed</td></tr>

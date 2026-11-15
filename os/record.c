@@ -99,17 +99,20 @@ void record_defaults(struct os *s) {
     s->rec_set[4] = (struct rec_settings){.mode = REC_STEREO, .thres_db = -30, .bits = 16, .rate = 44100, .aa = 1,
                                           .start_force = 1};
     s->rec_set[5] = *a, s->rec_set[5].length = RLEN_SEQ; // Live Looper: as Audiotrack Record, one pass
+    // The Auto Sampler: 12-bit mono at 29.76 kHz; 8 samples, one velocity layer, 3 seconds each
+    // from the -30 dB threshold, normalized together.
+    s->as_samples = 8, s->as_layers = 1, s->as_len = 30, s->as_thres = -30, s->as_norm = 2, s->as_tpl = 0;
     record_apply_start(s);
 }
 
 // Additional Settings' Start values: the same rate, bits, Anti-Aliasing, Normalize and Mode on
 // every recording page, and Input Thru.
 void record_apply_start(struct os *s) {
-    static const int PAGES[] = {0, 1, 2, 4, 5};
-    for (int i = 0; i < 5; i++) {
+    static const int PAGES[] = {0, 1, 2, 4, 5, 6};
+    for (int i = 0; i < 6; i++) {
         struct rec_settings *r = &s->rec_set[PAGES[i]];
         r->rate = s->start_rate, r->bits = s->start_bits, r->aa = s->start_aa != 0, r->normalize = s->start_norm != 0;
-        r->mode = PAGES[i] == 2 ? REC_MONO_LR : s->start_mode; // Convert Sample stays mono (MONO LR)
+        r->mode = PAGES[i] == 2 || PAGES[i] == 6 ? REC_MONO_LR : s->start_mode; // Convert Sample, Auto Sampler: mono
     }
     s->input_thru = s->start_thru != 0;
 }
@@ -337,6 +340,7 @@ int record_pad(struct os *s, struct ui *u, int slot) {
     os_pad_load(s, slot, s->rec_result, s->rec_result_name);
     s->pads[slot].p.semi = -s->rec_result_pitch; // a pitched-up sound plays at its own pitch
     os_pad_push(s, slot);
+    if (!s->rec_sync) os_auto_root(s, slot);
     s->rec_result = 0;
     s->rec_count += s->rec_result_counted;
     s->selected = slot;
@@ -457,6 +461,426 @@ static void watch_audio_track(struct os *s) {
         if (!stopped) seq_stop(&s->seq, 1);
         s->at_running = 0;
     }
+}
+
+// ---- The Auto Sampler ----
+//
+// Builds an S600 MULTI program's instrument from an instrument outside, played by you. Each
+// take asked for ("Ready for Sample 1 Velocity 1") starts at the Threshold and runs for Length
+// (or, MANUAL, until ENTER); the next is asked for at once. B1 <End> (map what is recorded, or
+// not), B2 <Re-Do> the last take, B3 <Skip> the one asked for. At the end each sample's pitch is
+// found (or asked for), the takes are converted to the page's rate and bits, normalized (each,
+// or all together so the layers keep their levels), put on pads in pitch order from the
+// Instrument (each sample's soft and loud takes side by side), named for their notes, and
+// mapped: a keygroup a sample, its velocity layers its zones, the ranges midway between.
+
+enum { AS_IDLE, AS_ARMED, AS_REC, AS_ENDING, AS_FINISH };
+enum { AS_DONE, AS_REDO, AS_SKIP, AS_END }; // why a take stopped
+enum { NORM_OFF, NORM_EACH, NORM_ALL };
+enum { AF_INPUT, AF_MODE, AF_THRES, AF_SAMPLES, AF_LAYERS, AF_LEN, AF_RATE, AF_BITS, AF_AA, AF_NORM, AF_TPL, AF_FIELDS };
+static const struct {
+    int row, lcol, vcol;
+    const char *label;
+} AS_FIELD[AF_FIELDS] = {
+    {3, 0, 3, "In:"},          {3, 12, 17, "Mode:"},      {4, 0, 10, "Threshold:"}, {5, 0, 8, "Samples:"},
+    {5, 13, 20, "Layers:"},    {6, 0, 7, "Length:"},      {7, 0, 5, "Rate:"},       {7, 13, 18, "Bits:"},
+    {8, 0, 3, "AA:"},          {8, 8, 18, "Normalize:"},  {9, 0, 13, "Key Tracking:"},
+};
+
+void record_open_autosampler(struct os *s) {
+    if (s->screen != OS_RECORD) s->record_return = s->screen;
+    s->screen = OS_RECORD;
+    s->record_page = 6;
+    s->cursor_record = 0;
+}
+
+static int as_pads(const struct os *s, int *pads, int want) { // the empty pads, from the Instrument up
+    int n = 0;
+    for (int i = os_instrument(s, s->program); i < OS_PADS && n < want; i++)
+        if (!s->pads[i].s) pads[n++] = i;
+    return n;
+}
+
+static void as_free_takes(struct os *s) {
+    for (int i = 0; i < OS_PADS; i++) sample_free(s->as_take[i]), s->as_take[i] = 0;
+}
+
+static void as_arm(struct os *s) { // the next take: waiting for the threshold (OFF: at once)
+    atomic_store(&s->rec.source, 0);
+    atomic_store(&s->rec.threshold, s->as_thres <= THRES_OFF ? 0 : (int)(32767.0 * pow(10.0, s->as_thres / 20.0)));
+    if (recorder_arm(&s->rec, max_frames(s)) == 0) s->as_state = AS_ARMED;
+}
+
+// <Rec>: with the program's pads holding sounds, asked first whether to clear them.
+static void as_rec(struct os *s, struct ui *u) {
+    int total = s->as_samples * s->as_layers, pads[OS_PADS];
+    char msg[48];
+    if (s->programs[s->program].s600 != PROG_MULTI) {
+        os_toast(s, u, "Program Type must be S600 MULTI");
+        return;
+    }
+    if (!atomic_load(&s->rec.present)) {
+        os_toast(s, u, "No audio input");
+        return;
+    }
+    int state = atomic_load(&s->rec.state);
+    if (state == REC_ARMED || state == REC_RECORDING || s->lp_state != LP_IDLE || s->rec_result) {
+        os_toast(s, u, "Recording busy");
+        return;
+    }
+    if (!s->as_clear && os_program_sounds(s, s->program)) {
+        s->as_ask = 'C'; // Clear all existing samples in program?
+        return;
+    }
+    if (s->as_clear != 2 && as_pads(s, pads, total) < total) {
+        int inst = os_instrument(s, s->program);
+        snprintf(msg, sizeof msg, "Needs %d empty pads from %c%02d", total, 'A' + inst / 16, inst % 16 + 1);
+        os_toast(s, u, msg);
+        s->as_clear = 0;
+        return;
+    }
+    if (s->as_clear == 2) { // Yes: the program's sounds off its pads, kept in memory
+        os_undo_save(s, "Clear Program");
+        for (int i = 0; i < OS_PADS; i++) {
+            struct sample *x = s->pads[i].s;
+            if (!x) continue;
+            int kept = 0;
+            for (int m = 0; m < s->nmemory; m++) kept |= s->memory[m].s == x;
+            if (!kept) os_memory_add(s, x, s->pads[i].name);
+            os_pad_clear(s, i);
+        }
+    }
+    s->as_clear = 0;
+    as_free_takes(s);
+    s->as_total = total, s->as_at = 0, s->as_silent = 0;
+    as_arm(s);
+}
+
+// The take just ended, at the page's rate (24 bits for now: the bits come after normalizing).
+static void as_take(struct os *s) {
+    const struct rec_settings *r = &s->rec_set[6];
+    int mode = s->input_src == INPUT_INST ? REC_MONO_L : r->mode;
+    struct sample *raw = recorder_raw(&s->rec, mode, 0, atomic_load(&s->rec.frames));
+    recorder_discard(&s->rec);
+    sample_free(s->as_take[s->as_at]), s->as_take[s->as_at] = 0;
+    if (!raw) return;
+    struct rec_format f = {raw->channels == 2 ? REC_STEREO : REC_MONO_L, r->rate, 24, r->aa, 0, 0, 0, 0};
+    s->as_take[s->as_at] = rec_convert(raw, &f);
+    sample_free(raw);
+}
+
+static void as_quantize(struct sample *t, float gain, int bits) {
+    float q = (float)(1 << (bits - 1)), top = (q - 1) / q;
+    for (long i = 0; i < (long)t->frames * t->channels; i++) {
+        float v = roundf(t->data[i] * gain * q) / q;
+        t->data[i] = v > top ? top : v < -1.0f ? -1.0f : v;
+    }
+}
+
+// Each sample's note: the pitch heard in its takes (the clearest of its layers). -1: none found.
+static void as_find_notes(struct os *s) {
+    for (int k = 0; k < s->as_samples; k++) {
+        s->as_root[k] = -1, s->as_fine[k] = 0;
+        for (int l = 0; l < s->as_layers && s->as_root[k] < 0; l++) {
+            const struct sample *t = s->as_take[k * s->as_layers + l];
+            double heard;
+            if (t && multi_detect_pitch(t, &heard)) {
+                s->as_root[k] = (int)lround(heard);
+                s->as_fine[k] = (int)lround((s->as_root[k] - heard) * 100);
+            }
+        }
+        int any = 0;
+        for (int l = 0; l < s->as_layers; l++) any |= s->as_take[k * s->as_layers + l] != 0;
+        if (!any) s->as_root[k] = -2; // skipped: nothing to ask about
+    }
+}
+
+static int as_next_unknown(const struct os *s) {
+    for (int k = 0; k < s->as_samples; k++)
+        if (s->as_root[k] == -1) return k;
+    return -1;
+}
+
+// Every take in and every note known: onto pads in pitch order, normalized and cut to their
+// bits, named, and mapped into the instrument.
+static void as_build(struct os *s, struct ui *u) {
+    const struct rec_settings *r = &s->rec_set[6];
+    float all = 0;
+    for (int i = 0; i < s->as_total; i++) {
+        const struct sample *t = s->as_take[i];
+        for (long k = 0; t && k < (long)t->frames * t->channels; k++) all = fabsf(t->data[k]) > all ? fabsf(t->data[k]) : all;
+    }
+    float top = (float)((1 << (r->bits - 1)) - 1) / (float)(1 << (r->bits - 1));
+    int order[OS_PADS], no = 0; // the samples by note, those left out after
+    for (int pass = 0; pass < 2; pass++)
+        for (int note = pass ? -2 : 0; note <= (pass ? -2 : 127); note++)
+            for (int k = 0; k < s->as_samples; k++)
+                if (s->as_root[k] == note) order[no++] = k;
+    int pads[OS_PADS], np = as_pads(s, pads, s->as_total), at = 0, inst = os_instrument(s, s->program), made = 0;
+    os_undo_save(s, "Auto Sampler");
+    struct s600_kgs kgs;
+    memset(&kgs, 0, sizeof kgs);
+    for (int o = 0; o < no; o++) {
+        int k = order[o], root = s->as_root[k];
+        struct s600_kg *g = 0;
+        if (root >= 0 && kgs.n < S600_KGS && (!kgs.n || kgs.kg[kgs.n - 1].root != root)) { // one on a root
+            g = &kgs.kg[kgs.n++];
+            memset(g, 0, sizeof *g);
+            g->lo = g->hi = g->root = root, g->fine = s->as_fine[k], g->level = 100, g->split = 64;
+        }
+        for (int l = 0; l < s->as_layers; l++) {
+            struct sample *t = s->as_take[k * s->as_layers + l];
+            if (!t || at >= np) continue;
+            float peak = 0;
+            for (long i = 0; i < (long)t->frames * t->channels; i++) peak = fabsf(t->data[i]) > peak ? fabsf(t->data[i]) : peak;
+            float gain = s->as_norm == NORM_ALL && all > 0 ? top / all : s->as_norm == NORM_EACH && peak > 0 ? top / peak : 1.0f;
+            as_quantize(t, gain, r->bits);
+            char name[24], nn[8];
+            if (root >= 0) multi_note_name(root, nn, sizeof nn);
+            else snprintf(nn, sizeof nn, "%02d", k + 1);
+            snprintf(name, sizeof name, l ? "AS %s v2" : "AS %s", nn);
+            int pad = pads[at++];
+            os_pad_load(s, pad, t, name);
+            s->as_take[k * s->as_layers + l] = 0; // the pad has it now
+            made++;
+            if (g) {
+                if (!g->zone[0]) g->zone[0] = pad + 1;
+                else g->zone[1] = pad + 1;
+            }
+        }
+    }
+    as_free_takes(s);
+    s->as_state = AS_IDLE;
+    if (!made || !kgs.n) {
+        os_toast(s, u, made ? "No notes: nothing mapped" : "Nothing came in: check the input");
+        return;
+    }
+    struct os_pad *p = &s->pads[inst];
+    p->kgs = kgs;
+    multi_respan(p, !s->map_exact);
+    multi_apply_template(s, inst, s->as_tpl);
+    os_multi_refresh(s, s->program);
+    s->selected = inst;
+    multi_open(s);
+    s->multi_kg = 0;
+    os_toast(s, u, "Multi Sample Recording Complete");
+    ui_wake(u, 1);
+}
+
+static void as_finish(struct os *s, struct ui *u) {
+    as_find_notes(s);
+    s->as_note_k = as_next_unknown(s);
+    if (s->as_note_k >= 0) { // a sample with no clear pitch: its note asked for
+        s->as_state = AS_FINISH, s->as_ask = 'N';
+        s->as_root[s->as_note_k] = -1;
+        s->as_fine[s->as_note_k] = 60; // the note being set, C4 to start
+        return;
+    }
+    as_build(s, u);
+}
+
+// A MIDI key played while a sample's note is asked for: that note.
+void record_note_in(struct os *s, int note) {
+    if (s->screen == OS_RECORD && s->record_page == 6 && s->as_ask == 'N') s->as_fine[s->as_note_k] = note;
+}
+
+static void autosampler_service(struct os *s, struct ui *u) {
+    if (s->as_state == AS_IDLE || s->as_state == AS_FINISH || s->as_ask) return;
+    struct recorder *r = &s->rec;
+    int state = atomic_load(&r->state);
+    int64_t now = s->frame_ms;
+    ui_wake(u, 20);
+    if (s->as_state == AS_ARMED && state == REC_RECORDING) s->as_t0 = now, s->as_state = AS_REC;
+    if (s->as_state == AS_REC && s->as_len > 0 && now >= s->as_t0 + s->as_len * 100) recorder_stop(r), s->as_state = AS_ENDING;
+    if (s->as_state == AS_ENDING && state != REC_ARMED && state != REC_RECORDING) { // stopped: why?
+        int why = s->as_why;
+        s->as_why = AS_DONE;
+        if (why == AS_DONE && state == REC_DONE) as_take(s);
+        else recorder_discard(r);
+        if (why == AS_END) { // <End>: asked whether to map what there is
+            s->as_state = AS_FINISH, s->as_ask = 'E';
+            return;
+        }
+        if (why != AS_REDO) s->as_at++; // a take in, or skipped: on to the next
+        if (s->as_at >= s->as_total) as_finish(s, u);
+        else as_arm(s);
+    }
+}
+
+static void as_change(struct os *s, int f, int d) {
+    struct rec_settings *r = &s->rec_set[6];
+    switch (f) {
+    case AF_INPUT: change(s, r, F_INPUT, d); break;
+    case AF_MODE: change(s, r, F_MODE, d); break;
+    case AF_THRES: s->as_thres = s->as_thres + d < THRES_OFF ? THRES_OFF : s->as_thres + d > 0 ? 0 : s->as_thres + d; break;
+    case AF_SAMPLES: s->as_samples = s->as_samples + d < 1 ? 1 : s->as_samples + d > S600_KGS ? S600_KGS : s->as_samples + d; break;
+    case AF_LAYERS: s->as_layers = d > 0 ? 2 : 1; break;
+    case AF_LEN: s->as_len = s->as_len + d * 5 < 0 ? 0 : s->as_len + d * 5 > 200 ? 200 : s->as_len + d * 5; break;
+    case AF_RATE: change(s, r, F_RATE, d); break;
+    case AF_BITS: change(s, r, F_BITS, d); break;
+    case AF_AA: change(s, r, F_AA, d); break;
+    case AF_NORM: s->as_norm = s->as_norm + d < 0 ? 0 : s->as_norm + d > 2 ? 2 : s->as_norm + d; break;
+    case AF_TPL: {
+        int t = s->as_tpl + d, n = multi_template_count();
+        s->as_tpl = t < 0 ? 0 : t >= n ? n - 1 : t;
+        break;
+    }
+    }
+}
+
+static void as_value(const struct os *s, int f, char *b, size_t n) {
+    const struct rec_settings *r = &s->rec_set[6];
+    static const char *const MODES_AS[REC_MODES] = {"STEREO", "MONO L", "MONO R", "MONO LR"};
+    static const char *const NORM[3] = {"OFF", "EACH", "ALL"};
+    switch (f) {
+    case AF_INPUT: value(s, r, F_INPUT, b, n); break;
+    case AF_MODE: snprintf(b, n, " %s ", s->input_src == INPUT_INST ? "MONO L" : MODES_AS[r->mode]); break;
+    case AF_THRES:
+        if (s->as_thres <= THRES_OFF) snprintf(b, n, " OFF ");
+        else snprintf(b, n, " %ddB ", s->as_thres);
+        break;
+    case AF_SAMPLES: snprintf(b, n, " %d ", s->as_samples); break;
+    case AF_LAYERS: snprintf(b, n, " %d ", s->as_layers); break;
+    case AF_LEN:
+        if (s->as_len <= 0) snprintf(b, n, " MANUAL ");
+        else snprintf(b, n, " %d.%ds ", s->as_len / 10, s->as_len % 10);
+        break;
+    case AF_RATE: snprintf(b, n, " %d.%02dk ", r->rate / 1000, r->rate % 1000 / 10); break;
+    case AF_BITS: snprintf(b, n, " %d ", r->bits); break;
+    case AF_AA: snprintf(b, n, " %s ", r->aa ? "ON" : "OFF"); break;
+    case AF_NORM: snprintf(b, n, " %s ", NORM[s->as_norm]); break;
+    case AF_TPL: snprintf(b, n, " %s ", multi_template_name(s->as_tpl)); break;
+    }
+}
+
+static void as_box(struct ui *u, const char *a, const char *b) { // a question over the fields
+    char line[LCD_COLS + 8];
+    snprintf(line, sizeof line, " %-*s", LCD_COLS - 1, a);
+    lcd_inverse(u, 0, 5, line);
+    snprintf(line, sizeof line, " %-*s", LCD_COLS - 1, b ? b : "");
+    lcd_inverse(u, 0, 6, line);
+}
+
+static void autosampler_frame(struct os *s, struct ui *u, const struct input *in) {
+    int busy = s->as_state != AS_IDLE;
+    char line[LCD_COLS + 16], nn[8];
+    if (s->as_ask == 'C') { // Clear all existing samples in program? Yes / No (skip them) / Cancel
+        if (input_down(in, IN_B1)) s->as_ask = 0, s->as_clear = 2, as_rec(s, u);
+        else if (input_down(in, IN_B2)) s->as_ask = 0, s->as_clear = 1, as_rec(s, u);
+        else if (input_down(in, IN_B3)) s->as_ask = 0, s->as_clear = 0;
+    } else if (s->as_ask == 'E') { // <End>: Map current recorded samples?
+        if (input_down(in, IN_B1)) { // Yes: what is recorded, mapped
+            s->as_ask = 0;
+            s->as_total = s->as_at; // takes past here were never asked for
+            as_finish(s, u);
+        } else if (input_down(in, IN_B2) || input_down(in, IN_B3)) { // No: the run let go
+            s->as_ask = 0;
+            as_free_takes(s);
+            s->as_state = AS_IDLE;
+            os_toast(s, u, "Recording discarded");
+        }
+    } else if (s->as_ask == 'N') { // a sample with no pitch: its note, or Leave Out
+        int k = s->as_note_k, d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
+        int *note = &s->as_fine[k];
+        if (d) *note = *note + d < 0 ? 0 : *note + d > 127 ? 127 : *note + d;
+        const struct sample *t = s->as_take[k * s->as_layers];
+        if (!t && s->as_layers == 2) t = s->as_take[k * 2 + 1];
+        if (input_down(in, IN_B2) && t) { // <Play>
+            struct pad_params p;
+            memset(&p, 0, sizeof p);
+            p.end = t->frames, p.volume = 100, p.cutoff = 100, p.mono = 1;
+            engine_note_on(s->engine, TAKE_PAD, 127, t, &p);
+        }
+        int answered = input_down(in, IN_B1) || input_down(in, IN_B3);
+        if (input_down(in, IN_B3)) s->as_root[k] = *note, *note = 0; // <OK>: at that note, in tune as played
+        else if (input_down(in, IN_B1)) s->as_root[k] = -2, *note = 0; // <Leave Out>: on its pad, not mapped
+        if (answered) {
+            engine_note_off(s->engine, TAKE_PAD);
+            s->as_note_k = as_next_unknown(s);
+            if (s->as_note_k >= 0) s->as_fine[s->as_note_k] = 60;
+            else s->as_ask = 0, as_build(s, u);
+        }
+    } else if (!busy) {
+        if (input_down(in, IN_B1)) { // <Back>: where it was opened from (the MULTI screen)
+            s->screen = s->record_return == OS_MULTI ? OS_MULTI : s->record_return;
+            if (s->screen == OS_MULTI) multi_open(s);
+            ui_wake(u, 1);
+            return;
+        }
+        if (input_down(in, IN_B3)) as_rec(s, u);
+        if (in->encoder_press) s->cursor_record = (s->cursor_record + (in->shift ? AF_FIELDS - 1 : 1)) % AF_FIELDS;
+        int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
+        if (d) as_change(s, s->cursor_record % AF_FIELDS, d);
+        if (in->fader_moved && s->cursor_record == AF_RATE) s->rec_set[6].rate = CLASSIC[in->fader * NCLASSIC / 128];
+    } else if (s->as_state == AS_ARMED || s->as_state == AS_REC) {
+        int why = -1;
+        if (input_down(in, IN_B1)) why = AS_END; // <End>: the take under way let go, then asked
+        else if (input_down(in, IN_B2) && (s->as_state == AS_REC || s->as_at > 0)) { // <Re-Do>
+            why = AS_REDO; // recording: this take again; waiting: the last one again
+            if (s->as_state == AS_ARMED) s->as_at--, sample_free(s->as_take[s->as_at]), s->as_take[s->as_at] = 0;
+        } else if (input_down(in, IN_B3) && s->as_state == AS_ARMED) why = AS_SKIP; // <Skip>: the one asked for
+        else if (in->encoder_press && s->as_state == AS_REC && s->as_len <= 0) why = AS_DONE; // MANUAL: ENTER ends it
+        if (why >= 0) {
+            recorder_stop(&s->rec);
+            s->as_why = why;
+            s->as_state = AS_ENDING;
+        }
+    }
+    busy = s->as_state != AS_IDLE;
+    if (s->as_ask == 'C' || s->as_ask == 'N') {
+        lcd_text(u, 0, KEY_ROW, s->as_ask == 'C' ? "<Yes>" : "<Leave Out>");
+        lcd_text(u, s->as_ask == 'C' ? 9 : 13, KEY_ROW, s->as_ask == 'C' ? "<No>" : "<Play>");
+        lcd_text(u, s->as_ask == 'C' ? 18 : 22, KEY_ROW, s->as_ask == 'C' ? "<Cancel>" : "<OK>");
+    } else if (s->as_ask == 'E') {
+        lcd_text(u, 0, KEY_ROW, "<Yes>");
+        lcd_text(u, 22, KEY_ROW, "<No>");
+    } else if (!busy) {
+        lcd_text(u, 0, KEY_ROW, "<Back>");
+        lcd_text(u, 21, KEY_ROW, "<Rec>");
+    } else {
+        lcd_text(u, 0, KEY_ROW, "<End>");
+        lcd_text(u, 8, KEY_ROW, "<Re-Do>");
+        lcd_text(u, 19, KEY_ROW, "<Skip>");
+    }
+    lcd_rule(u, TITLE_ROW, "Auto Sampler");
+    for (int i = 0; i < AF_FIELDS; i++) {
+        char v[LCD_COLS + 4];
+        lcd_text(u, AS_FIELD[i].lcol, AS_FIELD[i].row, AS_FIELD[i].label);
+        as_value(s, i, v, sizeof v);
+        if (AS_FIELD[i].vcol + (int)strlen(v) > LCD_COLS) v[LCD_COLS - AS_FIELD[i].vcol] = 0;
+        if (i == s->cursor_record && !busy && !s->as_ask) lcd_inverse(u, AS_FIELD[i].vcol, AS_FIELD[i].row, v);
+        else lcd_text(u, AS_FIELD[i].vcol, AS_FIELD[i].row, v);
+    }
+    if (s->as_ask == 'C') {
+        as_box(u, "Clear all existing", "samples in program?");
+    } else if (s->as_ask == 'E') {
+        as_box(u, "Map current recorded", "samples?");
+    } else if (s->as_ask == 'N') {
+        multi_note_name(s->as_fine[s->as_note_k], nn, sizeof nn);
+        snprintf(line, sizeof line, "Sample %d: no pitch found", s->as_note_k + 1);
+        char b2[LCD_COLS + 8];
+        snprintf(b2, sizeof b2, "Its note: %s (wheel, key)", nn);
+        as_box(u, line, b2);
+    }
+    if (busy && s->as_state != AS_FINISH && s->as_at < s->as_total && !s->as_ask) { // the take asked for, as a prompt
+        int k = s->as_at / s->as_layers + 1, l = s->as_at % s->as_layers + 1;
+        char l1[LCD_COLS + 8], l2[LCD_COLS + 8], l3[LCD_COLS + 8], db[12];
+        snprintf(l1, sizeof l1, "%s Sample %d of %d", s->as_state == AS_REC ? "Recording" : "Ready for", k, s->as_samples);
+        snprintf(l2, sizeof l2, "Velocity %d", l);
+        if (s->as_state == AS_REC) snprintf(l3, sizeof l3, "%s", s->as_len <= 0 ? "ENTER ends it" : "Stops by itself");
+        else if (s->as_thres <= THRES_OFF) snprintf(l3, sizeof l3, "Starting");
+        else snprintf(db, sizeof db, "%ddB", s->as_thres), snprintf(l3, sizeof l3, "Play it: starts at %s", db);
+        const char *rows[3] = {l1, l2, l3};
+        for (int i = 0; i < 3; i++) {
+            int n = (int)strlen(rows[i]), pad = (LCD_COLS - n) / 2;
+            snprintf(line, sizeof line, "%*s%s%*s", pad, "", rows[i], LCD_COLS - n - pad, "");
+            lcd_inverse(u, 0, 5 + i, line);
+        }
+    }
+    snprintf(line, sizeof line, "%s", s->as_state == AS_REC ? "Recording" : "Meter");
+    lcd_rule(u, METER_ROW, line);
+    draw_meter(u, s, s->as_thres);
+    ui_wake(u, 40);
 }
 
 // ---- Live Looper ----
@@ -645,6 +1069,7 @@ static void looper_delete(struct os *s, struct ui *u) {
 }
 
 void looper_service(struct os *s, struct ui *u) {
+    autosampler_service(s, u);
     if (s->lp_conv && atomic_load(&s->lp_conv->done)) looper_swap(s, u);
     if (s->lp_conv) ui_wake(u, 20);
     if (s->lp_state == LP_IDLE) return;
@@ -970,6 +1395,10 @@ void record_frame(struct os *s, struct ui *u, const struct input *in) {
     watch_audio_track(s);
     if (s->record_page == 5) {
         looper_frame(s, u, in);
+        return;
+    }
+    if (s->record_page == 6) {
+        autosampler_frame(s, u, in);
         return;
     }
     int state = atomic_load(&r->state);

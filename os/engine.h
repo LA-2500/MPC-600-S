@@ -77,7 +77,32 @@ struct pad_params {
 
 enum { LFO_TRI, LFO_SINE, LFO_SQUARE, LFO_SAW_UP, LFO_SAW_DOWN, LFO_RANDOM, LFO_SHAPES };
 
-enum { EV_ON, EV_OFF, EV_UPDATE, EV_KILL_ALL, EV_RETIRE, EV_SET_PAD, EV_MIX, EV_EQ, EV_SEND };
+enum { EV_ON, EV_OFF, EV_UPDATE, EV_KILL_ALL, EV_RETIRE, EV_SET_PAD, EV_MIX, EV_EQ, EV_SEND, EV_KEYMAP };
+
+// A MULTI S600 instrument's key map, as on the S-series: keygroups across the keyboard, each
+// with up to two velocity zones, every zone a sample with its own trim and loop. Notes on an
+// S600 slot with a key map take their sample from the zone their note and velocity fall in;
+// the instrument's envelopes, filter and LFO are shared. Notes are MIDI numbers, 60 = C4, the
+// key the S600 plays a pad at its own pitch.
+#define ENGINE_KEYMAPS 64  // MULTI instruments, across every program
+#define ENGINE_KM_ZONES 64 // 32 keygroups of two zones
+#define ENGINE_KM_STAGE 8  // key maps on their way to the audio thread
+struct km_zone {
+    const struct sample *s;
+    int32_t start, end, loop, loop_on;
+    int16_t lo, hi, root;  // the keygroup's notes, and the note the sample plays at its own pitch
+    int16_t vlo, vhi;      // the velocities this zone answers (1..127)
+    int16_t semi, fine;    // TUNE: semitones and cents
+    int16_t level, pan;    // LEVEL 0..100, PAN -50..50
+};
+struct keymap {
+    int n;
+    // Key tracking around C4 (60): KEY>PAN at two octaves away (-50..50), KEY>FILTER the
+    // cutoff following the key (0..100: 100 one octave a octave), KEY>LEVEL (-100..100:
+    // 6 dB an octave at 100), KEY>ENV (0..100: decays and releases halving an octave up at 100).
+    int kt_pan, kt_filter, kt_level, kt_env;
+    struct km_zone z[ENGINE_KM_ZONES];
+};
 
 #define ENGINE_CLICK_PAD (-2) // the metronome's voices
 
@@ -92,6 +117,7 @@ struct event {
     int track, track_cut, track_pan;
     int restart; // from the sequencer: a looping one-shot starts over each time, never toggles off
     int glide_ms; // a slide (step patterns): a voice of this pad still sounding glides to the new key instead
+    const struct keymap *km; // EV_KEYMAP: the key map to copy (pad: the slot; key: its place, or -1 none)
     float eq[3][5]; // EV_EQ: three biquads, b0 b1 b2 a1 a2; track_cut 1 turns the EQ on, 0 off. EV_SEND: the sends, 0..1
     struct pad_params p;
 };
@@ -172,6 +198,14 @@ struct engine {
     void (*fx_hook)(void *ctx, struct engine *e, float *out, int frames);
     void *fx_ctx;
     const struct sample *click[2]; // metronome: normal and accented
+    // MULTI instruments: the audio thread's key maps, and which (1 + place) each slot plays.
+    struct keymap km[ENGINE_KEYMAPS];
+    unsigned char km_of[ENGINE_SLOTS];
+    // The UI thread's copies in flight: free once the audio thread has passed their seq.
+    struct keymap km_stage[ENGINE_KM_STAGE];
+    uint32_t km_stage_seq[ENGINE_KM_STAGE];
+    uint32_t km_seq;
+    atomic_uint km_ack;
 };
 
 void engine_init(struct engine *e);
@@ -199,6 +233,9 @@ void engine_set_bend(struct engine *e, int value); // -8192..8191, any thread
 void engine_set_mod(struct engine *e, int value);  // 0..127
 int engine_update(struct engine *e, int pad, const struct pad_params *p);
 int engine_kill_all(struct engine *e);
+// A MULTI instrument's key map for an S600 slot, in place `at` (0..ENGINE_KEYMAPS-1), or km
+// NULL for none. Copied: km can change at once. 0 when sent, -1 when it could not be.
+int engine_set_keymap(struct engine *e, int slot, int at, const struct keymap *km);
 // What the sequencer plays on this pad from now on. s NULL empties it.
 int engine_set_pad(struct engine *e, int pad, const struct sample *s, const struct pad_params *p);
 
