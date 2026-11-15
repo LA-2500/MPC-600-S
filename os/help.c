@@ -49,8 +49,8 @@ static const struct {
      "Shift+LOOP turns Reverse on and off for the pad."},
     {OS_S600, -1, "S600",
      "An S600 program plays its pads as a synth: envelopes, filter, LFO and two layers.\n"
-     "Pages:\nB1: Env1, Env2, Trim.\nB2: Filter, LFO.\nB3: Main, Layer, MULTI (S600 MULTI: Main, MULTI; "
-     "its velocity layers are its keygroups' zones).\f"
+     "Pages:\nB1: Env1, Env2, Trim.\nB2: Filter, LFO.\nB3: Main, Layer (S600 MULTI: Main, MULTI; its "
+     "velocity layers are its keygroups' zones).\f"
      "Root (Main): the key the sound plays at its own pitch. MIDI keys play the Instrument "
      "(Program Config) from there. Auto Root (Additional Settings 2) finds it when a sound is "
      "loaded or recorded: from the note in its name and the pitch heard, with Fine set to put "

@@ -2297,11 +2297,9 @@ static void test_s600_track(const char *shot_dir) {
     in.knob[0] = 114;
     frame(&in);
     CHECK(pad->p.volume == 90 && os.s600_cursor == 0);
-    tap(IN_B3); // B3 goes on to Layer, then MULTI; SAMPLE back to Main: the DRUM pages are not reachable
+    tap(IN_B3); // B3 goes on to Layer, then back to Main (MULTI is an S600 MULTI program's): the DRUM pages are not reachable
     CHECK(os.screen == OS_S600 && os.s600_page == 5 && os.s600_cursor == 0);
     tap(IN_B3);
-    CHECK(os.screen == OS_MULTI);
-    tap(IN_SAMPLE);
     CHECK(os.screen == OS_S600 && os.s600_page == 4);
     CHECK(pad->sp.note_on == 1);
     in = blank();

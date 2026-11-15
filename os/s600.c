@@ -389,8 +389,8 @@ void s600_frame(struct os *s, struct ui *u, const struct input *in) {
     if (input_down(in, IN_B3) && in->shift) { // Edit All Pads on or off
         s->edit_all = !s->edit_all;
         os_toast(s, u, s->edit_all ? "Edit All Pads: On" : "Edit All Pads: Off");
-    } else if (input_down(in, IN_B3) && (page == PG_LAYER || (page == PG_MAIN && multi_prog))) {
-        // Main, Layer, then MULTI (an S600 MULTI program: Main, then MULTI); SAMPLE comes back to Main
+    } else if (input_down(in, IN_B3) && page == PG_MAIN && multi_prog) {
+        // An S600 MULTI program: Main, then MULTI (an S600 program: Main and Layer); SAMPLE comes back to Main
         set_page(s, PG_MAIN);
         multi_open(s);
         ui_wake(u, 1);
