@@ -1,0 +1,16 @@
+name: Feature idea
+description: Something you'd like the MPC 600 S to do
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What you'd like, and how you'd use it in a track.
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Where it would go
+      description: The page or button it belongs on, if you have a thought.

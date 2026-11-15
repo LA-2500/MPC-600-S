@@ -1,0 +1,29 @@
+name: Bug report
+description: Something on the MPC 600 S doesn't work as it should
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From the title screen, e.g. LA Version 1.2 (11/14/26)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, step by step, and what happened instead of what you expected.
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: The page you were on (e.g. S600 MULTI Keygroup, Live Looper, Insert Effects).
+  - type: textarea
+    id: log
+    attributes:
+      label: mpc-os.log
+      description: If you can, paste the end of autorun/mpc-os.log from the SD card (it records dropouts and errors).
+      render: text

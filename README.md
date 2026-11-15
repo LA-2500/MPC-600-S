@@ -2,6 +2,8 @@
 
 Sampler and sequencer OS for the **Akai MPC Sample**, based on the design of the MPC 3000 operating system: page layout, sequencer structure, timing correct and swing. Runs from the SD card via the stock autorun mechanism; the internal firmware is not modified. Remove the card to return to the stock OS.
 
+<p align="center"><img src="docs/img/tour.gif" alt="A tour of the MPC 600 S screens" width="480"></p>
+
 ## Download
 
 | | |
@@ -40,6 +42,41 @@ Help for the current page: **SHIFT + SAMPLE REC**. Procedure and troubleshooting
 | Storage | Save/Load to any folder on the card; WAV export of tracks, mixes and mixdowns |
 | Display / audio | 320 × 240 DRM framebuffer; 44.1 kHz |
 | Build | C; static aarch64 (musl) via `zig cc` |
+
+## Screens
+
+<table>
+<tr>
+<td align="center"><img src="docs/img/main_playing.png" width="260" alt="Main page"><br><sub>Main page</sub></td>
+<td align="center"><img src="docs/img/timing_correct.png" width="260" alt="Timing Correct and swing"><br><sub>Timing Correct and swing</sub></td>
+<td align="center"><img src="docs/img/s600_env1.png" width="260" alt="S600: envelopes"><br><sub>S600: envelopes</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/img/s600_filter.png" width="260" alt="S600: ladder filter"><br><sub>S600: ladder filter</sub></td>
+<td align="center"><img src="docs/img/multi_kg.png" width="260" alt="S600 MULTI: keygroups"><br><sub>S600 MULTI: keygroups</sub></td>
+<td align="center"><img src="docs/img/multi_kt.png" width="260" alt="S600 MULTI: key tracking"><br><sub>S600 MULTI: key tracking</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/img/autosampler_rec.png" width="260" alt="Auto Sampler"><br><sub>Auto Sampler</sub></td>
+<td align="center"><img src="docs/img/livelooper.png" width="260" alt="Live Looper"><br><sub>Live Looper</sub></td>
+<td align="center"><img src="docs/img/record.png" width="260" alt="Sample New Sound"><br><sub>Sample New Sound</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/img/zones_transient.png" width="260" alt="Zone Assign: TRANSIENT"><br><sub>Zone Assign: TRANSIENT</sub></td>
+<td align="center"><img src="docs/img/stems.png" width="260" alt="Stem separation"><br><sub>Stem separation</sub></td>
+<td align="center"><img src="docs/img/inserts_reverb.png" width="260" alt="Insert effects"><br><sub>Insert effects</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/img/mixer.png" width="260" alt="Track mixer"><br><sub>Track mixer</sub></td>
+<td align="center"><img src="docs/img/input_fx.png" width="260" alt="Input effects"><br><sub>Input effects</sub></td>
+<td align="center"><img src="docs/img/master_comp.png" width="260" alt="Master effects"><br><sub>Master effects</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/img/arp_edit.png" width="260" alt="Arpeggiator: pattern edit"><br><sub>Arpeggiator: pattern edit</sub></td>
+<td align="center"><img src="docs/img/step_edit.png" width="260" alt="Step Edit"><br><sub>Step Edit</sub></td>
+<td align="center"><img src="docs/img/title.png" width="260" alt="Title"><br><sub>Title</sub></td>
+</tr>
+</table>
 
 ## Building
 
