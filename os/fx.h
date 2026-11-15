@@ -102,6 +102,27 @@ void fx_chain_process(struct fx_chain *c, float *buf, int frames);
 // puts back some of what a passive pickup loses into a line input; the gain; and a soft limit,
 // so a hard-played note never clips the converter's full scale.
 void fx_instrument(struct fx_chain *c, float *buf, int frames);
+// ---- Insert effects ----
+//
+// Effects in a track's channel, in series: its sound goes through them and out, before its fader,
+// pan and sends. Eight insert slots in all, shared by every track however you like: an effect
+// uses as many as it costs to run (fx_insert_weight: 1 light, 2 medium, 4 a reverb), so the load
+// stays bounded whatever is chosen. Up to 8 inserts; a track's run in the order of `pos`.
+#define FX_INSERTS 8
+#define FX_INSERT_SLOTS 8
+struct fx_inserts {
+    atomic_int track[FX_INSERTS]; // 1 + the track, or 0: free
+    atomic_int pos[FX_INSERTS];   // its place in that track's chain
+    atomic_int type[FX_INSERTS], p[FX_INSERTS][3];
+    atomic_int bpm10;
+    struct fx *slot[FX_INSERTS];  // the audio thread's own, following type and p
+};
+int fx_inserts_init(struct fx_inserts *ins); // 0, or -1 with no memory for their buffers
+void fx_inserts_free(struct fx_inserts *ins);
+int fx_insert_weight(int type);              // the insert slots it uses: 1, 2 or 4 (a reverb)
+// Audio thread: a track's sound through its inserts, in order.
+void fx_inserts_process(struct fx_inserts *ins, int track, float *buf, int frames);
+
 // Audio thread, after the voices: TRACK, each slot on its send bus, its return added to out;
 // PAD, the pad's bus through the chain into out. buses[i] for slot i, buses[FX_SLOTS] the pad.
 void fx_chain_buses(struct fx_chain *c, float *const *buses, float *out, int frames);

@@ -34,9 +34,9 @@ Help for the current page: **SHIFT + SAMPLE REC**. Procedure and troubleshooting
 | Live Looper | One-pass takes dropped onto pads while the sequence keeps looping; layers without stopping; delete last take; conversion during the pass (IMMEDIATE) or after the first loop (AFTER 1ST LOOP), bit-identical either way; MIDI footswitch start/stop (AUDIO REC) |
 | Footswitch | Any MIDI channel and CC, learned from one press; polarity worked out automatically (AUTO), or set |
 | Recording defaults | Global start values on Additional Settings 2: sample rate (29.76 kHz; slider rates or SET to any), bit rate (12), anti-aliasing, normalize, Input Thru, mode |
-| Editing | Trim, loop, zones, warp, S-series timestretch, print effects; audio tracks; resampling |
+| Editing | Trim, loop, zones (pad marks, equal regions, or TRANSIENT: a zone at every drum hit), warp, S-series timestretch, print effects; audio tracks; resampling |
 | Stem separation | Open-Unmix UMX-HQ on device: drums, bass, vocals, music; up to 20 s per sound |
-| Effects | Input, track send and pad effects (reverb, delay, modulation, drive, amp and cabinet, EQ); track mixer with EQ; master EQ and compression |
+| Effects | Input, track send and pad effects (reverb, delay, modulation, drive, amp and cabinet, EQ); insert effects in any track's channel (8 slots shared across tracks, weighted by measured cost: reverb 4, amps/delays/modulation 2, EQ/dynamics/drive 1); track mixer with EQ; master EQ and compression; live CPU meter |
 | Storage | Save/Load to any folder on the card; WAV export of tracks, mixes and mixdowns |
 | Display / audio | 320 × 240 DRM framebuffer; 44.1 kHz |
 | Build | C; static aarch64 (musl) via `zig cc` |

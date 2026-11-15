@@ -507,6 +507,11 @@ static void set_mode(struct os *s, int mode) {
     knobs_free(s);
 }
 
+void fx_insert_hook(void *ctx, struct engine *e, int track, float *buf, int frames) {
+    (void)e;
+    fx_inserts_process(ctx, track, buf, frames);
+}
+
 void fx_engine_hook(void *ctx, struct engine *e, float *out, int frames) {
     float *buses[FX_SLOTS + 1];
     for (int i = 0; i <= FX_SLOTS; i++) buses[i] = e->fxbus[i];
@@ -523,9 +528,12 @@ void fx_pages_init(struct os *s) {
         s->fx_cfg[m].preset = first_of_kind(s->fx_cfg[m].kind);
     }
     s->infx_kind = s->fx_cfg[FXM_INPUT].kind, s->infx_preset = s->fx_cfg[FXM_INPUT].preset;
+    fx_inserts_init(&s->ins);
     if (s->engine) {
         s->engine->fx_hook = fx_engine_hook;
         s->engine->fx_ctx = &s->fx;
+        s->engine->insert_hook = fx_insert_hook;
+        s->engine->insert_ctx = &s->ins;
     }
 }
 
@@ -860,6 +868,11 @@ void sends_open(struct os *s) {
 
 void sends_frame(struct os *s, struct ui *u, const struct input *in) {
     struct seq *sq = &s->seq;
+    if (input_down(in, IN_B3) && in->shift) { // SHIFT + B3 <Inserts>: the channel's insert effects
+        inserts_open(s);
+        ui_wake(u, 1);
+        return;
+    }
     if (input_down(in, IN_B3)) { // <Back>: the mixer
         s->screen = OS_MIXER;
         ui_wake(u, 1);
@@ -893,7 +906,7 @@ void sends_frame(struct os *s, struct ui *u, const struct input *in) {
     int type = atomic_load(&s->fx.type[fx]);
     lcd_text(u, 0, KEY_ROW, "<FX->");
     lcd_text(u, 9, KEY_ROW, "<FX+>");
-    lcd_text(u, 20, KEY_ROW, "<Back>");
+    lcd_text(u, in->shift ? 17 : 20, KEY_ROW, in->shift ? "<Inserts>" : "<Back>");
     snprintf(line, sizeof line, "Trk:%c%02d %-.14s", 'A' + t / 16, t + 1, q->track[t].name);
     lcd_text(u, 0, 1, line);
     snprintf(name, sizeof name, "Send %d: %s", fx + 1, type ? fx_name(type) : "(empty)");
@@ -980,4 +993,232 @@ int infx_chain_load(struct os *s, const char *path, int track) {
     atomic_store(&s->fx.on, 1);
     keep_config(s);
     return 0;
+}
+
+// ---- Insert effects ----
+//
+// The selected channel's inserts (SHIFT + B3 on FX Sends): its sound through them in series,
+// before its fader, pan and sends. Eight insert slots shared by every track: each effect uses as
+// many as it costs (1 light, 2 medium, 4 a reverb), and one that will not fit is not taken.
+
+enum { INS_SEL, INS_CAT, INS_FX, INS_P1, INS_P2, INS_P3, INS_FIELDS };
+
+static int clampi_ins(int v, int lo, int hi) {
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+int inserts_used(const struct os *s) {
+    int n = 0;
+    for (int i = 0; i < FX_INSERTS; i++)
+        if (atomic_load(&((struct os *)s)->ins.track[i])) n += fx_insert_weight(atomic_load(&((struct os *)s)->ins.type[i]));
+    return n;
+}
+
+// The track's inserts in chain order: their slots in the pool, how many.
+static int chain_of(const struct os *s, int track, int *out) {
+    int n = 0;
+    struct fx_inserts *ins = (struct fx_inserts *)&s->ins;
+    for (int pos = 0; pos < FX_INSERTS; pos++)
+        for (int i = 0; i < FX_INSERTS; i++)
+            if (atomic_load(&ins->track[i]) == track + 1 && atomic_load(&ins->pos[i]) == pos) out[n++] = i;
+    return n;
+}
+
+void inserts_push(struct os *s) {
+    int tracks[ENGINE_INSERTS] = {0}, n = 0;
+    for (int i = 0; i < FX_INSERTS; i++) {
+        int t = atomic_load(&s->ins.track[i]), seen = 0;
+        for (int k = 0; k < n; k++) seen |= tracks[k] == t;
+        if (t && !seen && n < ENGINE_INSERTS) tracks[n++] = t;
+    }
+    engine_set_inserts(s->engine, tracks);
+}
+
+void inserts_open(struct os *s) {
+    s->screen = OS_INSERT;
+    s->ins_cursor = INS_FX, s->ins_sel = 0;
+}
+
+static void set_type(struct os *s, int slot, int type) {
+    atomic_store(&s->ins.type[slot], type);
+    for (int k = 0; k < 3; k++) atomic_store(&s->ins.p[slot][k], fx_param_default(type, k));
+}
+
+// An effect for this insert, from `from` on in direction d (within cat, or all): the first that
+// fits in the slots left. Its message if none does.
+static int fitting(struct os *s, int slot, int from, int d, int cat, struct ui *u) {
+    int free_slots = FX_INSERT_SLOTS - inserts_used(s) + fx_insert_weight(atomic_load(&s->ins.type[slot]));
+    int t = from, tried = 0;
+    while (tried++ < FX_COUNT) {
+        if (t > FX_OFF && fx_insert_weight(t) <= free_slots) return t;
+        int next = fx_step(t, d, cat);
+        if (next == t) break;
+        t = next;
+    }
+    char msg[48];
+    snprintf(msg, sizeof msg, "%s needs %d slots: %d left", fx_name(from), fx_insert_weight(from), free_slots);
+    os_toast(s, u, msg);
+    return -1;
+}
+
+static void ins_add(struct os *s, struct ui *u, int track) {
+    int chain[FX_INSERTS], n = chain_of(s, track, chain), slot = -1;
+    for (int i = 0; i < FX_INSERTS && slot < 0; i++)
+        if (!atomic_load(&s->ins.track[i])) slot = i;
+    if (slot < 0 || inserts_used(s) >= FX_INSERT_SLOTS) {
+        os_toast(s, u, "All 8 insert slots in use");
+        return;
+    }
+    // A light one to start (an EQ): one slot, changed with the wheel.
+    atomic_store(&s->ins.type[slot], FX_OFF);
+    int t = fitting(s, slot, fx_cat_first(FXC_EQ), 1, -1, u);
+    if (t < 0) return;
+    set_type(s, slot, t);
+    atomic_store(&s->ins.pos[slot], n);
+    atomic_store(&s->ins.track[slot], track + 1);
+    s->ins_sel = n, s->ins_cursor = INS_FX;
+    inserts_push(s);
+}
+
+static void ins_remove(struct os *s, int track) {
+    int chain[FX_INSERTS], n = chain_of(s, track, chain);
+    if (!n) return;
+    int at = clampi_ins(s->ins_sel, 0, n - 1);
+    atomic_store(&s->ins.track[chain[at]], 0);
+    atomic_store(&s->ins.type[chain[at]], FX_OFF);
+    for (int k = at + 1; k < n; k++) atomic_store(&s->ins.pos[chain[k]], k - 1); // the rest close up
+    if (s->ins_sel >= n - 1) s->ins_sel = n - 2 < 0 ? 0 : n - 2;
+    inserts_push(s);
+}
+
+void inserts_frame(struct os *s, struct ui *u, const struct input *in) {
+    if (input_down(in, IN_B1)) { // <Back>: FX Sends
+        s->screen = OS_SENDS;
+        ui_wake(u, 1);
+        return;
+    }
+    int t = s->mixer_track;
+    if (t / 16 != s->bank) t = s->mixer_track = s->bank * 16 + t % 16 < SEQ_TRACKS ? s->bank * 16 + t % 16 : SEQ_TRACKS - 1;
+    int chain[FX_INSERTS], n = chain_of(s, t, chain);
+    if (input_down(in, IN_B3)) ins_add(s, u, t); // <Add>: at the end of this channel's chain
+    if (input_down(in, IN_B2) && n) ins_remove(s, t); // <Remove> the one shown
+    n = chain_of(s, t, chain);
+    if (s->ins_sel >= n) s->ins_sel = n ? n - 1 : 0;
+    int slot = n ? chain[s->ins_sel] : -1, type = slot >= 0 ? atomic_load(&s->ins.type[slot]) : FX_OFF;
+    if (in->encoder_press) s->ins_cursor = (s->ins_cursor + (in->shift ? INS_FIELDS - 1 : 1)) % INS_FIELDS;
+    int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
+    if (d && slot >= 0) {
+        switch (s->ins_cursor) {
+        case INS_SEL: s->ins_sel = clampi_ins(s->ins_sel + d, 0, n - 1); break;
+        case INS_CAT: {
+            int cat = clampi_ins(fx_cat_of(type) + d, 0, FX_CATS - 1);
+            if (cat != fx_cat_of(type)) {
+                int to = fitting(s, slot, fx_cat_first(cat), 1, cat, u);
+                if (to > 0) set_type(s, slot, to);
+            }
+            break;
+        }
+        case INS_FX: {
+            int next = fx_step(type, d, -1);
+            if (next > FX_OFF && next != type) {
+                int to = fitting(s, slot, next, d > 0 ? 1 : -1, -1, u);
+                if (to > 0) set_type(s, slot, to);
+            }
+            break;
+        }
+        default: {
+            int k = s->ins_cursor - INS_P1;
+            atomic_store(&s->ins.p[slot][k], clampi_ins(atomic_load(&s->ins.p[slot][k]) + d, 0, 127));
+            break;
+        }
+        }
+    }
+    for (int k = 0; k < 3 && slot >= 0; k++) // K1-K3: the three controls
+        if (in->knob_moved[k]) atomic_store(&s->ins.p[slot][k], in->knob[k]), s->ins_cursor = INS_P1 + k;
+    type = slot >= 0 ? atomic_load(&s->ins.type[slot]) : FX_OFF;
+
+    char line[LCD_COLS + 16], v[32];
+    lcd_text(u, 0, KEY_ROW, "<Back>");
+    if (n) lcd_text(u, 8, KEY_ROW, "<Remove>");
+    lcd_text(u, 21, KEY_ROW, "<Add>");
+    snprintf(line, sizeof line, "Trk:%c%02d %-.14s", 'A' + t / 16, t + 1, s->seq.sequence[s->seq.current].track[t].name);
+    lcd_text(u, 0, 1, line);
+    lcd_rule(u, TITLE_ROW, "Insert Effects");
+    int used = inserts_used(s), cpu = (int)(atomic_load(&s->engine->load) * 100.0f + 0.5f);
+    snprintf(line, sizeof line, "Slots: %d/%d used  CPU %d%%", used, FX_INSERT_SLOTS, cpu);
+    lcd_text(u, 0, 3, line);
+    int pos = 0; // the chain: 1 PLATE > 2 EQ3
+    line[0] = 0;
+    for (int i = 0; i < n && pos < LCD_COLS; i++)
+        pos += snprintf(line + pos, sizeof line - (size_t)pos, "%s%d %s", i ? ">" : "", i + 1, fx_short(atomic_load(&s->ins.type[chain[i]])));
+    lcd_text(u, 0, 4, n ? line : "No inserts: B3 <Add>");
+    lcd_rule(u, 5, 0);
+    if (slot >= 0) {
+        const char *labels[INS_FIELDS] = {"Insert:", "Category:", "Effect:", "", "", ""};
+        for (int f = 0; f < INS_FIELDS; f++) {
+            int row = 6 + f + (f >= INS_P1);
+            char lab[24];
+            if (f >= INS_P1) snprintf(lab, sizeof lab, "K%d %s:", f - INS_P1 + 1, fx_param_name(type, f - INS_P1));
+            else snprintf(lab, sizeof lab, "%s", labels[f]);
+            if (f == INS_SEL) snprintf(v, sizeof v, " %d of %d ", s->ins_sel + 1, n);
+            else if (f == INS_CAT) snprintf(v, sizeof v, " %s ", fx_cat_name(fx_cat_of(type)));
+            else if (f == INS_FX) snprintf(v, sizeof v, " %s (%d) ", fx_name(type), fx_insert_weight(type));
+            else {
+                char pv[16];
+                fx_param_text(type, f - INS_P1, atomic_load(&s->ins.p[slot][f - INS_P1]), atomic_load(&s->ins.bpm10) / 10.0, pv, sizeof pv);
+                snprintf(v, sizeof v, " %s ", pv);
+            }
+            int col = f >= INS_P1 ? 14 : (int)strlen(lab);
+            if (col < (int)strlen(lab)) col = (int)strlen(lab);
+            lcd_text(u, 0, row, lab);
+            if (col + (int)strlen(v) > LCD_COLS) v[LCD_COLS - col] = 0;
+            if (f == s->ins_cursor) lcd_inverse(u, col, row, v);
+            else lcd_text(u, col, row, v);
+        }
+        lcd_rule(u, 9, 0);
+        int w = fx_insert_weight(type); // what this one costs, and what is left
+        snprintf(line, sizeof line, "Uses %d slot%s: %d left", w, w == 1 ? "" : "s", FX_INSERT_SLOTS - used);
+        lcd_text(u, 0, 13, line);
+    } else {
+        lcd_text(u, 0, 7, "8 insert slots, shared by");
+        lcd_text(u, 0, 8, "every track. Each effect");
+        lcd_text(u, 0, 9, "uses 1 (light), 2 (medium)");
+        lcd_text(u, 0, 10, "or 4 (reverb) of them.");
+        lcd_text(u, 0, 12, "Tip: use reverb as a send");
+    }
+    lcd_rule(u, BOTTOM_ROW, 0);
+    ui_wake(u, 250); // the CPU figure moves
+}
+
+// Saved with the project: track,pos,type,p1,p2,p3 for each insert, ';' between.
+void inserts_save_line(const struct os *s, char *b, size_t n) {
+    size_t pos = 0;
+    b[0] = 0;
+    struct fx_inserts *ins = (struct fx_inserts *)&s->ins;
+    for (int i = 0; i < FX_INSERTS && pos < n; i++) {
+        int t = atomic_load(&ins->track[i]);
+        if (!t) continue;
+        pos += (size_t)snprintf(b + pos, n - pos, "%d,%d,%d,%d,%d,%d;", t, atomic_load(&ins->pos[i]), atomic_load(&ins->type[i]),
+                                atomic_load(&ins->p[i][0]), atomic_load(&ins->p[i][1]), atomic_load(&ins->p[i][2]));
+    }
+}
+
+void inserts_load_line(struct os *s, const char *line) {
+    for (int i = 0; i < FX_INSERTS; i++) atomic_store(&s->ins.track[i], 0), atomic_store(&s->ins.type[i], FX_OFF);
+    int i = 0, used = 0;
+    const char *p = line;
+    while (p && *p && i < FX_INSERTS) {
+        int t, pos, type, a, b2, c;
+        if (sscanf(p, "%d,%d,%d,%d,%d,%d", &t, &pos, &type, &a, &b2, &c) == 6 && t > 0 && t <= SEQ_TRACKS && type > FX_OFF &&
+            type < FX_COUNT && used + fx_insert_weight(type) <= FX_INSERT_SLOTS) {
+            atomic_store(&s->ins.track[i], t), atomic_store(&s->ins.pos[i], clampi_ins(pos, 0, FX_INSERTS - 1));
+            atomic_store(&s->ins.type[i], type);
+            atomic_store(&s->ins.p[i][0], clampi_ins(a, 0, 127)), atomic_store(&s->ins.p[i][1], clampi_ins(b2, 0, 127));
+            atomic_store(&s->ins.p[i][2], clampi_ins(c, 0, 127));
+            used += fx_insert_weight(type), i++;
+        }
+        p = strchr(p, ';');
+        if (p) p++;
+    }
+    inserts_push(s);
 }

@@ -1130,7 +1130,7 @@ static void pad_down(struct os *s, struct ui *u, const struct input *in, int i) 
         s->erase_pad = i;
         return;
     }
-    if (s->screen == OS_MIXER || s->screen == OS_SENDS) { // on the mixer a pad only picks its track's channel
+    if (s->screen == OS_MIXER || s->screen == OS_SENDS || s->screen == OS_INSERT) { // on the mixer a pad only picks its track's channel
         seq_mixer_pad(s, slot);
         return;
     }
@@ -2371,6 +2371,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         pthread_mutex_unlock(&s->seq.lock);
     }
     atomic_store_explicit(&s->fx.bpm10, s->seq.sequence[s->seq.current].tempo10, memory_order_relaxed); // synced delays
+    atomic_store_explicit(&s->ins.bpm10, s->seq.sequence[s->seq.current].tempo10, memory_order_relaxed); // and the inserts'
     infx_follow_input(s); // LINE/MIC set on a record page
     s->master_dirty = 0; // Master Effects go with a project (and Autoload), not the settings: a blank start has them off
     if (s->fx_save_at && now_ms(u) >= s->fx_save_at) { // the Input Effects chain, a moment after the last change
@@ -2438,7 +2439,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         s->screen == OS_PRINT || s->screen == OS_INFX || s->screen == OS_MUTE || s->screen == OS_HELP ||
         s->screen == OS_MASTER || s->screen == OS_SENDS || s->screen == OS_SONG || s->screen == OS_STEP ||
         s->screen == OS_WARP || s->screen == OS_PREFS || s->screen == OS_DISK || s->screen == OS_SEQCOPY ||
-        s->screen == OS_ARPEDIT || s->screen == OS_MULTI) {
+        s->screen == OS_ARPEDIT || s->screen == OS_MULTI || s->screen == OS_INSERT) {
         if (input_down(in, IN_MUTE) && !in->shift) mute_open(s); // the Track Mute page
         if (input_down(in, IN_SAMPLE_REC) && in->shift) { // the main page: back a bar. Elsewhere: help
             if (s->screen == OS_MAIN) seq_locate_bar(&s->seq, -1);
@@ -2642,6 +2643,9 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         break;
     case OS_MULTI:
         multi_frame(s, u, in);
+        break;
+    case OS_INSERT:
+        inserts_frame(s, u, in);
         break;
     case OS_LEVELS:
         levels_frame(s, u, in);

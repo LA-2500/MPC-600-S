@@ -80,7 +80,8 @@ struct pad_params {
 
 enum { LFO_TRI, LFO_SINE, LFO_SQUARE, LFO_SAW_UP, LFO_SAW_DOWN, LFO_RANDOM, LFO_SHAPES };
 
-enum { EV_ON, EV_OFF, EV_UPDATE, EV_KILL_ALL, EV_RETIRE, EV_SET_PAD, EV_MIX, EV_EQ, EV_SEND, EV_KEYMAP };
+enum { EV_ON, EV_OFF, EV_UPDATE, EV_KILL_ALL, EV_RETIRE, EV_SET_PAD, EV_MIX, EV_EQ, EV_SEND, EV_KEYMAP, EV_INSERTS };
+#define ENGINE_INSERTS 8 // tracks that can have insert effects at once (the slots they use are counted by the OS)
 
 // A MULTI S600 instrument's key map, as on the S-series: keygroups across the keyboard, each
 // with up to two velocity zones, every zone a sample with its own trim and loop. Notes on an
@@ -121,6 +122,7 @@ struct event {
     int restart; // from the sequencer: a looping one-shot starts over each time, never toggles off
     int glide_ms; // a slide (step patterns): a voice of this pad still sounding glides to the new key instead
     const struct keymap *km; // EV_KEYMAP: the key map to copy (pad: the slot; key: its place, or -1 none)
+    int ins[ENGINE_INSERTS]; // EV_INSERTS: the tracks (1 + their number) with insert effects, 0 none
     float eq[3][5]; // EV_EQ: three biquads, b0 b1 b2 a1 a2; track_cut 1 turns the EQ on, 0 off. EV_SEND: the sends, 0..1
     struct pad_params p;
 };
@@ -201,6 +203,15 @@ struct engine {
     void (*fx_hook)(void *ctx, struct engine *e, float *out, int frames);
     void *fx_ctx;
     const struct sample *click[2]; // metronome: normal and accented
+    // Insert effects (audio thread): each track with them has its own bus. Its notes play into it
+    // at full level and centre; insert_hook runs its effects; then its fader and pan, its sends,
+    // and on to its EQ or the outputs. The bus runs every block, so a reverb's tail rings on.
+    int ins_track[ENGINE_INSERTS];
+    float ins_buf[ENGINE_INSERTS][ENGINE_MAX_BLOCK * 2];
+    int trk_cut[ENGINE_TRACKS], trk_pan[ENGINE_TRACKS]; // each track's fader (as track_cut) and pan
+    void (*insert_hook)(void *ctx, struct engine *e, int track, float *buf, int frames);
+    void *insert_ctx;
+    _Atomic float load; // the share of each block engine_render took, 0..1 (peaks, easing down)
     // MULTI instruments: the audio thread's key maps, and which (1 + place) each slot plays.
     struct keymap km[ENGINE_KEYMAPS];
     unsigned char km_of[ENGINE_SLOTS];
@@ -236,6 +247,8 @@ void engine_set_bend(struct engine *e, int value); // -8192..8191, any thread
 void engine_set_mod(struct engine *e, int value);  // 0..127
 int engine_update(struct engine *e, int pad, const struct pad_params *p);
 int engine_kill_all(struct engine *e);
+// The tracks (1 + their number) that have insert effects, up to ENGINE_INSERTS; the rest 0.
+int engine_set_inserts(struct engine *e, const int *tracks);
 // A MULTI instrument's key map for an S600 slot, in place `at` (0..ENGINE_KEYMAPS-1), or km
 // NULL for none. Copied: km can change at once. 0 when sent, -1 when it could not be.
 int engine_set_keymap(struct engine *e, int slot, int at, const struct keymap *km);

@@ -1329,3 +1329,53 @@ void fx_instrument(struct fx_chain *c, float *buf, int frames) {
         buf[i * 2] = buf[i * 2 + 1] = x;
     }
 }
+
+// ---- Insert effects ----
+
+// The slots each costs, from timing every effect a block at a time: reverbs 4 (the heaviest on
+// memory, and always running for their tails); the costlier half of the rest 2 (amps, phasers,
+// the Uni-Vibe, delays, the vinyl and filter); the light ones 1 (EQs, compressors, the gate,
+// most drives, the Juno chorus, flanger, wahs, the speaker).
+int fx_insert_weight(int type) {
+    if (type <= FX_OFF || type >= FX_COUNT) return 0;
+    if (fx_cat_of(type) == FXC_REVERB) return 4;
+    switch (type) {
+    case FX_JTM45: case FX_UNIVIBE: case FX_AC30: case FX_DC30: case FX_BASSMAN: case FX_B15: case FX_AUTOWAH:
+    case FX_DDL: case FX_PINGPONG: case FX_SLAP: case FX_VINYL: case FX_TAPE: case FX_SMALLSTONE: case FX_MXR_PH:
+    case FX_MFC42: case FX_DUB: case FX_DP4: case FX_ANALOG:
+        return 2;
+    default:
+        return 1;
+    }
+}
+
+int fx_inserts_init(struct fx_inserts *ins) {
+    for (int i = 0; i < FX_INSERTS; i++) {
+        atomic_init(&ins->track[i], 0), atomic_init(&ins->pos[i], 0), atomic_init(&ins->type[i], FX_OFF);
+        for (int k = 0; k < 3; k++) atomic_init(&ins->p[i][k], 64);
+        ins->slot[i] = fx_new();
+        if (!ins->slot[i]) return -1;
+    }
+    atomic_init(&ins->bpm10, 1200);
+    return 0;
+}
+
+void fx_inserts_free(struct fx_inserts *ins) {
+    for (int i = 0; i < FX_INSERTS; i++) fx_free(ins->slot[i]), ins->slot[i] = 0;
+}
+
+void fx_inserts_process(struct fx_inserts *ins, int track, float *buf, int frames) {
+    double bpm = atomic_load_explicit(&ins->bpm10, memory_order_relaxed) / 10.0;
+    for (int pos = 0; pos < FX_INSERTS; pos++)
+        for (int i = 0; i < FX_INSERTS; i++) {
+            if (atomic_load_explicit(&ins->track[i], memory_order_relaxed) != track) continue;
+            if (atomic_load_explicit(&ins->pos[i], memory_order_relaxed) != pos) continue;
+            struct fx *f = ins->slot[i];
+            int type = atomic_load_explicit(&ins->type[i], memory_order_relaxed);
+            if (!f || type == FX_OFF) continue;
+            if (f->type != type) fx_set(f, type);
+            for (int k = 0; k < 3; k++) f->p[k] = atomic_load_explicit(&ins->p[i][k], memory_order_relaxed);
+            f->bpm = bpm;
+            fx_process(f, buf, frames);
+        }
+}

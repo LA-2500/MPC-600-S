@@ -438,6 +438,8 @@ int disk_project_save(struct os *s, const char *dir) {
     wstr(&b, line);
     master_save_line(&s->master, line, sizeof line);
     wstr(&b, line);
+    inserts_save_line(s, line, sizeof line); // after them: an older OS stops before it
+    wstr(&b, line);
     int ok = b.ok;
     if (fclose(b.f) != 0) ok = 0;
     if (ok && write_sounds(&l, dir) != 0) ok = 0;
@@ -532,6 +534,8 @@ int disk_project_load(struct os *s, const char *dir) {
     if (b.ok) infx_load_line(s, line);
     rstr(&b, line, sizeof line);
     if (b.ok) master_load_line(&s->master, line);
+    rstr(&b, line, sizeof line);
+    inserts_load_line(s, b.ok ? line : ""); // none saved (an older project): none
     fclose(b.f);
     for (int i = 0; i < nsounds; i++) // a sound nothing took (a pad that no longer exists)
         if (sounds[i] && sounds[i]->refs == 0) sample_free(sounds[i]);
@@ -605,10 +609,22 @@ static int render(struct os *s, int song, int which, int track, int mono, const 
     int rc = -1;
     struct fx_chain c;
     memset(&c, 0, sizeof c);
-    if (!e || !q || !m) goto done;
+    struct fx_inserts *ic = calloc(1, sizeof *ic); // the insert effects, fresh, as set now
+    if (!e || !q || !m || !ic) goto done;
     engine_init(e);
     memcpy(e->pad, s->engine->pad, sizeof e->pad); // every pad as the engine has it now
     memcpy(e->bus, s->engine->bus, sizeof e->bus); // the track EQs
+    if (fx_inserts_init(ic) == 0) {
+        for (int i = 0; i < FX_INSERTS; i++) {
+            atomic_store(&ic->track[i], atomic_load(&s->ins.track[i])), atomic_store(&ic->pos[i], atomic_load(&s->ins.pos[i]));
+            atomic_store(&ic->type[i], atomic_load(&s->ins.type[i]));
+            for (int k = 0; k < 3; k++) atomic_store(&ic->p[i][k], atomic_load(&s->ins.p[i][k]));
+        }
+        atomic_store(&ic->bpm10, atomic_load(&s->ins.bpm10));
+        memcpy(e->ins_track, s->engine->ins_track, sizeof e->ins_track);
+        memcpy(e->trk_cut, s->engine->trk_cut, sizeof e->trk_cut), memcpy(e->trk_pan, s->engine->trk_pan, sizeof e->trk_pan);
+        e->insert_hook = fx_insert_hook, e->insert_ctx = ic;
+    }
     for (int i = 0; i < ENGINE_BUSES; i++) memset(e->bus[i].z, 0, sizeof e->bus[i].z);
     pthread_mutex_lock(&s->seq.lock);
     memcpy(q, &s->seq, sizeof *q);
@@ -670,6 +686,7 @@ static int render(struct os *s, int song, int which, int track, int mono, const 
 done:
     if (c.slot[0])
         for (int i = 0; i < FX_SLOTS; i++) fx_free(c.slot[i]);
+    if (ic) fx_inserts_free(ic), free(ic);
     if (m && m->vfx) fx_free(m->vfx);
     free(out), free(m), free(q), free(e);
     return rc;

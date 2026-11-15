@@ -22,7 +22,7 @@ enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where s
 
 #define OS_POWER_FORCE_MS 15000 // if an orderly shutdown has not finished by then, cut the power
 
-enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI };
+enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI, OS_INSERT };
 enum { DISK_SAVE, DISK_LOAD, DISK_EXPORT, DISK_MODES };
 enum { DISK_PROJECT, DISK_PROGRAM, DISK_SAMPLE, DISK_SETTINGS, DISK_AUTOLOAD, DISK_FX, DISK_ARP, DISK_TRACKFX, DISK_WAVE, DISK_SEQUENCE, DISK_SONG,
        DISK_MIX_SEQ, DISK_MIX_SONG, DISK_TYPES }; // the last four: EXPORT's; the mixdowns write only the stereo mix
@@ -193,6 +193,8 @@ struct os {
     int km_owner[ENGINE_KEYMAPS]; // MULTI: which S600 slot (1 + it) each engine key map is, or 0
     int prog_refresh, prog_inst;  // Program Config: a program (1 + it) whose Type or Inst changed, and its new Inst (+ 2)
     int auto_root;                // Auto Root (Additional Settings 2): a sound's ROOT found when it is loaded
+    struct fx_inserts ins;        // the eight insert slots (types and settings the audio thread follows)
+    int ins_cursor, ins_sel;      // the Insert page: its field, and which of the track's chain
     int multi_pressed;            // the pad last pressed on the MULTI screen (the instrument stays selected)
     int multi_page, multi_cursor, multi_kg, multi_view; // the MULTI screen: KEYGROUP / KEY TRACK / AUTO MAP, its field, the keygroup
     int map_from, map_to, map_by, map_span, map_zones, map_exact; // AUTO MAP's settings
@@ -582,6 +584,14 @@ void master_save_line(const struct master *m, char *b, size_t n);
 void master_load_line(struct master *m, const char *line);
 // The mixer's FX Sends page (Shift + B3 on the mixer), in fxpage.c.
 void sends_open(struct os *s);
+// Insert effects (SHIFT + B3 on FX Sends): the selected channel's chain, from the eight slots.
+void inserts_open(struct os *s);
+void inserts_frame(struct os *s, struct ui *u, const struct input *in);
+void inserts_push(struct os *s);
+void fx_insert_hook(void *ctx, struct engine *e, int track, float *buf, int frames);                        // the tracks with inserts, to the engine
+void inserts_save_line(const struct os *s, char *b, size_t n);
+void inserts_load_line(struct os *s, const char *line);
+int inserts_used(const struct os *s);                   // insert slots in use, of FX_INSERT_SLOTS
 void sends_frame(struct os *s, struct ui *u, const struct input *in);
 void os_sends_push(struct os *s); // every track's sends to the engine, and whether they work
 

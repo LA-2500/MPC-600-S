@@ -574,7 +574,7 @@
 </table>
 {{shot:s600_env1|S600 Env1}}
 <h3>Envelope Templates</h3>
-<p>Each envelope has templates, ready shapes (an idea taken from the S-series&rsquo; envelope presets): MPC Bass (the default), Piano, Synth Brass, Synth Lead, Bell, Elec. Piano, Guitar/Bass, three Synth Basses, Clav/Harpsi, Elec. Organ, Pipe Organ, String/Vox, Slow String, Woodwind, Panpipe, Brass, Brass Swell, Short Perc, Dry Drum, Long Drum, Ambient Drum, Cymbal/Gong, Tuned Perc. Choose one, then adjust.</p>
+<p>Each envelope has templates, ready shapes (an idea taken from the S-series&rsquo; envelope presets): <strong>All On</strong> (the default, first in the list: attack 0, decay 0, sustain 100, release 0; the sound plays at full level from the start of the note until it is let go, as it is), MPC Bass, Piano, Synth Brass, Synth Lead, Bell, Elec. Piano, Guitar/Bass, three Synth Basses, Clav/Harpsi, Elec. Organ, Pipe Organ, String/Vox, Slow String, Woodwind, Panpipe, Brass, Brass Swell, Short Perc, Dry Drum, Long Drum, Ambient Drum, Cymbal/Gong, Tuned Perc. Choose one, then adjust.</p>
 <h3>Playing</h3>
 <ul>
   <li><strong>Note On</strong> ON: the note holds while the pad or key is held, then releases. OFF: the envelope plays through on its own.</li>
@@ -686,7 +686,7 @@
 <p><strong>Template</strong> sets up the whole Instrument for a kind of instrument at once: Env1 and Env2 (from the S600 envelope templates), the filter&rsquo;s type, cutoff and resonance, Poly or Mono and Legato, and the four KEY&gt; values. A <span class="lcd">*</span> after its name means something has been changed since. Everything stays editable, here and on the S600 pages.</p>
 <table>
   <tr><th>Template</th><th>Envelopes</th><th>Filter</th><th>KEY&gt;PAN</th><th>KEY&gt;FILTER</th><th>KEY&gt;LEVEL</th><th>KEY&gt;ENV</th></tr>
-  <tr><td>Flat</td><td>MPC Bass</td><td>LPF, open</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+  <tr><td>Flat</td><td>All On</td><td>LPF, open</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
   <tr><td>Piano</td><td>Piano</td><td>LPF 85</td><td>+20</td><td>50</td><td>&minus;20</td><td>60</td></tr>
   <tr><td>Elec. Piano</td><td>Elec. Piano</td><td>LPF 80</td><td>+15</td><td>40</td><td>&minus;10</td><td>40</td></tr>
   <tr><td>Organ</td><td>Elec. Organ</td><td>LPF, open</td><td>+10</td><td>0</td><td>&minus;10</td><td>0</td></tr>
@@ -939,7 +939,7 @@
 <h1 class="chapter" id="ch14"><small>Chapter 14</small>The Mixer and Effects</h1>
 
 <h2>The Track Mixer</h2>
-<p><span class="key">SHIFT + Pad 9</span> opens the track mixer: 16 strips a bank (<span class="key">PAD BANK</span> for the next). A pad picks its track&rsquo;s strip; the slider sets its level (catching up), the wheel its pan; <span class="key">K1</span>&ndash;<span class="key">K3</span> its EQ gains. <span class="key">B1</span> Mute, <span class="key">B2</span> Solo, <span class="key">B3 &lt;EQ&gt;</span> the EQ page. Hidden: <span class="key">SHIFT + B1</span> resets every EQ, <span class="key">SHIFT + B2</span> turns MIDI CC control on and off, <span class="key">SHIFT + B3</span> opens FX Sends.</p>
+<p><span class="key">SHIFT + Pad 9</span> opens the track mixer: 16 strips a bank (<span class="key">PAD BANK</span> for the next). A pad picks its track&rsquo;s strip; the slider sets its level (catching up), the wheel its pan; <span class="key">K1</span>&ndash;<span class="key">K3</span> its EQ gains. <span class="key">B1</span> Mute, <span class="key">B2</span> Solo, <span class="key">B3 &lt;EQ&gt;</span> the EQ page. Hidden: <span class="key">SHIFT + B1</span> resets every EQ, <span class="key">SHIFT + B2</span> turns MIDI CC control on and off, <span class="key">SHIFT + B3</span> opens FX Sends, and <span class="key">SHIFT + B3</span> there opens the channel&rsquo;s Insert Effects.</p>
 {{shot:mixer|The track mixer}}
 <p>Each track&rsquo;s <strong>EQ</strong> is a three-band, either <strong>1073</strong> (stepped frequencies) or <strong>4000 E</strong> (any frequency, with mid Q). Flat or off is a true bypass.</p>
 
@@ -963,6 +963,30 @@
 </table>
 {{shot:input_fx|Input Effects}}
 <p>The same effects are used by Print Effects, Input Effects, Track Effects and Pad Effects. They are described in full in <a href="#fxref">The Effects in Detail</a> below.</p>
+
+<h2>Insert Effects</h2>
+<p>An insert puts effects <strong>in a channel</strong>: the track&rsquo;s sound goes through them, one after another, and out, as with an insert on a mixing desk. Nothing of the dry sound is added back; each effect&rsquo;s own Mix control decides how much of it passes. Compare the sends (FX Sends), where the dry sound stays as it is and a copy of it feeds a shared effect.</p>
+<p><strong>Getting there:</strong> <span class="key">SHIFT + Pad 9</span> (the mixer), press a pad to pick the track, <span class="key">SHIFT + B3</span> (FX Sends), then <span class="key">SHIFT + B3</span> again. <span class="key">B1 &lt;Back&gt;</span> returns to FX Sends; there, <span class="key">B3</span> returns to the mixer. A pad pressed on the Insert page picks its track, as on the mixer.</p>
+<pre>notes on the track &#9658; INSERTS &#9658; fader, pan &#9658; sends (after the inserts) &#9658; track EQ &#9658; mix &#9658; Master Effects</pre>
+<ul>
+  <li><span class="key">B3 &lt;Add&gt;</span> puts an insert at the end of the track&rsquo;s chain (an EQ to start); <span class="key">B2 &lt;Remove&gt;</span> takes out the one shown.</li>
+  <li><strong>Insert</strong> picks which of the chain is shown; <strong>Category</strong> and <strong>Effect</strong> choose it (every Print Effects / Input Effects effect); <span class="key">K1</span>&ndash;<span class="key">K3</span> (or the wheel) set its three controls.</li>
+  <li>The inserts work before the fader: an amp or compressor hears the track at full level, whatever the fader is doing, and the fader sets the level after it.</li>
+  <li>A reverb or delay&rsquo;s tail rings on after the track&rsquo;s notes stop.</li>
+  <li>Inserts are saved with the project and play in exports and mixdowns.</li>
+</ul>
+{{shot:inserts_reverb|Insert Effects: an ASR Hall on track 1, using four of the eight slots}}
+<h3>Insert Slots</h3>
+<p>There are <strong>8 insert slots</strong>, shared by every track, used however you like: one track can have a chain of several, or several tracks one each. Each effect uses as many slots as it costs to run, shown after its name (<span class="lcd">ASR HALL (4)</span>):</p>
+<table>
+  <tr><th>Slots</th><th>Effects</th></tr>
+  <tr><td>1</td><td>EQs (3-band, parametric, the drum EQs, Fender EQ), compressors (Dynacomp, CS-3), the noise gate, most drives (Klon, OD-1, DS-1, Fuzz Face), JC-120, Juno chorus, flanger, Rhodes tremolo, the wahs, Speaker Sim.</td></tr>
+  <tr><td>2</td><td>Amps (Bassman, AC30, JTM45, DC30, B-15), phasers (MXR, Small Stone, DP4), the Uni-Vibe, auto-wah, delays (dub, DDL, tape, analog, ping-pong, slapback), the Vinyl Sim, the MFC42 filter.</td></tr>
+  <tr><td>4</td><td>Reverbs (ASR Hall, Room, Plate, Spring, Snare, Gated).</td></tr>
+</table>
+<p>So a reverb takes four of the eight at once: the top line reads <span class="lcd">Slots: 4/8 used</span>, and the bottom line <span class="lcd">Uses 4 slots: 4 left</span>. Two reverbs fill all eight; one reverb leaves room for an amp and two EQs; eight EQs or compressors fill them one each. An effect that does not fit is not taken: it says what it needs, for example <span class="lcd">ASR HALL needs 4 slots: 3 left</span>. Remove an insert, or choose a lighter effect.</p>
+<p><strong>Why slots:</strong> every insert runs all the time, live, on the MPC&rsquo;s processor. The weights come from timing every effect, and the eight slots cap what the inserts can cost, whatever is chosen. Voices and sends add load of their own: many heavy S600 voices at once are the biggest part. The <strong>CPU</strong> figure on the Insert page shows how much of each audio block the MPC is taking now (voices, sends, inserts and all); keep it clear of 100%. Measured with everything at once (32 S600 voices with the ladder filter, all nine sends on heavy effects, all eight insert slots full), the inserts were the smallest part: about a seventh of what the voices take.</p>
+<p><strong>Tip:</strong> use reverb as a <strong>send</strong>, not an insert. One reverb on a send serves every track and uses no insert slots; as an insert it takes four of the eight for a single track. Good inserts are an amp on a guitar or bass track, a compressor or drive on drums, an EQ or filter to shape one sound, a phaser or chorus on keys.</p>
 
 <h2>Master Effects</h2>
 <p><span class="key">SHIFT + Pad 5</span> opens Master Effects, the last stage before the outputs. It comes after the point Resample records from, so nothing recorded or resampled ever has them. The signal goes through an EQ and then a compressor. <span class="key">B1</span> opens the EQ page, <span class="key">B2</span> the Comp page, and <span class="key">B3</span> bypasses both. Both start off.</p>

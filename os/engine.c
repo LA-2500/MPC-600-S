@@ -180,6 +180,12 @@ int engine_kill_all(struct engine *e) {
     return engine_send(e, &ev);
 }
 
+int engine_set_inserts(struct engine *e, const int *tracks) {
+    struct event ev = {.type = EV_INSERTS};
+    for (int i = 0; i < ENGINE_INSERTS; i++) ev.ins[i] = tracks[i];
+    return engine_send(e, &ev);
+}
+
 // The key map goes into a staging copy (one the audio thread has finished with), and the
 // event points the audio thread at it. With every copy still in flight, it waits for one, up
 // to a quarter second.
@@ -404,6 +410,7 @@ static int keymap_note(const struct engine *e, const struct event *ev, struct ev
 // each other cannot set each other off forever.
 static void note_on(struct engine *e, const struct event *ev, int offset) {
     struct event multi;
+    if (ev->track > 0 && ev->track < ENGINE_TRACKS) e->trk_cut[ev->track] = ev->track_cut, e->trk_pan[ev->track] = ev->track_pan;
     if (ev->pad >= ENGINE_S600 && ev->pad < ENGINE_SLOTS && e->km_of[ev->pad] && ev->p.synth) {
         if (!keymap_note(e, ev, &multi)) return;
         ev = &multi;
@@ -470,7 +477,15 @@ static void process_events(struct engine *e) {
             }
             if (ev->pad >= 0 && ev->pad < ENGINE_SLOTS) e->pad[ev->pad].p = ev->p;
             break;
+        case EV_INSERTS:
+            for (int i = 0; i < ENGINE_INSERTS; i++) {
+                int was = e->ins_track[i];
+                e->ins_track[i] = ev->ins[i] > 0 && ev->ins[i] < ENGINE_TRACKS ? ev->ins[i] : 0;
+                if (e->ins_track[i] != was) memset(e->ins_buf[i], 0, sizeof e->ins_buf[i]);
+            }
+            break;
         case EV_MIX:
+            if (ev->track > 0 && ev->track < ENGINE_TRACKS) e->trk_cut[ev->track] = ev->track_cut, e->trk_pan[ev->track] = ev->track_pan;
             for (int i = 0; i < ENGINE_VOICES; i++) {
                 struct voice *v = &e->voice[i];
                 if (v->stage != V_FREE && ev->track > 0 && v->track == ev->track) {
@@ -920,9 +935,13 @@ void engine_render(struct engine *e, float *out, int frames) {
         return;
     }
     memset(out, 0, (size_t)frames * 2 * sizeof(float));
+    struct timespec t_start;
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
     process_events(e);
     for (int b = 0; b < ENGINE_BUSES; b++)
         if (e->bus[b].track) memset(e->bus[b].buf, 0, (size_t)frames * 2 * sizeof(float));
+    for (int b = 0; b < ENGINE_INSERTS; b++)
+        if (e->ins_track[b]) memset(e->ins_buf[b], 0, (size_t)frames * 2 * sizeof(float));
     if (e->hook) e->hook(e->hook_ctx, e, frames);
     unsigned char playing[ENGINE_SLOTS] = {0};
     int bend = atomic_load_explicit(&e->bend, memory_order_relaxed);
@@ -938,6 +957,20 @@ void engine_render(struct engine *e, float *out, int frames) {
         float *to = out; // a track with its EQ on mixes into its bus
         for (int b = 0; b < ENGINE_BUSES && v->track > 0; b++)
             if (e->bus[b].track == v->track) to = e->bus[b].buf;
+        int ins = -1; // a track with inserts: into its own bus at full level and centre (fader, pan, sends after)
+        for (int b = 0; b < ENGINE_INSERTS && v->track > 0 && e->insert_hook; b++)
+            if (e->ins_track[b] == v->track) ins = b;
+        if (ins >= 0 && !(fx_pad >= 0 && (v->pad == fx_pad || v->pad == fx_pad + ENGINE_S600))) {
+            int cut = v->track_cut, pan = v->track_pan;
+            v->track_cut = 0, v->track_pan = 0;
+            render_voice(v, e->ins_buf[ins], frames, bend, mod);
+            v->track_cut = cut, v->track_pan = pan;
+            if (v->stage != V_FREE) {
+                active++;
+                if (v->pad >= 0 && v->pad < ENGINE_SLOTS) playing[v->pad] = 1;
+            }
+            continue;
+        }
         int on_pad = fx_pad >= 0 && (v->pad == fx_pad || v->pad == fx_pad + ENGINE_S600);
         const float *send = sends_on && v->track > 0 && v->track < ENGINE_TRACKS ? e->send[v->track] : 0;
         int sending = 0;
@@ -959,6 +992,26 @@ void engine_render(struct engine *e, float *out, int frames) {
             if (v->pad >= 0 && v->pad < ENGINE_SLOTS) playing[v->pad] = 1;
         }
     }
+    for (int b = 0; b < ENGINE_INSERTS && e->insert_hook; b++) { // each track with inserts: its effects, fader, pan, sends
+        int t = e->ins_track[b];
+        if (!t) continue;
+        float *buf = e->ins_buf[b];
+        e->insert_hook(e->insert_ctx, e, t, buf, frames);
+        float mix = (100.0f - (float)e->trk_cut[t]) / 100.0f, g = mix * mix; // the fader, on the voices' curve
+        float theta = ((float)e->trk_pan[t] + 50.0f) / 100.0f * (PI / 2.0f);
+        float gl = g * (float)cos(theta) * SQRT2, gr = g * (float)sin(theta) * SQRT2;
+        if (gl > g) gl = g; // pan only ever lowers a side: centre is unity, as on the voices' own pan
+        if (gr > g) gr = g;
+        for (int n = 0; n < frames; n++) buf[n * 2] *= gl, buf[n * 2 + 1] *= gr;
+        if (guard(buf, frames * 2)) memset(buf, 0, (size_t)frames * 2 * sizeof(float));
+        for (int k = 0; sends_on && k < ENGINE_SENDS; k++)
+            if (e->send[t][k] > 0)
+                for (int n = 0; n < frames * 2; n++) e->fxbus[k][n] += buf[n] * e->send[t][k];
+        float *to = out;
+        for (int q = 0; q < ENGINE_BUSES; q++)
+            if (e->bus[q].track == t) to = e->bus[q].buf;
+        for (int n = 0; n < frames * 2; n++) to[n] += buf[n];
+    }
     for (int b = 0; b < ENGINE_BUSES; b++) { // each EQ'd track through its three bands, into the outputs
         if (!e->bus[b].track) continue;
         for (int k = 0; k < 3; k++) biquad(e->bus[b].buf, frames, e->bus[b].c[k], e->bus[b].z[k]);
@@ -967,6 +1020,11 @@ void engine_render(struct engine *e, float *out, int frames) {
     }
     if (sends_on || fx_pad >= 0) e->fx_hook(e->fx_ctx, e, out, frames); // the effects' returns
     guard(out, frames * 2); // nothing out of range reaches the input, master or outputs
+    struct timespec t_end;
+    clock_gettime(CLOCK_MONOTONIC, &t_end);
+    float took = (float)((t_end.tv_sec - t_start.tv_sec) + (t_end.tv_nsec - t_start.tv_nsec) * 1e-9) / ((float)frames / ENGINE_RATE);
+    float was = atomic_load_explicit(&e->load, memory_order_relaxed);
+    atomic_store_explicit(&e->load, took > was ? took : was * 0.995f + took * 0.005f, memory_order_relaxed);
     for (int i = 0; i < ENGINE_SLOTS; i++) atomic_store_explicit(&e->playing[i], playing[i], memory_order_relaxed);
     atomic_store_explicit(&e->voices, active, memory_order_relaxed);
     float pl = atomic_load_explicit(&e->peak_l, memory_order_relaxed);

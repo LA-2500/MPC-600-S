@@ -119,6 +119,73 @@ static void test_keymap(void) {
     sample_free(a), sample_free(b), sample_free(c), sample_free(own);
 }
 
+// The worst the audio thread can be given: 32 S600 voices (ladder filter, LFO) across 10 tracks,
+// all nine sends into heavy effects, every insert slot filled with the costliest effect per slot
+// (four JTM45 amps), and Master Effects. How long a block takes here, with and without the inserts.
+static double worst_block_us(int with_inserts, int with_sends) {
+    static struct engine w;
+    engine_init(&w);
+    static struct fx_chain c;
+    static struct fx_inserts ins;
+    static int ready;
+    if (!ready) fx_chain_init(&c), fx_inserts_init(&ins), ready = 1;
+    static const int sends[FX_SLOTS] = {FX_ASR_HALL, FX_PLATE, FX_SPRING, FX_DP4, FX_UNIVIBE, FX_TAPE, FX_AC30, FX_DUB, FX_SMALLSTONE};
+    for (int i = 0; i < FX_SLOTS; i++) {
+        atomic_store(&c.type[i], sends[i]);
+        for (int k = 0; k < 3; k++) atomic_store(&c.p[i][k], fx_param_default(sends[i], k));
+    }
+    atomic_store(&c.mode, FXM_TRACK), atomic_store(&c.on, 1), atomic_store(&c.bpm10, 1200);
+    w.fx_hook = fx_engine_hook, w.fx_ctx = &c;
+    atomic_store(&w.sends_on, with_sends);
+    unsigned char lv[ENGINE_SENDS];
+    memset(lv, 40, sizeof lv);
+    int tracks[ENGINE_INSERTS] = {0};
+    for (int i = 0; i < FX_INSERTS; i++) atomic_store(&ins.track[i], 0);
+    if (with_inserts) // four amps, two slots each: all eight
+        for (int i = 0; i < 4; i++) {
+            atomic_store(&ins.track[i], i + 1), atomic_store(&ins.pos[i], 0), atomic_store(&ins.type[i], FX_JTM45);
+            for (int k = 0; k < 3; k++) atomic_store(&ins.p[i][k], 80);
+            tracks[i] = i + 1;
+        }
+    w.insert_hook = fx_insert_hook, w.insert_ctx = &ins;
+    engine_set_inserts(&w, tracks);
+    struct sample *saw = sample_new(44100, 1, 44100);
+    for (int i = 0; i < 44100; i++) saw->data[i] = 0.3f * (float)(fmod(i * 110.0 / 44100, 1.0) * 2 - 1);
+    struct pad_params p = params(44100);
+    p.synth = 1, p.gate = 1, p.sustain = 100, p.loop_on = 1, p.filter = FILTER_MOOG, p.cutoff = 60, p.reso = 60;
+    p.lfo_filter = 30, p.lfo_pitch = 20, p.flt_depth = 40;
+    for (int t = 1; t <= 10; t++) engine_track_sends(&w, t, lv);
+    for (int v = 0; v < ENGINE_VOICES; v++) engine_note_on_layers(&w, ENGINE_S600 + v, 100, v % 12, saw, 0, &p, v % 10 + 1, 80, 0);
+    struct master *m = calloc(1, sizeof *m);
+    master_init(m);
+    atomic_store(&m->eq_on, 1), atomic_store(&m->comp, 1);
+    static float blk[256];
+    for (int i = 0; i < 40; i++) engine_render(&w, blk, 128), master_process(m, blk, 128); // settled in
+    struct timespec a, z;
+    int blocks = 400;
+    clock_gettime(CLOCK_MONOTONIC, &a);
+    for (int i = 0; i < blocks; i++) engine_render(&w, blk, 128), master_process(m, blk, 128);
+    clock_gettime(CLOCK_MONOTONIC, &z);
+    CHECK(atomic_load(&w.voices) == ENGINE_VOICES);
+    int finite = 1;
+    for (int i = 0; i < 256; i++) finite &= isfinite(blk[i]) != 0;
+    CHECK(finite);
+    if (m->vfx) fx_free(m->vfx);
+    free(m);
+    sample_free(saw);
+    return ((z.tv_sec - a.tv_sec) * 1e9 + (z.tv_nsec - a.tv_nsec)) / 1e3 / blocks;
+}
+
+static void test_cpu_worst(void) {
+    double block_us = 128.0 / 44100 * 1e6, voices = worst_block_us(0, 0), without = worst_block_us(0, 1), with = worst_block_us(1, 1);
+    printf("  worst case parts here: 32 voices and Master %.1f%%, the 9 sends %.1f%%, the 8 insert slots %.1f%% of a block\n",
+           voices / block_us * 100, (without - voices) / block_us * 100, (with - without) / block_us * 100);
+    printf("  worst case, a 2.9 ms block here: %.0f us without inserts (%.1f%%), %.0f us with all 8 insert slots (%.1f%%); "
+           "the inserts %.0f%% of it\n",
+           without, without / block_us * 100, with, with / block_us * 100, (with - without) / with * 100);
+    CHECK(with > without * 0.9); // measured, not skipped
+}
+
 static void test_one_shot(void) {
     engine_init(&e);
     struct sample *s = ramp(256);
@@ -2264,20 +2331,25 @@ static void test_s600_track(const char *shot_dir) {
     os.seq.metronome = METRO_OFF;
     load_pad(0);
     struct os_pad *pad = &os.pads[0];
-    CHECK(pad->sp.env1_tpl == 0 && pad->sp.sustain == 100 && pad->sp.release == 70); // MPC Bass
+    int all_on = pad->sp.env1_tpl; // All On, the default: the sound as it is, held while held
+    CHECK(all_on > 3 && pad->sp.attack == 0 && pad->sp.decay == 0 && pad->sp.sustain == 100 && pad->sp.release == 0 &&
+          pad->sp.env2_tpl == all_on && pad->sp.f_sustain == 100);
     struct seq_track *k = &os.seq.sequence[0].track[0];
     os_program_set_s600(&os, 0, 1); // S600 Pgm Mode on
     tap(IN_SAMPLE);
     CHECK(os.screen == OS_S600 && os.s600_page == 0 && os.s600_cursor == 0);
     struct input in = blank();
-    in.encoder = 1; // Template: MPC Bass on to Piano
+    in.encoder = 2; // Template: All On (shown first), then MPC Bass, then Piano
     frame(&in);
     CHECK(pad->sp.env1_tpl == 1 && pad->sp.decay == 2000 && pad->sp.sustain == 0);
     in = blank();
-    in.encoder = -1; // back to MPC Bass, the first
+    in.encoder = -2; // back to All On, the first
     frame(&in);
-    CHECK(pad->sp.env1_tpl == 0 && pad->sp.sustain == 100 && pad->sp.release == 70);
-    in.encoder = 1; // and on to Piano
+    CHECK(pad->sp.env1_tpl == all_on && pad->sp.sustain == 100 && pad->sp.release == 0);
+    in.encoder = -1; // nothing before it
+    frame(&in);
+    CHECK(pad->sp.env1_tpl == all_on);
+    in.encoder = 2; // MPC Bass, Piano
     frame(&in);
     CHECK(pad->sp.env1_tpl == 1);
     in.encoder = 2; // Synth Brass, then Synth Lead
@@ -3223,6 +3295,9 @@ static void test_multi(const char *shot_dir) {
     CHECK(os.screen == OS_MULTI && os.multi_page == 0);
     tap(IN_SAMPLE);
     CHECK(os.screen == OS_S600 && os.s600_page == 4);
+    os.s600_page = 2; // Filter: the program and its type, not one sample
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "s600_filter_multi");
     os.s600_page = 5; // a Layer page left over from an S600 program: shown as Main
     frame(&idle);
     CHECK(os.s600_page == 4);
@@ -4574,6 +4649,7 @@ static void test_fx_all(void) {
     // The whole chain, seven reverbs and delays at once: how long a block takes here.
     struct fx_chain c;
     CHECK(fx_chain_init(&c) == 0);
+    atomic_store(&c.load, 0.0f);
     static const int heavy[FX_SLOTS] = {FX_PLATE, FX_ASR_HALL, FX_DP4, FX_AC30, FX_TAPE, FX_UNIVIBE, FX_SPRING};
     for (int i = 0; i < FX_SLOTS; i++) {
         atomic_store(&c.type[i], heavy[i]);
@@ -5376,7 +5452,7 @@ static void test_help_and_locate(const char *shot_dir) {
     if (getenv("HELP_DUMP")) { // every help page, as laid out
         int all[] = {OS_SAMPLE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_EQ, OS_REPEAT, OS_ZONES, OS_PROGRAM, OS_TC, OS_METRO,
                      OS_ERASE, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_SENDS, OS_MASTER, OS_MUTE, OS_SONG, OS_STEP,
-                     OS_WARP, OS_PREFS, OS_DISK, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT};
+                     OS_WARP, OS_PREFS, OS_DISK, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT, OS_INSERT};
         for (int i = 0; i < (int)(sizeof all / sizeof all[0]); i++) help_dump(&os, all[i]);
         for (int r = 0; r < 7; r++) os.record_page = r, help_dump(&os, OS_RECORD);
         for (int m = 0; m < 3; m++) os.multi_page = m, help_dump(&os, OS_MULTI);
@@ -5586,6 +5662,81 @@ static void test_fx_modes(const char *shot_dir) {
     frame(&in);
     CHECK(os.seq.sequence[0].track[0].send[2] == 30);
     if (shot_dir) write_shot(shot_dir, "fx_sends");
+    // SHIFT + B3 on FX Sends: the channel's Insert Effects; B1 <Back>.
+    in = blank();
+    in.down = in.held = (1u << IN_B3) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in);
+    CHECK(os.screen == OS_INSERT && inserts_used(&os) == 0);
+    in = blank();
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "inserts_empty");
+    tap(IN_B3); // <Add>: an EQ to start, one slot
+    CHECK(inserts_used(&os) == 1 && atomic_load(&os.ins.track[0]) == 1 && fx_cat_of(atomic_load(&os.ins.type[0])) == FXC_EQ);
+    render(16);
+    CHECK(e.ins_track[0] == 1);
+    os.ins_cursor = 1; // Category: up to REVERB (four slots)
+    in = blank(), in.encoder = -1;
+    frame(&in);
+    CHECK(fx_cat_of(atomic_load(&os.ins.type[0])) == FXC_REVERB && inserts_used(&os) == 4);
+    in = blank();
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "inserts_reverb");
+    tap(IN_B3); // a second reverb: four more, all eight
+    os.ins_cursor = 1, in = blank(), in.encoder = -1;
+    frame(&in);
+    CHECK(inserts_used(&os) == 8);
+    tap(IN_B3); // no room for a third: refused
+    CHECK(inserts_used(&os) == 8 && strcmp(os.toast, "All 8 insert slots in use") == 0);
+    tap(IN_B2); // <Remove> the second
+    CHECK(inserts_used(&os) == 4);
+    tap(IN_B3), tap(IN_B3); // two EQs (one slot each): six used. The second asking for a reverb: four needed, three left
+    os.ins_cursor = 1, in = blank(), in.encoder = -1;
+    frame(&in);
+    CHECK(inserts_used(&os) == 6 && strstr(os.toast, "needs 4 slots: 3 left") != 0);
+    tap(IN_B2), tap(IN_B2), tap(IN_B2);
+    CHECK(inserts_used(&os) == 0);
+    // A drive in a channel: its sound comes through changed; then gone, as it was.
+    {
+        engine_kill_all(&e);
+        for (int i = 0; i < 20; i++) render(128);
+        struct sample *tone = sample_new(44100, 1, 44100);
+        for (int i = 0; i < 44100; i++) tone->data[i] = 0.2f * sinf(2 * 3.14159f * 220 * i / 44100.0f);
+        struct pad_params tp = params(44100);
+        float peak[2];
+        for (int with = 0; with < 2; with++) {
+            if (with) {
+                tap(IN_B3);
+                os.ins_cursor = 2;
+                int guard = 0;
+                while (atomic_load(&os.ins.type[0]) != FX_DS1 && guard++ < FX_COUNT) {
+                    in = blank(), in.encoder = 1;
+                    frame(&in);
+                }
+                CHECK(atomic_load(&os.ins.type[0]) == FX_DS1);
+                atomic_store(&os.ins.p[0][0], 127);
+                render(16);
+            }
+            engine_note_on_layers(&e, 7, 100, 0, tone, 0, &tp, 1, 100, 0);
+            for (int i = 0; i < 20; i++) render(128);
+            float pk = 0;
+            for (int i = 0; i < 256; i++) pk = fmaxf(pk, fabsf(block[i]));
+            peak[with] = pk;
+            engine_kill_all(&e);
+            for (int i = 0; i < 20; i++) render(128);
+        }
+        CHECK(fabsf(peak[1] - peak[0]) > 0.05f); // through the drive, the level and shape change
+        // Saved with the project and read back.
+        char line[512];
+        inserts_save_line(&os, line, sizeof line);
+        tap(IN_B2);
+        CHECK(inserts_used(&os) == 0);
+        inserts_load_line(&os, line);
+        CHECK(atomic_load(&os.ins.type[0]) == FX_DS1 && atomic_load(&os.ins.track[0]) == 1 && atomic_load(&os.ins.p[0][0]) == 127);
+        tap(IN_B2);
+        sample_free(tone);
+    }
+    tap(IN_B1); // <Back>: FX Sends
+    CHECK(os.screen == OS_SENDS);
     tap(IN_B3);
     CHECK(os.screen == OS_MIXER);
     // PAD: the chain on one pad's sound; the pad gets it, another pad does not.
@@ -6939,6 +7090,7 @@ int main(int argc, char **argv) {
     if (getenv("DEMO_PIANO")) return demo_piano(getenv("DEMO_PIANO")) != 0 || failures != 0;
     test_one_shot();
     test_keymap();
+    test_cpu_worst();
     test_reverse();
     test_loop_toggle();
     test_reverse_loop_stays_in_bounds();

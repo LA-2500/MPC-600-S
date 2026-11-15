@@ -143,7 +143,7 @@ static const struct inst_tpl {
     int filter, cutoff, reso, note_on, mono, legato;
     int kt_pan, kt_filter, kt_level, kt_env;
 } INST[] = {
-    {"Flat", "MPC Bass", "MPC Bass", FILTER_LP2, 100, 0, 1, 0, 0, 0, 0, 0, 0},
+    {"Flat", "All On", "All On", FILTER_LP2, 100, 0, 1, 0, 0, 0, 0, 0, 0},
     {"Piano", "Piano", "Piano", FILTER_LP2, 85, 0, 1, 0, 0, 20, 50, -20, 60},
     {"Elec. Piano", "Elec. Piano", "Elec. Piano", FILTER_LP2, 80, 10, 1, 0, 0, 15, 40, -10, 40},
     {"Organ", "Elec. Organ", "Elec. Organ", FILTER_LP2, 100, 0, 1, 0, 0, 10, 0, -10, 0},

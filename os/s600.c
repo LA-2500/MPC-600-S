@@ -46,9 +46,20 @@ static const struct {
     {"Ambient Drum", {0, 2500, 0, 2000}, {0, 1500, 10, 1500}},
     {"Cymbal/Gong", {0, 4000, 0, 3000}, {0, 3000, 30, 3000}},
     {"Tuned Perc", {0, 1000, 0, 500}, {0, 500, 0, 400}},
+    // All On (the default): full level from the start of the note until it is let go, then off:
+    // the sound as it is. Kept last so templates saved by number stay the same; shown first.
+    {"All On", {0, 0, 100, 0}, {0, 0, 100, 0}},
 };
 #define TEMPLATE_COUNT ((int)(sizeof TEMPLATES / sizeof TEMPLATES[0]))
-#define DEFAULT_TEMPLATE 0 // MPC Bass: a new S600 sound plays bass lines on the pads at once: holds while the pad is held, like an organ
+#define DEFAULT_TEMPLATE (TEMPLATE_COUNT - 1) // All On: a new S600 sound plays as it is, held while the pad or key is held
+
+// The order the wheel shows them in: All On first, then the rest as they are numbered.
+static int tpl_pos(int t) {
+    return t == DEFAULT_TEMPLATE ? 0 : t + 1;
+}
+static int tpl_at(int pos) {
+    return pos <= 0 ? DEFAULT_TEMPLATE : pos - 1 < DEFAULT_TEMPLATE ? pos - 1 : DEFAULT_TEMPLATE - 1;
+}
 
 static void apply_template(struct s600_params *q, int env, int t) {
     const int *v = env == 1 ? TEMPLATES[t].amp : TEMPLATES[t].flt;
@@ -213,6 +224,11 @@ static void nudge_field(struct os *s, const struct s6field *f, int steps, int fi
     struct os_pad *pad = &s->pads[s->selected];
     if (!pad->s || !steps) return;
     int v = *field_ptr(pad, f), step = 1;
+    if (f->fmt == V_TPL1 || f->fmt == V_TPL2) { // in the order shown
+        int pos = tpl_pos(v) + steps;
+        set_field(s, f, tpl_at(pos < 0 ? 0 : pos > TEMPLATE_COUNT - 1 ? TEMPLATE_COUNT - 1 : pos));
+        return;
+    }
     if (f->fmt == V_MS && !fine) step = v < 100 ? 5 : v < 1000 ? 20 : 100;
     set_field(s, f, v + steps * step);
 }
@@ -231,12 +247,14 @@ static void record_move(struct os *s, const struct s6field *f, int pos) {
 }
 
 static int to_value(const struct s6field *f, int pos) {
+    if (f->fmt == V_TPL1 || f->fmt == V_TPL2) return tpl_at((int)lround(pos / 127.0 * (TEMPLATE_COUNT - 1)));
     double x = pos / 127.0;
     if (f->fmt == V_MS) x = x * x;
     return f->min + (int)lround(x * (f->max - f->min));
 }
 
 static int to_position(const struct s6field *f, int v) {
+    if (f->fmt == V_TPL1 || f->fmt == V_TPL2) return (int)lround(tpl_pos(v) * 127.0 / (TEMPLATE_COUNT - 1));
     if (f->max <= f->min) return 0;
     double x = (double)(v - f->min) / (f->max - f->min);
     if (f->fmt == V_MS) x = sqrt(x);
@@ -460,7 +478,11 @@ void s600_frame(struct os *s, struct ui *u, const struct input *in) {
         if (pad->sp.layers == 2) lcd_rule(u, 8, "Layer 2");
     }
     if (page == PG_ENV1 || page == PG_ENV2) lcd_rule(u, 9, page == PG_ENV1 ? "Env1: Level" : "Env2: Filter");
-    if (page == PG_FILTER) {
+    if (page == PG_FILTER && multi_prog) { // an instrument of many samples: the program, not one sample
+        snprintf(title, sizeof title, "Pgm: %02d-%.16s", s->program + 1, s->programs[s->program].name);
+        lcd_text(u, 0, 10, title);
+        lcd_text(u, 0, 11, "Pgm Type: S600 MULTI"); // (Type above is the filter's)
+    } else if (page == PG_FILTER) {
         snprintf(title, sizeof title, "Sample:%.18s", pad->name);
         lcd_text(u, 0, 10, title);
     }
