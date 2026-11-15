@@ -2290,7 +2290,7 @@ static void test_s600_track(const char *shot_dir) {
     CHECK(e.pad[ENGINE_S600 + 0].p.synth == 1 && e.pad[ENGINE_S600 + 0].p.decay_ms == 2000);
     CHECK(e.pad[0].p.synth == 0);
     tap(IN_B3); // Main: Volume, Semi, Fine are the pad's own, on K1-K3
-    CHECK(os.s600_page == 4 && os.s600_cursor == 3); // so the cursor starts on Root
+    CHECK(os.s600_page == 4 && os.s600_cursor == 3); // so the cursor starts on Poly
     in = blank();
     in.knob_moved[0] = 1, in.knob[0] = 127; // K1 catches Volume at the top
     frame(&in);
@@ -4819,12 +4819,70 @@ static void test_s600_trim(const char *shot_dir) {
     // Main: Mono Legato after Note On, before Portamento.
     os.s600_page = 4;
     s600_open(&os);
-    os.s600_cursor = 6; // (Root sits before Poly)
+    os.s600_cursor = 4; // Poly, then Legato
     in = blank();
     in.encoder = 1;
     frame(&in);
     CHECK(os.pads[0].sp.legato == 1);
     if (shot_dir) write_shot(shot_dir, "s600_main_legato");
+    // B2: Filter, LFO, then Mod: the mod wheel's Pitch (vibrato, 30), Filter (LFO or OPEN), Level;
+    // the pitch bend's Up and Down.
+    os.s600_page = 2;
+    s600_open(&os);
+    tap(IN_B2);
+    tap(IN_B2);
+    CHECK(os.screen == OS_S600 && os.s600_page == 6 && os.pads[0].sp.mod_pitch == 30 && os.pads[0].sp.bend_up == 2);
+    os.s600_cursor = 3; // Filter Mode: LFO to OPEN
+    in = blank(), in.encoder = 1;
+    frame(&in);
+    os.s600_cursor = 1; // K2 Filter
+    in = blank(), in.encoder = 50;
+    frame(&in);
+    render(16);
+    CHECK(os.pads[0].sp.mod_flt_open == 1 && os.pads[0].sp.mod_filter == 50 && e.pad[ENGINE_S600 + 0].p.mod_filter == 50);
+    os.toast_until = 0;
+    in = blank();
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "s600_mod");
+    tap(IN_B2);
+    CHECK(os.s600_page == 2); // round to Filter
+    // The wheel OPEN on a closed low-pass: pushed up, the highs come through.
+    {
+        engine_kill_all(&e);
+        for (int i = 0; i < 20; i++) render(128);
+        struct sample *buzz = sample_new(44100, 1, ENGINE_RATE);
+        for (int i = 0; i < 44100; i++) buzz->data[i] = (i / 4) % 2 ? 0.5f : -0.5f; // 5.5 kHz square
+        struct pad_params p = params(44100);
+        p.synth = 1, p.gate = 1, p.sustain = 100, p.filter = FILTER_LP4, p.cutoff = 30, p.mod_filter = 100, p.mod_flt_open = 1;
+        float level[2];
+        for (int w = 0; w < 2; w++) {
+            engine_set_mod(&e, w ? 127 : 0);
+            engine_note_on_key(&e, 40, 127, 0, buzz, &p);
+            for (int i = 0; i < 8; i++) render(128);
+            float peak = 0;
+            for (int i = 0; i < 128 * 2; i++) peak = fmaxf(peak, fabsf(block[i]));
+            level[w] = peak;
+            engine_kill_all(&e);
+            for (int i = 0; i < 20; i++) render(128);
+        }
+        CHECK(level[1] > level[0] * 3);
+        // Level: the wheel's tremolo on the LFO, here a square: half the time down.
+        p.filter = FILTER_OFF, p.mod_filter = 0, p.mod_level = 100, p.lfo_shape = LFO_SQUARE, p.lfo_rate = 60;
+        engine_set_mod(&e, 127);
+        engine_note_on_key(&e, 40, 127, 0, buzz, &p);
+        float lo = 1e9f, hi = 0;
+        for (int b = 0; b < 200; b++) {
+            render(128);
+            float pk = 0;
+            for (int i = 0; i < 256; i++) pk = fmaxf(pk, fabsf(block[i]));
+            lo = fminf(lo, pk), hi = fmaxf(hi, pk);
+        }
+        CHECK(hi > lo * 1.8f);
+        engine_set_mod(&e, 0);
+        engine_kill_all(&e);
+        for (int i = 0; i < 20; i++) render(128);
+        sample_free(buzz);
+    }
 }
 
 // Notes on a track at the start of each bar, the note number its bar (1, 2, ...).

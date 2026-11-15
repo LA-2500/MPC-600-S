@@ -126,6 +126,7 @@ struct s600_params {
     // tune): MIDI keys play it from there. Found from its name and pitch when loaded (Auto Root).
     int32_t root, root_fine;
     int32_t ranges_manual; // MULTI: Lo and Hi set by hand (else AUTO: midway between the roots)
+    int32_t mod_filter, mod_flt_open, mod_level; // the Mod page: the mod wheel on the filter (LFO or OPEN) and level
 };
 
 // A MULTI instrument's keygroups, as on the S3000XL: LO NOTE to HI NOTE play ZONE 1's sample,

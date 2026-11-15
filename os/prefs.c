@@ -141,7 +141,7 @@ void prefs_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_text(u, 18, KEY_ROW, page ? "<Page 1>" : "<Page 2>");
     lcd_rule(u, TITLE_ROW, page ? "Additional Settings 2" : "Additional Settings");
     const char *labels[PF_FIELDS] = {"Button Lights:", "Pad Lights:", "Pad Thresh:", "Screen:", "", "Start BPM:", "Start Bars:",
-                                     "Start TC:", "Start Swing:", "Loop Conv:", "Auto Root:", "Sample Rate:", "Bit Rate:", "Anti-Aliasing:",
+                                     "Start TC:", "Start Swing:", "Loop Conv:", "Root Auto-Detect:", "Sample Rate:", "Bit Rate:", "Anti-Aliasing:",
                                      "Normalize:", "Input Thru:", "Rec Mode:"};
     char bpm[12], sw[8], bars[8], thresh[8], rate[16], bits[8];
     snprintf(thresh, sizeof thresh, "%d", s->pad_threshold);
@@ -158,7 +158,7 @@ void prefs_frame(struct os *s, struct ui *u, const struct input *in) {
                                      s->start_aa ? "ON" : "OFF", s->start_norm ? "ON" : "OFF",
                                      s->start_thru ? "ALWAYS ON" : "OFF", MODES[s->start_mode]};
     const int rows[PF_FIELDS] = {3, 4, 5, 6, 8, 10, 11, 12, 13, 3, 4, 6, 7, 8, 9, 10, 11};
-    const int cols[PF_FIELDS] = {14, 14, 14, 7, 14, 12, 12, 12, 12, 10, 10, 14, 14, 14, 14, 14, 14};
+    const int cols[PF_FIELDS] = {14, 14, 14, 7, 14, 12, 12, 12, 12, 10, 17, 14, 14, 14, 14, 14, 14};
     for (int i = first; i < first + count; i++) {
         lcd_text(u, 0, rows[i], labels[i]);
         snprintf(v, sizeof v, " %s ", values[i]);

@@ -73,6 +73,9 @@ struct pad_params {
     int32_t l2_volume, l2_semi, l2_fine;
     int32_t l2_start, l2_end, l2_loop, l2_loop_on;
     int32_t legato; // mono: a note played while one is held slides to its pitch, the envelopes carry on
+    // The mod wheel, beside its vibrato (mod_pitch): on the filter (LFO: the LFO's movement added;
+    // OPEN: the cutoff opened, up to three octaves) and the level (the LFO as tremolo). 0..100 at full.
+    int32_t mod_filter, mod_flt_open, mod_level;
 };
 
 enum { LFO_TRI, LFO_SINE, LFO_SQUARE, LFO_SAW_UP, LFO_SAW_DOWN, LFO_RANDOM, LFO_SHAPES };

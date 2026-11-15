@@ -117,6 +117,7 @@ void s600_effective(const struct os_pad *pads, int i, struct pad_params *out, co
     out->bend_up = q->bend_up;
     out->bend_down = q->bend_down;
     out->mod_pitch = q->mod_pitch;
+    out->mod_filter = q->mod_filter, out->mod_flt_open = q->mod_flt_open, out->mod_level = q->mod_level;
     // Layer 2: its own sample's trim and loop, its own level and tuning.
     const struct os_pad *src = q->l2_pad > 0 && q->l2_pad <= OS_PADS ? &pads[q->l2_pad - 1] : pad;
     out->layers = q->layers == 2 && src->s && !q->multi ? 2 : 1; // MULTI: its keygroups instead
@@ -132,8 +133,8 @@ void s600_effective(const struct os_pad *pads, int i, struct pad_params *out, co
 
 // ---- The S600 screen ----
 
-enum { PG_ENV1, PG_ENV2, PG_FILTER, PG_LFO, PG_MAIN, PG_LAYER, PG_COUNT };
-enum { V_MS, V_PCT, V_SEMI, V_CENTS, V_DEPTH, V_TPL1, V_TPL2, V_FILTER, V_SHAPE, V_POLY, V_ONOFF, V_SOUND, V_NUM, V_NOTE };
+enum { PG_ENV1, PG_ENV2, PG_FILTER, PG_LFO, PG_MAIN, PG_LAYER, PG_MOD, PG_COUNT }; // Mod: B2's third
+enum { V_MS, V_PCT, V_SEMI, V_CENTS, V_DEPTH, V_TPL1, V_TPL2, V_FILTER, V_SHAPE, V_POLY, V_ONOFF, V_SOUND, V_NUM, V_NOTE, V_FMODE };
 
 struct s6field {
     const char *label;
@@ -162,11 +163,13 @@ static const struct s6field PAGES6[PG_COUNT][S6_FIELDS] = {
                 S6("Pitch", 11, lfo_pitch, 0, 100, V_NUM, 1), S6("Filter", 12, lfo_filter, 0, 100, V_NUM, 2),
                 S6("Level", 13, lfo_amp, 0, 100, V_NUM, -1), S6("Delay", 9, lfo_delay, 0, 5000, V_MS, -1)},
     [PG_MAIN] = {SH("Volume", 3, volume, 0, 100, V_NUM, 0), SH("Semi", 4, semi, -36, 36, V_SEMI, 1),
-                 SH("Fine", 5, fine, -100, 100, V_CENTS, 2), S6("Root", 6, root, 0, 127, V_NOTE, -1),
-                 S6("Poly", 7, mono, 0, 1, V_POLY, -1),
-                 S6("Note On", 8, note_on, 0, 1, V_ONOFF, -1), S6("Legato", 9, legato, 0, 1, V_ONOFF, -1),
-                 S6("Portamento", 10, porta, 0, 5000, V_MS, -1), S6("Bend Up", 11, bend_up, 0, 24, V_SEMI, -1),
-                 S6("Bend Down", 12, bend_down, 0, 24, V_SEMI, -1), S6("Mod>Pitch", 13, mod_pitch, 0, 100, V_NUM, -1)},
+                 SH("Fine", 5, fine, -100, 100, V_CENTS, 2), S6("Poly", 7, mono, 0, 1, V_POLY, -1),
+                 S6("Legato", 8, legato, 0, 1, V_ONOFF, -1), S6("Portamento", 9, porta, 0, 5000, V_MS, -1),
+                 S6("Note On", 10, note_on, 0, 1, V_ONOFF, -1), S6("Root Note", 11, root, 0, 127, V_NOTE, -1)},
+    // The mod wheel and the pitch bend: what the wheels do.
+    [PG_MOD] = {S6("Pitch", 4, mod_pitch, 0, 100, V_NUM, 0), S6("Filter", 5, mod_filter, 0, 100, V_NUM, 1),
+                S6("Level", 6, mod_level, 0, 100, V_NUM, 2), S6("Filter Mode", 7, mod_flt_open, 0, 1, V_FMODE, -1),
+                S6("Bend Up", 10, bend_up, 0, 24, V_SEMI, -1), S6("Bend Down", 11, bend_down, 0, 24, V_SEMI, -1)},
     // Layer 2's fields come last, so with one layer they are simply left off.
     [PG_LAYER] = {S6("Layers", 3, layers, 1, 2, V_NUM, -1), SH("Volume", 5, volume, 0, 100, V_NUM, -1),
                   SH("Semi", 6, semi, -36, 36, V_SEMI, -1), SH("Fine", 7, fine, -100, 100, V_CENTS, -1),
@@ -174,7 +177,7 @@ static const struct s6field PAGES6[PG_COUNT][S6_FIELDS] = {
                   S6("Semi", 11, l2_semi, -36, 36, V_DEPTH, 1), S6("Fine", 12, l2_fine, -100, 100, V_CENTS, 2)},
 };
 #define LAYER1_FIELDS 4
-static const char *const PAGE_NAMES[PG_COUNT] = {"Env1", "Env2", "Filter", "LFO", "Main", "Layer"};
+static const char *const PAGE_NAMES[PG_COUNT] = {"Env1", "Env2", "Filter", "LFO", "Main", "Layer", "Mod"};
 static const char *const SHAPE_NAMES[LFO_SHAPES] = {"Triangle", "Sine", "Square", "Saw Up", "Saw Down", "Random"};
 static const char *const FILTER_NAMES6[FILTER_TYPES] = {"Off", "LPF", "HPF", "BPF", "LPF 4", "HPF 4", "BPF 4", "S600 LPF"};
 
@@ -248,7 +251,7 @@ static int catch_up(int *caught, int last, int now, int at) {
     return *caught;
 }
 
-// Where the cursor starts on a page. Main's first three are on K1-K3, so it starts on Root;
+// Where the cursor starts on a page. Main's first three are on K1-K3, so it starts on Poly;
 // Filter starts on Cutoff.
 static int first_field(int page) {
     return page == PG_MAIN ? 3 : page == PG_FILTER ? 1 : 0;
@@ -297,6 +300,7 @@ static void format6(const struct os_pad *pads, const struct os_pad *pad, const s
     case V_SHAPE: snprintf(b, n, "%s", SHAPE_NAMES[v >= 0 && v < LFO_SHAPES ? v : 0]); break;
     case V_POLY: snprintf(b, n, "%s", v ? "MONO" : "POLY"); break;
     case V_NOTE: multi_note_name(v, b, n); break; // ROOT: the key that plays it at its own pitch
+    case V_FMODE: snprintf(b, n, "%s", v ? "OPEN" : "LFO"); break;
     case V_ONOFF: snprintf(b, n, "%s", v ? "ON" : "OFF"); break;
     case V_SOUND:
         if (v <= 0) snprintf(b, n, "Same");
@@ -362,7 +366,8 @@ static void draw_lfo(struct ui *u, int shape) {
 static void draw_keys6(struct ui *u, const struct os *s) {
     static const int first[3] = {PG_ENV1, PG_FILTER, PG_MAIN};
     for (int g = 0; g < 3; g++) {
-        int page = s->s600_page, in_group = g == 0 ? page <= PG_ENV2 : g == 1 ? page == PG_FILTER || page == PG_LFO : page >= PG_MAIN;
+        int page = s->s600_page, in_group = g == 0 ? page <= PG_ENV2 : g == 1 ? page == PG_FILTER || page == PG_LFO || page == PG_MOD
+                                                                     : page == PG_MAIN || page == PG_LAYER;
         char key[16];
         snprintf(key, sizeof key, "<%s>", PAGE_NAMES[in_group ? page : first[g]]);
         if (in_group) lcd_inverse(u, g * 9, KEY_ROW, key);
@@ -385,7 +390,7 @@ void s600_frame(struct os *s, struct ui *u, const struct input *in) {
         return;
     }
     if (input_down(in, IN_B1)) set_page(s, page == PG_ENV1 ? PG_ENV2 : PG_ENV1);
-    if (input_down(in, IN_B2)) set_page(s, page == PG_FILTER ? PG_LFO : PG_FILTER);
+    if (input_down(in, IN_B2)) set_page(s, page == PG_FILTER ? PG_LFO : page == PG_LFO ? PG_MOD : PG_FILTER); // Filter, LFO, Mod
     if (input_down(in, IN_B3) && in->shift) { // Edit All Pads on or off
         s->edit_all = !s->edit_all;
         os_toast(s, u, s->edit_all ? "Edit All Pads: On" : "Edit All Pads: Off");
@@ -448,7 +453,8 @@ void s600_frame(struct os *s, struct ui *u, const struct input *in) {
     if (page == PG_ENV1) draw_env(u, q->attack, q->decay, q->sustain, q->release);
     if (page == PG_ENV2) draw_env(u, q->f_attack, q->f_decay, q->f_sustain, q->f_release);
     if (page == PG_LFO) draw_lfo(u, q->lfo_shape);
-    (void)0; // Main: the knobs' Volume, Semi, Fine, then Root and the rest
+    if (page == PG_MAIN) lcd_rule(u, 6, 0); // the knobs' Volume, Semi, Fine above, the rest below
+    if (page == PG_MOD) lcd_rule(u, 3, "Mod Wheel"), lcd_rule(u, 9, "Pitch Bend");
     if (page == PG_LAYER) {
         lcd_rule(u, 4, "Layer 1");
         if (pad->sp.layers == 2) lcd_rule(u, 8, "Layer 2");
@@ -463,7 +469,9 @@ void s600_frame(struct os *s, struct ui *u, const struct input *in) {
         char label[24], value[24], cell[LCD_COLS + 1];
         if (f->knob >= 0) snprintf(label, sizeof label, "K%d %s:", f->knob + 1, f->label);
         else snprintf(label, sizeof label, "   %s:", f->label);
-        int col = VALUE_COL;
+        int col = (int)strlen(label) > VALUE_COL ? (int)strlen(label) : VALUE_COL; // a long label pushes its value along
+        if (f->fmt == V_NOTE) // Root Note, and under it whether it is found for each sound loaded
+            lcd_text(u, 0, f->row + 1, s->auto_root ? "   Auto-Detect: ON" : "   Auto-Detect: OFF");
         if (f->row == 3 && f->knob < 0) { // the page's top field: no knob, so no K column
             snprintf(label, sizeof label, "%s:", f->label);
             col = (int)strlen(label);

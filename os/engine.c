@@ -734,10 +734,15 @@ static double synth_pitch(struct voice *v, int bend, int mod, int frames, float 
     }
     v->lfo_ms += (float)frames * 1000.0f / ENGINE_RATE;
     if (p->lfo_delay_ms > 0 && v->lfo_ms < (float)p->lfo_delay_ms) w *= v->lfo_ms / (float)p->lfo_delay_ms;
-    float depth = (float)p->lfo_pitch + (float)p->mod_pitch * (float)mod / 127.0f;
+    float wheel = (float)mod / 127.0f;
+    float depth = (float)p->lfo_pitch + (float)p->mod_pitch * wheel;
     semis += w * depth / 100.0f * 2.0f; // 100 swings two semitones each way
-    *octaves = w * (float)p->lfo_filter / 100.0f * 2.0f;
-    *gain = 1.0f - (float)p->lfo_amp / 100.0f * 0.5f * (1.0f - w);
+    float fdepth = (float)p->lfo_filter + (p->mod_flt_open ? 0.0f : (float)p->mod_filter * wheel);
+    *octaves = w * fdepth / 100.0f * 2.0f;
+    if (p->mod_flt_open) *octaves += (float)p->mod_filter / 100.0f * wheel * 3.0f; // OPEN: up to three octaves
+    float adepth = (float)p->lfo_amp + (float)p->mod_level * wheel;
+    if (adepth > 100.0f) adepth = 100.0f;
+    *gain = 1.0f - adepth / 100.0f * 0.5f * (1.0f - w);
     return semis;
 }
 
@@ -768,7 +773,7 @@ static void render_voice(struct voice *v, float *out, int frames, int e_bend, in
     float g = 0, k = 2, k_first = 2, drive = 1;
     struct ladder_k lk = {0, 0};
     // LPF is on by default. Fully open with no envelope it changes nothing, so skip it.
-    int open_lpf = p->filter == FILTER_LP2 && p->cutoff >= 100 && p->flt_depth <= 0 && (!p->synth || !p->lfo_filter);
+    int open_lpf = p->filter == FILTER_LP2 && p->cutoff >= 100 && p->flt_depth <= 0 && (!p->synth || (!p->lfo_filter && !p->mod_filter));
     if (p->filter != FILTER_OFF && !open_lpf) {
         advance_filter_env(v, frames);
         sections = (p->filter == FILTER_LP4 || p->filter == FILTER_HP4 || p->filter == FILTER_BP4) ? 2 : 1;

@@ -553,14 +553,14 @@
 <h2>What an S600 Program Is</h2>
 <p>An S600 program plays its pads as instruments rather than as drums: each pad is a <strong>two-oscillator synth</strong>, its own sound the first oscillator and Layer 2 (another pad&rsquo;s sound) the second, both through the same envelopes, filter and LFO. (For an instrument built from many samples across the keyboard, see S600 MULTI, Chapter 10.) Set a program&rsquo;s <strong>Type</strong> to S600 on Program Config and every pad in it gets a second set of settings, its S600 settings, kept apart from its drum settings. The pad&rsquo;s sound, trim, loop, volume and tuning are shared; everything else is the S600&rsquo;s own. Switch the program back to MPC and its drum settings are exactly as you left them.</p>
 <p>On an S600 program, <span class="key">SAMPLE</span> opens the S600 pages instead of the drum pages, and MIDI keys play the <strong>Instrument</strong> (Inst on Program Config: A01 to start, or LAST PAD for the pad pressed last) chromatically from its <strong>Root</strong>. 16 Levels Tune plays a sound across the pads.</p>
-<h3>Root and Auto Root</h3>
-<p><strong>Root</strong> (on the Main page) is the key at which the sound plays at its own pitch: a bass note sampled at E1 has Root E1, so E1 on the keyboard plays it as recorded and E2 an octave up. Pressing the pad itself always plays the sound at its own pitch. With <strong>Auto Root</strong> ON (Additional Settings, page 2; ON to start), a sound loaded or recorded onto a pad of an S600 program gets its Root found for it, from the note in its name and the pitch heard in it, as Auto Map finds them (Chapter 10), with the fine tuning that puts it in tune. A sound with neither (a drum, noise) stays at C4. Set Root by hand any time.</p>
+<h3>Root Note and Root Auto-Detect</h3>
+<p><strong>Root Note</strong> (on the Main page) is the key at which the sound plays at its own pitch: a bass note sampled at E1 has Root E1, so E1 on the keyboard plays it as recorded and E2 an octave up. Pressing the pad itself always plays the sound at its own pitch. With <strong>Root Auto-Detect</strong> ON (Additional Settings, page 2; ON to start; the Main page shows <span class="lcd">Auto-Detect: ON</span> under Root Note), a sound loaded or recorded onto a pad of an S600 program gets its Root found for it, from the note in its name and the pitch heard in it, as Auto Map finds them (Chapter 10), with the fine tuning that puts it in tune. A sound with neither (a drum, noise) stays at C4. Set Root Note by hand any time.</p>
 
 <h2>Structure</h2>
 <p>An S600 program makes a sample into a playable instrument, laid out the way Akai&rsquo;s S-series samplers did it. A sample feeds a filter; an amplitude envelope and a separate filter envelope shape it; an LFO adds vibrato and movement; velocity, pitch bend and modulation respond; it plays polyphonically or monophonically with portamento; and more than one sample can sound on each note.</p>
 
 <h2>The Pages</h2>
-<p><span class="key">B1</span>: Env1, Env2, Trim &nbsp;&middot;&nbsp; <span class="key">B2</span>: Filter, LFO &nbsp;&middot;&nbsp; <span class="key">B3</span>: Main, Layer (an S600 MULTI program: Main, MULTI). <span class="key">SHIFT + B3</span> is Edit All Pads. <span class="key">SHIFT + CHOP</span> turns Note On on and off.</p>
+<p><span class="key">B1</span>: Env1, Env2, Trim &nbsp;&middot;&nbsp; <span class="key">B2</span>: Filter, LFO, Mod &nbsp;&middot;&nbsp; <span class="key">B3</span>: Main, Layer (an S600 MULTI program: Main, MULTI). <span class="key">SHIFT + B3</span> is Edit All Pads. <span class="key">SHIFT + CHOP</span> turns Note On on and off.</p>
 <table>
   <tr><th>Page</th><th>Settings</th></tr>
   <tr><td>Env1 (level)</td><td>Template, Attack, Decay, Sustain, Release.</td></tr>
@@ -568,7 +568,8 @@
   <tr><td>Trim</td><td>The same Trim page as an MPC program.</td></tr>
   <tr><td>Filter</td><td>Type, Cutoff, Resonance, Env2 Depth.</td></tr>
   <tr><td>LFO</td><td>Shape (Triangle, Sine, Square, Saw Up, Saw Down, Random), Rate, Pitch, Filter, Level, Delay.</td></tr>
-  <tr><td>Main</td><td>Volume, Semi, Fine (on K1&ndash;K3), Root, Poly/Mono, Note On, Legato, Portamento, Bend Up, Bend Down, Mod&gt;Pitch.</td></tr>
+  <tr><td>Mod</td><td>What the wheels do. <strong>Mod Wheel</strong>: Pitch (K1, vibrato; 30 to start), Filter (K2) and Filter Mode, Level (K3, tremolo). <strong>Pitch Bend</strong>: Bend Up, Bend Down.</td></tr>
+  <tr><td>Main</td><td>Volume, Semi, Fine (on K1&ndash;K3); Poly/Mono, Legato, Portamento, Note On, Root Note (and whether Auto-Detect is on).</td></tr>
   <tr><td>Layer</td><td>The second oscillator: Layers (1 or 2); layer 1&rsquo;s level and tuning; layer 2&rsquo;s sound, level and tuning.</td></tr>
 </table>
 {{shot:s600_env1|S600 Env1}}
@@ -578,7 +579,7 @@
 <ul>
   <li><strong>Note On</strong> ON: the note holds while the pad or key is held, then releases. OFF: the envelope plays through on its own.</li>
   <li><strong>Mono</strong> with <strong>Legato</strong>: a note played while another is held changes pitch without restarting the envelopes, gliding if <strong>Portamento</strong> is set.</li>
-  <li><strong>Bend Up/Down</strong> set the pitch bend range; <strong>Mod&gt;Pitch</strong> how much vibrato the mod wheel adds.</li>
+  <li><strong>The wheels</strong> (Mod page): <strong>Bend Up/Down</strong> set the pitch bend range in semitones. The <strong>mod wheel</strong> brings in the LFO (at its Rate and Shape, after its Delay) as much as each amount says at full: <strong>Pitch</strong> is vibrato (100 swings two semitones each way), <strong>Level</strong> is tremolo, and <strong>Filter</strong> works by <strong>Filter Mode</strong>: <strong>LFO</strong> adds the LFO&rsquo;s movement to the cutoff (two octaves each way at 100), <strong>OPEN</strong> opens the cutoff as the wheel goes up (three octaves at 100), a brightness control. They add to the LFO page&rsquo;s own depths. An S600 MULTI instrument answers the same way.</li>
   <li><strong>Layer 2</strong> sounds another pad&rsquo;s sample on every note, through the same envelopes, filter and LFO, with its own level and tuning: layering, an idea taken from the S-series.</li>
 </ul>
 
@@ -1157,7 +1158,7 @@
 <p>Page 2:</p>
 <ul>
   <li><strong>Loop Conv</strong> (Live Loop Conversion): how a Live Looper take becomes a sound at its Pitch, Sample Rate, Bit Rate, Anti-Aliasing and Normalize. <strong>IMMEDIATE</strong> (the default) or <strong>AFTER 1ST LOOP</strong>, which suits longer takes; see Live Looper in Chapter 3.</li>
-  <li><strong>Auto Root</strong>: ON (the default) finds a sound&rsquo;s Root (S600 Main page) when it is loaded or recorded onto a pad of an S600 or S600 MULTI program, from the note in its name and the pitch heard in it (Chapters 9 and 10). OFF leaves it at C4.</li>
+  <li><strong>Root Auto-Detect</strong>: ON (the default) finds a sound&rsquo;s Root Note (S600 Main page) when it is loaded or recorded onto a pad of an S600 or S600 MULTI program, from the note in its name and the pitch heard in it (Chapters 9 and 10). OFF leaves it at C4.</li>
 </ul>
 <p><strong>Recording Starts With</strong>: one set of starting values for every recording page: Sample New Sound, Audiotrack Record, Convert Sample, Resample and Live Looper. They are what each page has at power-on, and changing one here sets it on all of them at once. Each page can still be changed on its own afterwards, for that take.</p>
 <table>
