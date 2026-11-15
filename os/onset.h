@@ -12,3 +12,10 @@
 int onset_detect(const struct sample *s, int32_t *out, int max);
 // The same, needing a rise of `rise` (log10 energy, 0.5 is the usual 5 dB) to count as a hit.
 int onset_detect_rise(const struct sample *s, int32_t *out, int max, float rise);
+// TRANSIENT (Zone Assign): every drum hit in a break, for a zone each. Three bands (kick, snare
+// body, hats and cymbals) looked at every 2.9 ms; a threshold that follows the loudness around
+// each point, so ghost notes count beside loud snares; hits as close as 40 ms. sens 1..10: how
+// soft a hit still counts (5 to start). The first start is the first hit (or 0); each start sits
+// a millisecond before its hit, on a zero crossing. strength[] (may be NULL) gets each hit's
+// strength; with more than max, the strongest are kept.
+int onset_detect_transient(const struct sample *s, int32_t *out, float *strength, int max, int sens);

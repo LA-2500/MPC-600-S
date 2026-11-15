@@ -201,7 +201,14 @@ static const struct {
     {OS_ZONES, -1, "Zone Assign",
      "Divides a sound into zones, each on a separate pad.\n"
      "PAD: play the sound and press pads where each zone starts. REGIONS: equal zones, "
-     "1 to 32.\f"
+     "1 to 32.\n"
+     "TRANSIENT: a zone at every drum hit, found at once. Made for drum breaks: kicks, snares, "
+     "hats and ghost notes, each zone starting just before its hit.\f"
+     "TRANSIENT:\n"
+     "Sensitivity 1-10 (5 to start): higher finds softer hits (ghost notes, quiet hats); lower "
+     "keeps only the main hits.\n"
+     "Zone, Start: move a zone's start with the wheel, a millisecond a click.\n"
+     "B2 <Delete>: take a false zone out; the one before reaches over its part.\f"
      "Snap moves each mark to the nearest hit.\n"
      "Then assign them to a new program or to empty banks; the zones play to their ends "
      "(Note Off)."},

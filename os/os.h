@@ -84,7 +84,7 @@ struct midi_settings {
     int foot_cc;         // its CC (64, the sustain pedal, to start)
     int foot_pol;        // FPOL_*
 };
-enum { ZONE_PAD, ZONE_REGIONS };
+enum { ZONE_PAD, ZONE_REGIONS, ZONE_TRANSIENT, ZONE_MODES };
 enum { ZP_SETUP, ZP_WAIT, ZP_PLAY, ZP_ASSIGN };
 #define ZONES_MAX 128
 #define OS_UNDO_STEPS 2

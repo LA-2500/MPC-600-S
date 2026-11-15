@@ -888,7 +888,22 @@
 <p><span class="key">LOOP</span> opens the Loop page: Loop on/off, <span class="key">K1</span> Loop Start, <span class="key">K2</span> Loop End, <span class="key">K3</span> a Do: Find St and Find End search for where the loop joins most smoothly; X-Fade blends the join; Discard keeps Zone Start to Loop End. <span class="key">SHIFT + LOOP</span> turns Reverse on and off.</p>
 {{shot:loop|The Loop page}}
 <h2>Zone Assign</h2>
-<p><span class="key">CHOP</span> divides a sound into zones, each on a separate pad. PAD: play the sound and press pads where each zone starts; REGIONS: 1 to 32 equal zones. Snap moves each mark to the nearest hit. Then assign them to a new program or to empty banks.</p>
+<p><span class="key">CHOP</span> divides a sound into zones, each on a separate pad. <strong>Mode</strong> chooses how:</p>
+<table>
+  <tr><th>Mode</th><th>How the zones are made</th></tr>
+  <tr><td>PAD</td><td>Play the sound and press pads where each zone starts. Snap (Sensitivity) moves each mark to the nearest hit.</td></tr>
+  <tr><td>REGIONS</td><td>1 to 32 equal zones; each start can then be moved.</td></tr>
+  <tr><td>TRANSIENT</td><td>A zone at every drum hit, found at once: made for drum breaks. Kicks, snares, hats and ghost notes each get a zone, starting a millisecond before the hit on a zero crossing, so it plays clean and tight.</td></tr>
+</table>
+<p>Then <span class="key">&lt;Do It&gt;</span> assigns them to a new program or to empty banks, in order, one-shot, with a mute group.</p>
+<h3>TRANSIENT</h3>
+<ul>
+  <li><strong>Sensitivity</strong> (1&ndash;10, 5 to start): higher finds softer hits, such as ghost notes and quiet hats; lower keeps only the main hits. The zones are found again as you turn it, and the count shows above.</li>
+  <li><strong>Zone</strong> and <strong>Start</strong>: pick a zone and move its start, a millisecond a click, to set a hit exactly. The first zone starts at the first hit, so a lead-in of silence is left out.</li>
+  <li><span class="key">B2 &lt;Delete&gt;</span> takes the zone shown out (a false hit): the zone before it reaches over its part.</li>
+  <li>How it listens: in three bands (kicks under 150 Hz, snare bodies to 2 kHz, hats, cymbals and the snare&rsquo;s crack over 5 kHz), every 2.9 ms, each band through an envelope follower matched to it (12, 4 and 1.5 ms) so a kick&rsquo;s low wave does not read as hits. A hit is a clear rise over the local median of the last and next 58 ms, so a ghost note counts beside a loud snare; hits closer than 40 ms are one. Each zone&rsquo;s start is found by the sharpness of the attack, so a hat over a kick&rsquo;s ringing tail still starts on the hat. Up to 128 zones; with more hits, the softest go.</li>
+</ul>
+{{shot:zones_transient|Zone Assign, TRANSIENT: a zone at every hit of a break}}
 <h2>Print Effects</h2>
 <p><span class="key">PAD FX</span> prints one effect onto a pad&rsquo;s sound: reverb on a snare, delay on a hat. Choose a Category (Reverb, EQ, Delay, Modulation, Drive/Dyn, Amp), then the Effect; <span class="key">K1</span>&ndash;<span class="key">K3</span> set its controls; Tail is AUTO or a time. <span class="key">&lt;Play&gt;</span> previews; <span class="key">&lt;Print&gt;</span> replaces the pad&rsquo;s sound, keeping the original in memory. The EQ category includes curves for kick, snare, hi-hat, clap, tom and 808.</p>
 {{shot:print_fx|Print Effects}}

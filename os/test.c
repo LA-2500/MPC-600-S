@@ -3620,6 +3620,109 @@ static void test_program_pads(const char *shot_dir) {
 
 // CHOP: Zone Assign. REGIONS divides the sound evenly; PAD marks zones with pad hits as it
 // plays through. Either way the zones go, in order, to empty pads: Note On, a free mute group.
+// A drum break, made here: kicks (a falling sine with a click), snares (noise and a body tone),
+// soft ghost snares, and hats (bright noise) on every 8th, some right on a kick or a snare, at 95
+// BPM. Where each hit starts, and which are ghosts.
+static struct sample *synth_break(int32_t *hits, int *nhits) {
+    const int rate = 44100;
+    double eighth = 60.0 / 95.0 / 2.0;
+    int n = (int)(rate * eighth * 16) + rate / 2;
+    struct sample *t = sample_new(n, 1, rate);
+    memset(t->data, 0, (size_t)n * sizeof(float));
+    uint32_t r = 7;
+    // 16 eighths: K . S . K K S . | K . S g K . S g  (g: ghost snare); a hat on every eighth too
+    const char *pat = "K.S.KKS.K.S.K.S.";
+    const char *gho = "..........g...g.";
+    *nhits = 0;
+    for (int e = 0; e < 16; e++) {
+        int at = (int)(e * eighth * rate) + rate / 20; // a little lead-in first
+        char k = pat[e], g = gho[e];
+        hits[(*nhits)++] = at; // a hat, or more, starts here every eighth
+        for (int i = 0; i < rate / 3 && at + i < n; i++) {
+            double tt = (double)i / rate;
+            float x = 0;
+            r = r * 1664525u + 1013904223u;
+            float nz = (float)(r >> 8) / (1 << 24) * 2 - 1;
+            x += 0.18f * nz * expf(-(float)tt * 60) * (i % 2 ? 1 : -1); // the hat: bright noise
+            if (k == 'K') x += 0.8f * (float)sin(2 * M_PI * (50 + 80 * exp(-tt * 30)) * tt) * expf(-(float)tt * 9);
+            if (k == 'S') x += 0.5f * nz * expf(-(float)tt * 18) + 0.3f * (float)sin(2 * M_PI * 190 * tt) * expf(-(float)tt * 20);
+            if (g == 'g') x += 0.12f * nz * expf(-(float)tt * 25); // a ghost: soft
+            t->data[at + i] += x;
+        }
+        if (g == 'g') { // the ghost lands a 16th after this eighth
+            int ga = at + (int)(eighth / 2 * rate);
+            hits[(*nhits)++] = ga;
+            for (int i = 0; i < rate / 6 && ga + i < n; i++) {
+                double tt = (double)i / rate;
+                r = r * 1664525u + 1013904223u;
+                float nz = (float)(r >> 8) / (1 << 24) * 2 - 1;
+                t->data[ga + i] += 0.14f * nz * expf(-(float)tt * 25) + 0.08f * (float)sin(2 * M_PI * 190 * tt) * expf(-(float)tt * 25);
+            }
+        }
+    }
+    // in time order
+    for (int i = 0; i < *nhits; i++)
+        for (int j = i + 1; j < *nhits; j++)
+            if (hits[j] < hits[i]) {
+                int32_t x = hits[i];
+                hits[i] = hits[j], hits[j] = x;
+            }
+    return t;
+}
+
+// TRANSIENT: a zone at every hit of a break, the ghosts too, each starting just before its hit.
+static void test_zones_transient(const char *shot_dir) {
+    int32_t hits[64], found[ZONES_MAX];
+    int nhits;
+    struct sample *brk = synth_break(hits, &nhits);
+    int n = onset_detect_transient(brk, found, 0, ZONES_MAX, 5);
+    int matched = 0;
+    for (int i = 0; i < nhits; i++)
+        for (int k = 0; k < n; k++)
+            if (found[k] <= hits[i] && hits[i] - found[k] <= 44100 * 4 / 1000) { // within 4 ms before it
+                matched++;
+                break;
+            }
+    CHECK(matched == nhits && n == nhits);
+    // Sensitivity: lower finds no more than higher; at 10 nothing is lost.
+    CHECK(onset_detect_transient(brk, found, 0, ZONES_MAX, 1) <= onset_detect_transient(brk, found, 0, ZONES_MAX, 10) &&
+          onset_detect_transient(brk, found, 0, ZONES_MAX, 10) >= nhits);
+    // Silence and a single hit: one zone.
+    struct sample *quiet = sample_new(44100, 1, 44100);
+    memset(quiet->data, 0, 44100 * sizeof(float));
+    CHECK(onset_detect_transient(quiet, found, 0, ZONES_MAX, 5) == 1 && found[0] == 0);
+    sample_free(quiet);
+    // On the Zone Assign page.
+    seq_fresh();
+    os.seq.metronome = METRO_OFF;
+    os_pad_load(&os, 0, brk, "Break");
+    os.selected = 0;
+    tap(IN_CHOP);
+    struct input in = blank();
+    in.encoder = 2; // Mode: PAD, REGIONS, TRANSIENT
+    frame(&in);
+    CHECK(os.zone_mode == ZONE_TRANSIENT && os.zone_count == nhits && os.zone_start[0] < hits[0]);
+    struct input idle = blank();
+    frame(&idle);
+    if (shot_dir) write_shot(shot_dir, "zones_transient");
+    os.cursor_zones = 2, os.zone_cur = 0; // Zone 3: deleted (B2)
+    in.encoder = 2;
+    frame(&in);
+    CHECK(os.zone_cur == 2);
+    int32_t third = os.zone_start[3];
+    tap(IN_B2);
+    CHECK(os.zone_count == nhits - 1 && os.zone_start[2] == third);
+    os.cursor_zones = 3; // Start: a millisecond a click
+    int32_t was = os.zone_start[2];
+    in.encoder = -1;
+    frame(&in);
+    CHECK(was - os.zone_start[2] == 44);
+    tap(IN_B3); // <Do It>, then <Do It>: a new program, a zone a pad
+    tap(IN_B3);
+    CHECK(os.pads[0].s == brk && os.pads[nhits - 2].s == brk && !os.pads[nhits - 1].s);
+    os.screen = OS_MAIN;
+}
+
 static void test_zones(const char *shot_dir) {
     seq_fresh();
     os.seq.metronome = METRO_OFF;
@@ -6876,6 +6979,7 @@ int main(int argc, char **argv) {
     test_edit_all();
     test_program_type();
     test_zones(argc > 1 ? argv[1] : 0);
+    test_zones_transient(argc > 1 ? argv[1] : 0);
     test_program_pads(argc > 1 ? argv[1] : 0);
     test_main_slider();
     test_repeat_rate(argc > 1 ? argv[1] : 0);

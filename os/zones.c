@@ -1,8 +1,10 @@
 // Zone Assign (CHOP): a sound divided into zones, each then put on a pad of its own, all
-// sharing the one sound. Two ways to divide it:
+// sharing the one sound. Three ways to divide it:
 //   PAD: <Do It>, then a pad starts the sound playing through; each pad hit after that marks
 //        where the next zone starts, snapped to the nearest transient unless that is off.
 //   REGIONS: 1 to 32 equal zones, whose starts can then be moved.
+//   TRANSIENT: a zone at every drum hit, found at once (made for drum breaks): Sensitivity sets
+//        how soft a hit counts; the starts can then be moved, and B2 <Delete> takes one out.
 // Then the zones go, in order, to a new empty program or into empty pad banks, one-shot,
 // with a mute group: by default the first one the destination does not use.
 #include "lcd.h"
@@ -37,6 +39,13 @@ static void even_regions(struct os *s) {
     if (s->zone_cur >= s->zone_count) s->zone_cur = 0;
 }
 
+// TRANSIENT: a zone at every hit the break detector finds.
+static void transient_zones(struct os *s) {
+    const struct sample *sm = sound(s);
+    s->zone_count = sm ? onset_detect_transient(sm, s->zone_start, 0, ZONES_MAX, s->zone_sens > 0 ? s->zone_sens : 1) : 0;
+    if (s->zone_cur >= s->zone_count) s->zone_cur = 0;
+}
+
 static void find_onsets(struct os *s) {
     const struct sample *sm = sound(s);
     s->zone_nonsets = 0;
@@ -53,6 +62,7 @@ void zones_open(struct os *s) {
     s->zone_phase = ZP_SETUP;
     find_onsets(s);
     if (s->zone_mode == ZONE_REGIONS) even_regions(s);
+    else if (s->zone_mode == ZONE_TRANSIENT) transient_zones(s);
     else s->zone_count = 0;
 }
 
@@ -67,6 +77,10 @@ static int fields(const struct os *s, int *out) {
     out[n++] = Z_MODE;
     if (s->zone_mode == ZONE_PAD) {
         out[n++] = Z_SENS;
+    } else if (s->zone_mode == ZONE_TRANSIENT) {
+        out[n++] = Z_SENS;
+        out[n++] = Z_ZONE;
+        out[n++] = Z_START;
     } else {
         out[n++] = Z_REGIONS;
         out[n++] = Z_ZONE;
@@ -103,25 +117,31 @@ static void start_assign(struct os *s) {
 static void change(struct os *s, int f, int d) {
     const struct sample *sm = sound(s);
     switch (f) {
-    case Z_MODE:
-        s->zone_mode = d > 0 ? ZONE_REGIONS : ZONE_PAD;
+    case Z_MODE: // PAD, REGIONS, TRANSIENT
+        s->zone_mode = s->zone_mode + d < 0 ? 0 : s->zone_mode + d >= ZONE_MODES ? ZONE_MODES - 1 : s->zone_mode + d;
         if (s->zone_mode == ZONE_REGIONS) even_regions(s);
+        else if (s->zone_mode == ZONE_TRANSIENT) transient_zones(s);
         else s->zone_count = 0;
         break;
-    case Z_SENS:
-        s->zone_sens = s->zone_sens + d < 0 ? 0 : s->zone_sens + d > 10 ? 10 : s->zone_sens + d;
+    case Z_SENS: { // TRANSIENT: 1..10, no OFF
+        int lo = s->zone_mode == ZONE_TRANSIENT ? 1 : 0;
+        s->zone_sens = s->zone_sens + d < lo ? lo : s->zone_sens + d > 10 ? 10 : s->zone_sens + d;
         find_onsets(s);
+        if (s->zone_mode == ZONE_TRANSIENT) transient_zones(s);
         break;
+    }
     case Z_REGIONS:
         s->zone_regions = s->zone_regions + d < 1 ? 1 : s->zone_regions + d > 32 ? 32 : s->zone_regions + d;
         even_regions(s);
         break;
     case Z_ZONE: s->zone_cur = (s->zone_cur + d % s->zone_count + s->zone_count) % s->zone_count; break;
     case Z_START: {
-        if (!sm || s->zone_cur == 0) break; // the first zone always starts at the start
-        int step = sm->frames / 304 > 0 ? sm->frames / 304 : 1;
+        int transient = s->zone_mode == ZONE_TRANSIENT; // its first zone starts at the first hit: movable too
+        if (!sm || (s->zone_cur == 0 && !transient)) break; // the first zone always starts at the start
+        int step = transient ? sm->rate / 1000 : sm->frames / 304; // TRANSIENT: a millisecond a click, to set a hit exactly
+        if (step < 1) step = 1;
         int32_t v = s->zone_start[s->zone_cur] + d * step;
-        int32_t lo = s->zone_start[s->zone_cur - 1] + 1;
+        int32_t lo = s->zone_cur ? s->zone_start[s->zone_cur - 1] + 1 : 0;
         int32_t hi = s->zone_cur + 1 < s->zone_count ? s->zone_start[s->zone_cur + 1] - 1 : sm->frames - 1;
         s->zone_start[s->zone_cur] = v < lo ? lo : v > hi ? hi : v;
         break;
@@ -189,6 +209,7 @@ static void assign(struct os *s, struct ui *u) {
     s->zone_phase = ZP_SETUP;
     s->zone_count = 0;
     if (s->zone_mode == ZONE_REGIONS) even_regions(s);
+    else if (s->zone_mode == ZONE_TRANSIENT) transient_zones(s);
 }
 
 // Where the sound playing through is now, in its frames: the time since it started, less
@@ -238,7 +259,7 @@ int zones_pad(struct os *s, struct ui *u, int slot) {
 static void value(const struct os *s, int f, char *b, size_t n) {
     const struct sample *sm = sound(s);
     switch (f) {
-    case Z_MODE: snprintf(b, n, " %s ", s->zone_mode == ZONE_PAD ? "PAD" : "REGIONS"); break;
+    case Z_MODE: snprintf(b, n, " %s ", s->zone_mode == ZONE_PAD ? "PAD" : s->zone_mode == ZONE_REGIONS ? "REGIONS" : "TRANSIENT"); break;
     case Z_SENS:
         if (s->zone_sens <= 0) snprintf(b, n, " OFF ");
         else snprintf(b, n, " %d ", s->zone_sens);
@@ -278,7 +299,7 @@ static void draw_wave(struct ui *u, const struct os *s) {
         for (int y = mid - pad->hi[x] / scale & ~1; y <= mid - pad->lo[x] / scale; y += 2) lcd_dot(u, 8 + x, y, LCD_FG);
 #define XPOS(f) (8 + (int)((int64_t)(f) * OS_WAVE_W / sm->frames) & ~1)
     for (int i = 0; i < s->zone_count; i++) { // zone starts: dashed, the selected one solid
-        int x = XPOS(s->zone_start[i]), solid = s->zone_mode == ZONE_REGIONS && i == s->zone_cur;
+        int x = XPOS(s->zone_start[i]), solid = s->zone_mode != ZONE_PAD && i == s->zone_cur;
         for (int y = WAVE_TOP; y < WAVE_TOP + WAVE_H; y += 2)
             if (solid || (y / 2) % 3 != 2) lcd_dot(u, x, y, LCD_FG);
     }
@@ -315,6 +336,13 @@ void zones_frame(struct os *s, struct ui *u, const struct input *in) {
             seen = sm;
             find_onsets(s);
             if (s->zone_mode == ZONE_REGIONS) even_regions(s);
+            else if (s->zone_mode == ZONE_TRANSIENT) transient_zones(s);
+        }
+        if (input_down(in, IN_B2) && s->zone_mode == ZONE_TRANSIENT && s->zone_count > 1) { // <Delete>: a false hit out
+            int c = s->zone_cur;
+            memmove(&s->zone_start[c], &s->zone_start[c + 1], (size_t)(s->zone_count - c - 1) * sizeof s->zone_start[0]);
+            s->zone_count--;
+            if (s->zone_cur >= s->zone_count) s->zone_cur = s->zone_count - 1;
         }
         if (input_down(in, IN_B3) && sm) {
             if (s->zone_mode == ZONE_PAD) s->zone_phase = ZP_WAIT;
@@ -339,6 +367,7 @@ void zones_frame(struct os *s, struct ui *u, const struct input *in) {
     } else if (s->zone_phase == ZP_WAIT) {
         lcd_text(u, 0, KEY_ROW, "<Cancel>");
     } else {
+        if (s->zone_mode == ZONE_TRANSIENT) lcd_text(u, 9, KEY_ROW, "<Delete>");
         lcd_text(u, 19, KEY_ROW, "<Do It>");
     }
     lcd_rule(u, TITLE_ROW, "Zone Assign");
