@@ -194,12 +194,9 @@ static void knob(struct os *s, const struct input *in, int k, atomic_int *v, int
     if (!in->knob_moved[k]) return;
     int at = (atomic_load(v) - lo) * 127 / (hi - lo), last = s->knob_last[k], now = in->knob[k];
     s->knob_last[k] = now;
-    if (!s->knob_caught[k]) {
-        int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-        if (crossed || abs(now - at) <= 2) s->knob_caught[k] = 1;
-    }
-    if (s->knob_caught[k]) {
-        int val = lo + (hi - lo) * now / 127;
+    int pos = os_knob_take(s, &s->knob_caught[k], last, now, at);
+    if (pos >= 0) {
+        int val = lo + (hi - lo) * pos / 127;
         if (hi == 100 && lo == 0) val = val / 5 * 5; // the Pultec knobs in half steps
         atomic_store(v, val);
         s->master_dirty = 1;

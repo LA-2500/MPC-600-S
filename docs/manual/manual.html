@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 1.2 &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 1.3 &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -106,7 +106,7 @@
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
-<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v1.2.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v1.3.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
 <ol>
   <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
   <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
@@ -143,7 +143,7 @@
   <tr><td class="key">PAD BANK</td><td>Steps the pads through banks A to H (with <span class="key">SHIFT</span>, backwards). On the mixer it steps through tracks 1&ndash;16, 17&ndash;32 and on.</td></tr>
 </table>
 <h3>Knobs and the Slider Catch Up</h3>
-<p>The knobs and slider are absolute: each has a position. When you turn one, it does not change the value until it reaches the value&rsquo;s own position; from there it takes over. Nothing jumps when you first touch a control.</p>
+<p>The knobs and slider are absolute: each has a position. When you turn one, it does not change the value until it reaches the value&rsquo;s own position; from there it takes over. Nothing jumps when you first touch a control. This is <strong>Knob Mode</strong> CATCH, the way it starts; Additional Settings (Chapter 16) also has <strong>JUMP</strong>, where the value goes straight to the knob, and <strong>SCALE</strong>, where the value moves from where it is, in step with the knob, so the two meet at the ends of its travel.</p>
 <p>Zoomed in on a waveform (hold <span class="key">SAMPLE</span> and press <span class="key">B1</span> or <span class="key">B2</span>), the Zone and Loop point knobs change behaviour: they move the point from where it is, in fine steps of 1/127 of what is on screen. The zoomed view follows the point you moved last (Start or End, Loop St or Loop End) and keeps it in the middle of the screen, even at the very beginning or end of the sound, where the view runs on past it.</p>
 <h3>Pressing a Page&rsquo;s Button Again</h3>
 <p>On every page, pressing the button that opened it again puts the cursor back on the page&rsquo;s first field (on a few pages, on the field you will want most, such as Effect # on Input Effects).</p>
@@ -183,10 +183,10 @@
   <tr><td class="key">LEVELS</td><td>16 Levels: Velocity, Tune, off</td><td>The 16 Levels page</td></tr>
   <tr><td class="key">LOOP</td><td>The Loop page</td><td>Reverse on or off</td></tr>
   <tr><td class="key">CHOP</td><td>Zone Assign</td><td>Note On on or off</td></tr>
-  <tr><td class="key">MUTE</td><td>Track Mute</td><td></td></tr>
+  <tr><td class="key">MUTE</td><td>Track Mute</td><td>Unmute all tracks</td></tr>
   <tr><td class="key">PAD FX</td><td>Print Effects</td><td></td></tr>
   <tr><td class="key">KNOB FX</td><td>Input Effects</td><td></td></tr>
-  <tr><td class="key">ERASE</td><td>Tap: the Erase page. Hold with pads while playing: erase those notes</td><td></td></tr>
+  <tr><td class="key">ERASE</td><td>Tap: the Erase page. Hold with pads while playing: erase those notes</td><td>Copy the pad pressed last (Program Config)</td></tr>
 </table>
 <h3>SHIFT + Pads</h3>
 <table>
@@ -204,7 +204,7 @@
 <h2>Playing the Pads</h2>
 <p>Pads play the active track&rsquo;s program, through that track&rsquo;s mixer channel. <strong>Full Level</strong> (<span class="key">SHIFT + Pad 1</span>) plays every hit at full velocity.</p>
 <h3>16 Levels</h3>
-<p><span class="key">LEVELS</span> lays one sound across the 16 pads: <strong>Velocity</strong> (pad 1 softest to pad 16 hardest), then <strong>Tune</strong> (a chromatic scale, the root pad playing the sound&rsquo;s own pitch), then off. <span class="key">SHIFT + LEVELS</span> opens its page, where you choose the type, the sound and the root (D13 by default). In Tune, <span class="key">PAD BANK</span> reaches further up and down: 128 tunings in all.</p>
+<p><span class="key">LEVELS</span> lays one sound across the 16 pads: <strong>Velocity</strong> (pad 1 softest to pad 16 hardest), then <strong>Tune</strong> (a chromatic scale, the root pad playing the sound&rsquo;s own pitch), then off. <span class="key">SHIFT + LEVELS</span> opens its page, where you choose the type, the sound and the root (A08 by default). In Tune, <span class="key">PAD BANK</span> reaches further up and down: 128 tunings in all.</p>
 
 <!-- ===================================================================================== -->
 <h1 class="chapter" id="ch3"><small>Chapter 3</small>Recording Sequences</h1>
@@ -512,7 +512,7 @@
 {{shot:seq_copy|Copy Sequence}}
 
 <h2>Track Mute</h2>
-<p><span class="key">MUTE</span> opens Track Mute: the 16 pads become a 4 &times; 4 grid. <strong>Type</strong> chooses what they do: TRACK MUTE, TRACK SOLO, PAD MUTE, PAD SOLO, or SEQUENCE (a pad queues that sequence to play next). <span class="key">B2 &lt;All Off&gt;</span> clears the type shown. <strong>Next Seq</strong> is on every type, set with the wheel.</p>
+<p><span class="key">MUTE</span> opens Track Mute: the 16 pads become a 4 &times; 4 grid. <strong>Type</strong> chooses what they do: TRACK MUTE, TRACK SOLO, PAD MUTE, PAD SOLO, or SEQUENCE (a pad queues that sequence to play next). <span class="key">B2 &lt;All Off&gt;</span> clears the type shown. <span class="key">SHIFT + MUTE</span> (UNMUTE ALL, as printed on the panel) unmutes every track of the sequence, on any page. <strong>Next Seq</strong> is on every type, set with the wheel.</p>
 {{shot:track_mute|Track Mute}}
 
 <!-- ===================================================================================== -->
@@ -531,7 +531,7 @@
 <h1 class="chapter" id="ch8"><small>Chapter 8</small>Programs and Pad Sounds</h1>
 
 <h2>Program Config</h2>
-<p><span class="key">SHIFT + SAMPLE</span> opens Program Config: the program&rsquo;s pads and their sounds, a bank at a time. <strong>Type</strong> is MPC (drums), S600 (each pad a two-oscillator synth, Chapter 9) or S600 MULTI (a multisample instrument, Chapter 10). <strong>Inst</strong> (S600 and S600 MULTI) is the Instrument, the pad MIDI keys play: A01 to start; turn the wheel, or with the cursor on Inst press a pad. On S600, <strong>LAST PAD</strong> plays the pad pressed last. <span class="key">B1 &lt;Copy&gt;</span>, <span class="key">B2 &lt;Swap&gt;</span> and <span class="key">B3 &lt;Delete&gt;</span> work on single pads; with <span class="key">SHIFT</span> they copy or clear the whole program. <strong>Snd:</strong> gives the selected pad any sound in memory.</p>
+<p><span class="key">SHIFT + SAMPLE</span> opens Program Config: the program&rsquo;s pads and their sounds, a bank at a time. <strong>Type</strong> is MPC (drums), S600 (each pad a two-oscillator synth, Chapter 9) or S600 MULTI (a multisample instrument, Chapter 10). <strong>Inst</strong> (S600 and S600 MULTI) is the Instrument, the pad MIDI keys play: A01 to start; turn the wheel, or with the cursor on Inst press a pad. On S600, <strong>LAST PAD</strong> plays the pad pressed last. <span class="key">B1 &lt;Copy&gt;</span>, <span class="key">B2 &lt;Swap&gt;</span> and <span class="key">B3 &lt;Delete&gt;</span> work on single pads; with <span class="key">SHIFT</span> they copy or clear the whole program. <span class="key">SHIFT + ERASE</span> (COPY, as printed on the panel) opens Program Config from any page with Copy already started on the pad pressed last: press the pad to copy it to. <strong>Snd:</strong> gives the selected pad any sound in memory.</p>
 {{shot:program|Program Config}}
 
 <h2>A Pad&rsquo;s Settings</h2>
@@ -879,7 +879,7 @@
   <li><strong>Audiotrack Record</strong>: <span class="key">&lt;Rec&gt;</span> plays the sequence from the start after a count-in; the take begins exactly on its first beat and lasts the sequence, twice it, or until STOP. Press an empty pad: it gets the take and a note at the start of the active track. Pitch works here too. <span class="key">&lt;Live Loop&gt;</span> opens Live Looper.</li>
   <li><strong>Convert Sample</strong>: the selected pad&rsquo;s sound sampled again at a new rate, depth and pitch, as if it were played into the input. It replaces the sound on the pad; the original stays in memory.</li>
   <li><strong>Stems</strong>: separates a pad&rsquo;s sound (up to 20 seconds) into drums, bass, vocals or music, with Open-Unmix. EXTRACT keeps only that stem; REMOVE keeps the rest.</li>
-  <li><strong>Resample</strong> (<span class="key">SHIFT + Pad 11</span>): records the main output, live or the whole sequence. It is taken after the Input and Track effects but before Master Effects. Input Thru: MUTE keeps the input out of the take, RECORD puts it in.</li>
+  <li><strong>Resample</strong> (<span class="key">SHIFT + Pad 11</span>): records the main output, live or the whole sequence. It is taken after the Input and Track effects but before Master Effects. <strong>Start</strong>: THRESHOLD (the default) waits until the output reaches <strong>Thres</strong>; MANUAL starts the moment <span class="key">B3 &lt;Rec&gt;</span> is pressed. Input Thru: MUTE keeps the input out of the take, RECORD puts it in.</li>
 </ul>
 
 <!-- ===================================================================================== -->
@@ -1117,7 +1117,7 @@
 
 <!-- ===================================================================================== -->
 <h1 class="chapter" id="ch15"><small>Chapter 15</small>Saving, Loading and Exporting</h1>
-<p><span class="key">SHIFT + Pad 16</span> opens Save/Load (<span class="key">SHIFT + SAMPLE SELECT</span> opens it ready to save the pad&rsquo;s sound). <strong>Mode</strong>: SAVE, LOAD or EXPORT.</p>
+<p><span class="key">SHIFT + Pad 16</span> opens Save/Load (<span class="key">SHIFT + SAMPLE SELECT</span> opens it ready to save the pad&rsquo;s sound). <strong>Mode</strong>: SAVE, LOAD or EXPORT. Sequences and MIDI files open in <span class="lcd">MPC600S/sequences</span>. MPC SEQ, MPC PROGRAM and MPC 2500 PROJECT open at the top of the card, where an MPC&rsquo;s folders go when copied from its card, and they do not list the MPC 600 S&rsquo;s own saved projects and programs. Any folder on the card can be browsed to.</p>
 <table>
   <tr><th>Type</th><th>Saves and loads</th></tr>
   <tr><td>PROJECT</td><td>Everything: every program and sound, the sounds in memory, the sequences, songs, mixer, effects and Master Effects. Master Effects are kept only in projects (and the Autoload project): with no Autoload, they start off at power-on.</td></tr>
@@ -1129,13 +1129,38 @@
   <tr><td>S600 WAVE</td><td>A sound from or onto the selected pad, as a WAV, in <span class="lcd">MPC600S/s600</span>, where the S600 waveforms are (Chapter 9).</td></tr>
   <tr><td>TRACK FX</td><td>The Track/Mixer chain: its nine send effects and their settings. Saved and loaded whichever mode the Input Effects page is on; loaded, it is there when you choose TRACK/MIXER.</td></tr>
   <tr><td>ARP PATTERN</td><td>One USER step pattern (chosen with User:), saved from it or loaded into it.</td></tr>
+  <tr><td>SEQUENCE</td><td>One sequence and all its tracks: notes, recorded moves, track settings, tempo, time signature and length. Saving: <strong>Seq:</strong> picks which. Loading: <strong>Into:</strong> picks where, and asks first if that sequence has notes (Undo brings it back).</td></tr>
+  <tr><td>MIDI FILE</td><td>LOAD only. A Standard MIDI File (.mid, format 0 or 1, any resolution), its tracks chosen (below).</td></tr>
+  <tr><td>MPC SEQ</td><td>LOAD only. An MPC 1000, MPC 2500 or MPC 500 <strong>.ALL</strong> file (the sequences and songs it saves together), or a <strong>.SEQ</strong> (one sequence saved on its own, taking the file&rsquo;s name): one sequence, its tracks chosen (below). The list shows both, with their extension.</td></tr>
+  <tr><td>MPC PROGRAM</td><td>LOAD only. An MPC 1000, MPC 2500 or MPC 500 program (<strong>.PGM</strong>) with its samples, the WAVs beside it, into the program on <strong>Into:</strong> (asked first, as PROGRAM). Each pad takes its first layer&rsquo;s sample, with the start and end points (and loop) the MPC keeps in the WAV, its level (with the pad&rsquo;s mixer level), pan, tuning, play mode (Note On or one-shot), mute group, attack, decay and decay mode, and filter type, cutoff and resonance. A pad has one sound here, so a pad&rsquo;s other layers are left out; the message says how many pads had them.</td></tr>
+  <tr><td>MPC 2500 PROJECT</td><td><strong>SAVE</strong>: the project as an MPC 2500 one, in a folder of the name you give, at the top of the card to start: <span class="lcd">NAME.PRJ</span>, <span class="lcd">ALL_SEQS&amp;SONGS.ALL</span> with every sequence that has notes (in the same sequence numbers, up to 64 tracks each), a <span class="lcd">.PGM</span> for each program with sounds (pads A01&ndash;D16: sample, level, pan, tuning, play mode, mute group, envelope, filter), and every sample as a 16-bit, 44.1 kHz WAV with its start and end where the MPC reads them. Copy the folder to the MPC&rsquo;s card and load the .PRJ. What an MPC has no room for (pads in banks E&ndash;H, tracks past 64) is left out, and the message says how much. <strong>LOAD</strong>: An MPC 2500 project (the MPC 1000 and MPC 500 save theirs the same way, and they load too) (<strong>.PRJ</strong>, with the files it lists beside it), all at once, into what is empty: every program it lists into the next empty program (with its samples, as MPC PROGRAM), then every sequence of its .ALL into the next empty sequence, all tracks, each playing its own program. Nothing already loaded is touched. Not the same as PROJECT, which is the MPC 600 S&rsquo;s own.</td></tr>
 </table>
+<h2>Loading MIDI Files and MPC Sequences</h2>
+<p>A MIDI file or an MPC .ALL goes into the sequence on <strong>Into:</strong> (the one in use, to start), onto its <strong>first empty tracks</strong>, so nothing already there is touched. An .ALL holds several sequences: the first page lists those with notes, with their length and tempo; turn to one and press <span class="key">B3 &lt;Tracks&gt;</span>. Then the tracks, each with its name, its kind and how many notes it has:</p>
+<table>
+  <tr><th>Key</th><th>Does</th></tr>
+  <tr><td>Wheel</td><td>Moves through the tracks.</td></tr>
+  <tr><td>Push</td><td>Puts the track in or out (<span class="lcd">*</span> marks those in; all are in to start).</td></tr>
+  <tr><td>SHIFT + push</td><td>Makes the track DRUM or KEYS, if the guess was wrong.</td></tr>
+  <tr><td>B2 &lt;All&gt; / &lt;None&gt;</td><td>Every track in, or out.</td></tr>
+  <tr><td>B3 &lt;Load&gt;</td><td>Loads them. The message says which tracks they went onto (Undo takes them out again).</td></tr>
+  <tr><td>B1 &lt;Cancel&gt; / &lt;Back&gt;</td><td>Back to the list of sequences, or out.</td></tr>
+</table>
+<p>Some things differ from machine to machine, and are put right as they come in:</p>
+<ul>
+  <li><strong>Timing.</strong> Everything is brought to 96 PPQN. The MPC 1000, 2500 and 500 already run at 96, so their notes land on exactly the same ticks.</li>
+  <li><strong>Drum notes to pads.</strong> On an MPC, a drum track holds its program&rsquo;s pad notes, not pads. The program file beside the .ALL (the one the track names, as <span class="lcd">NAME.PGM</span>) says which note is on which pad, and each note goes onto that pad (A01&ndash;D16). Without it, and for a MIDI file&rsquo;s drums, the MPC 600 S&rsquo;s own Pad Notes (MIDI Settings) are used. A note no pad answers to is left out, and the message says how many were. Each drum track plays the program its MPC track used, if a program of that name is loaded (load it first with MPC PROGRAM); otherwise the program in use.</li>
+  <li><strong>Drums or keys.</strong> An MPC&rsquo;s MIDI tracks, and a MIDI file&rsquo;s parts off channel 10 not named like drums, are KEYS. On an S600 or S600 MULTI program they play its Instrument, at their pitch; on an MPC program they become MIDI tracks on their own channel.</li>
+  <li><strong>Tempo, time signature and length.</strong> Into an empty sequence, it takes the file&rsquo;s tempo (MPC tempos to the tenth of a BPM), time signature, length and name. Into a sequence with notes, its tempo stays, and it is made longer if the tracks need it.</li>
+</ul>
+<p>Only notes come in: an MPC&rsquo;s Q-Link moves, program changes and controllers, and a MIDI file&rsquo;s controllers and pitch bend, are left out.</p>
+{{shot:disk_midi_tracks|Loading a MIDI file: its tracks}}
 <h2>Folders</h2>
 <p>Each type opens in its own folder in MPC600S, but you can save, load and export anywhere on the card. The page lists the folder you are in: <span class="lcd">.. (up)</span> first, then folders as <span class="lcd">/NAME</span>, then the saved items of the type. <span class="lcd">..</span> goes up as far as the top of the card. The bottom line shows where you are, from the top of the card. Opening a folder selects the first thing in it.</p>
 <table>
   <tr><th>Mode</th><th>B1</th><th>B2</th><th>B3</th></tr>
   <tr><td>SAVE, EXPORT</td><td>&lt;New Dir&gt;: name a folder and make it here; you go into it</td><td>&lt;Open&gt;: into the folder highlighted, or back up; on a saved item, its name, to save over it</td><td>&lt;Save&gt; or &lt;Export&gt;: into the folder you are in</td></tr>
-  <tr><td>LOAD</td><td>&lt;Rename&gt; the item</td><td>&lt;Delete&gt; the item (asks first)</td><td>&lt;Load&gt; the item, or &lt;Open&gt; a folder</td></tr>
+  <tr><td>LOAD</td><td>&lt;Rename&gt; the item; on a folder or <span class="lcd">..</span>, &lt;Up&gt; out of this folder</td><td>&lt;Delete&gt; the item (asks first)</td><td>&lt;Load&gt; the item, or &lt;Open&gt; a folder</td></tr>
 </table>
 <p>Names: the wheel sets each letter, <span class="key">&minus;</span>/<span class="key">+</span> move along the name. Saving over a name asks first. In LOAD, <span class="key">B1</span> renames, <span class="key">B2</span> deletes (asking first: this cannot be undone), <span class="key">B3</span> loads.</p>
 <h2>Exporting</h2>
@@ -1208,6 +1233,7 @@
   <tr><td>Normalize</td><td>ON or OFF.</td><td>ON</td></tr>
   <tr><td>Input Thru</td><td><strong>ALWAYS ON</strong>: the input is heard through the outputs from power-on. <strong>OFF</strong>: it starts off, to be turned on by hand (Monitor on Sample New Sound) when wanted.</td><td>ALWAYS ON</td></tr>
   <tr><td>Rec Mode</td><td>STEREO, MONO LFT, MONO RGT or MONO LR. Not for Convert Sample, which always starts in MONO LR. An INST L input records mono whatever this says.</td><td>STEREO</td></tr>
+  <tr><td>Knob Mode</td><td>How K1&ndash;K3 and the slider take over a value, on every page. <strong>CATCH</strong>: nothing moves until the knob reaches the value (or passes it), so nothing jumps. <strong>JUMP</strong>: the value goes to where the knob is at once. <strong>SCALE</strong>: the value moves from where it is, in step with the knob, faster or slower so that the two meet at the ends of the knob&rsquo;s travel.</td><td>CATCH</td></tr>
 </table>
 {{shot:prefs2|Additional Settings, page 2: a Sample Rate being SET}}
 <p>These and everything else here are kept on the card and come back at the next power-on. A first install starts with red button lights, pad lights off, MPC 3000 timing, the MPC3000 Blue screen, 120 BPM, 2 bars and 1/16 Timing Correct, and records at 29.76 kHz and 12 bits in stereo.</p>

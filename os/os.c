@@ -322,7 +322,7 @@ void os_init(struct os *s, struct engine *e) {
     for (int i = 0; i < 3; i++) s->knob_last[i] = -1;
     for (int i = 0; i < 16; i++) s->sounding[i] = s->rec_note[i] = s->live_midi[i] = -1;
     for (int i = 0; i < 128; i++) s->midi_rec[i] = -1;
-    s->levels_root = 3 * 16 + 12; // pad D13 plays the sound at its own pitch
+    s->levels_root = 7; // pad A08 plays the sound at its own pitch: seven pads below, eight above
     s->start_rate = 29760, s->start_bits = 12, s->start_aa = 1, s->start_norm = 1, s->start_thru = 1, s->start_mode = REC_STEREO;
     record_defaults(s);
     zones_defaults(s);
@@ -561,6 +561,39 @@ static void set_page(struct os *s, int page) {
     first_frame(s);
 }
 
+static void active_track(struct os *s, int *type, int *channel);
+
+// SHIFT + ERASE (COPY): Program Config on the pad pressed last, its Copy started: the next pad
+// pressed takes a copy of it.
+static void copy_pad_open(struct os *s, struct ui *u) {
+    int type, channel;
+    active_track(s, &type, &channel);
+    if (type == TRACK_MIDI) {
+        toast(s, u, "MIDI track: no program");
+        return;
+    }
+    s->screen = OS_PROGRAM;
+    s->pgm_ask = 0;
+    s->bank = s->selected / 16; // the list shows the pad's bank
+    if (s->pads[s->selected].s) {
+        s->pgm_mode = PGM_COPY;
+    } else {
+        s->pgm_mode = PGM_NONE;
+        toast(s, u, "Pad is empty");
+    }
+}
+
+// The Trim page, from anywhere (the S600's, on an S600 program).
+static void open_trim(struct os *s) {
+    if (os_plays_s600(s)) {
+        os_open_s600_trim(s);
+    } else {
+        s->screen = OS_SAMPLE;
+        set_page(s, PAGE_TRIM);
+        first_frame(s);
+    }
+}
+
 static void press_tab(struct os *s, int group) {
     if (group_of(s->page) == group) {
         int rel = s->page - GROUPS[group].first;
@@ -768,13 +801,7 @@ static void shift_pad(struct os *s, struct ui *u, int pad) {
         master_open(s);
         break;
     case 12: // Shift + Pad 13: the Trim page (the S600's, on an S600 program)
-        if (os_plays_s600(s)) {
-            os_open_s600_trim(s);
-        } else {
-            s->screen = OS_SAMPLE;
-            set_page(s, PAGE_TRIM);
-            first_frame(s);
-        }
+        open_trim(s);
         break;
     case 10: // Shift + Pad 11: Resample
         record_open_resample(s);
@@ -1242,14 +1269,10 @@ static void handle_knobs(struct os *s, const struct input *in) {
             s->knob_caught[i] = 0; // zoomed back out, it catches up again
             continue;
         }
-        int at = knob_position(d, pad);
-        if (!s->knob_caught[i]) {
-            int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-            if (crossed || (now - at <= 2 && at - now <= 2)) s->knob_caught[i] = 1;
-        }
-        if (s->knob_caught[i]) {
+        int pos = os_knob_take(s, &s->knob_caught[i], last, now, knob_position(d, pad));
+        if (pos >= 0) {
             int max = param_max(d, pad);
-            param_set(s, d, d->min + (int)((int64_t)(max - d->min) * now / 127));
+            param_set(s, d, d->min + (int)((int64_t)(max - d->min) * pos / 127));
         }
     }
 }
@@ -1284,16 +1307,12 @@ static void handle_fader(struct os *s, const struct input *in) {
     if (s->frame_slot < 0) return;
     const struct param *d = &PAGES[s->page][s->frame_slot];
     if (!d->name) return;
-    int at = knob_position(d, pad);
-    if (!s->fader_caught) {
-        int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-        if (crossed || (now - at <= 2 && at - now <= 2)) s->fader_caught = 1;
-    }
-    if (!s->fader_caught) return;
-    param_set(s, d, d->min + (int)((int64_t)(param_max(d, pad) - d->min) * now / 127));
+    int pos = os_knob_take(s, &s->fader_caught, last, now, knob_position(d, pad));
+    if (pos < 0) return;
+    param_set(s, d, d->min + (int)((int64_t)(param_max(d, pad) - d->min) * pos / 127));
     // While recording, moves on Volume, Pan, Cutoff, Reson, Semi and Fine go into the sequence.
     int param = auto_param(s->page, s->frame_slot);
-    if (param >= 0) seq_record_auto(&s->seq, s->selected, param, now);
+    if (param >= 0) seq_record_auto(&s->seq, s->selected, param, pos);
 }
 
 static void preview_schedule(struct os *s, const struct ui *u);
@@ -1909,13 +1928,34 @@ static void loop_nudge(struct os *s, const struct ui *u, int steps, int fine) {
     param_nudge(s, d, steps, fine);
 }
 
-// A knob or the fader takes over once it reaches the value, so it never jumps.
-static int catch_value(int *caught, int last, int now, int at) {
+// Knob Mode. CATCH: a knob or the slider takes over once it reaches the value, so it never jumps.
+// JUMP: the value goes to where the knob is, at once. SCALE: the value moves from where it is, in
+// proportion to the travel left, so the knob and the value meet at the ends.
+int os_knob_take(const struct os *s, int *caught, int last, int now, int at) {
+    at = at < 0 ? 0 : at > 127 ? 127 : at;
+    if (s->knob_mode == KNOB_JUMP) {
+        *caught = 1;
+        return now;
+    }
+    if (s->knob_mode == KNOB_SCALE) {
+        *caught = 0;
+        if (last < 0 || now == last) return -1; // the first reading: only where the knob is
+        int to;
+        if (now > last) to = last >= 127 ? 127 : at + (int)(((int64_t)(now - last) * (127 - at) + (127 - last) / 2) / (127 - last));
+        else to = last <= 0 ? 0 : at - (int)(((int64_t)(last - now) * at + last / 2) / last);
+        if (to == at && at > 0 && now < last) to = at - 1; // a small turn still moves it
+        if (to == at && at < 127 && now > last) to = at + 1;
+        return to < 0 ? 0 : to > 127 ? 127 : to;
+    }
     if (!*caught) {
         int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
         if (crossed || (now - at <= 2 && at - now <= 2)) *caught = 1;
     }
-    return *caught;
+    return *caught ? now : -1;
+}
+
+static int catch_value(const struct os *s, int *caught, int last, int now, int at) { // the position, or -1
+    return os_knob_take(s, caught, last, now, at);
 }
 
 static void handle_loop_screen(struct os *s, const struct ui *u, const struct input *in) {
@@ -1947,15 +1987,17 @@ static void handle_loop_screen(struct os *s, const struct ui *u, const struct in
         if (pad->s && fine && last >= 0) { // zoomed: fine steps from where the point is
             loop_set(s, d, *param_ptr(&pad->p, d) + (now - last) * fine);
             s->knob_caught[i] = 0;
-        } else if (pad->s && catch_value(&s->knob_caught[i], last, now, knob_position(d, pad)))
-            loop_set(s, d, (int)((int64_t)param_max(d, pad) * now / 127));
+        } else if (pad->s) {
+            int pos = catch_value(s, &s->knob_caught[i], last, now, knob_position(d, pad));
+            if (pos >= 0) loop_set(s, d, (int)((int64_t)param_max(d, pad) * pos / 127));
+        }
     }
     if (in->fader_moved) { // the fader moves Loop St or Loop End, whichever is framed
         int last = s->fader_last, now = in->fader;
         s->fader_last = now;
         const struct param *d = s->cursor_loop == 1 || s->cursor_loop == 2 ? &LOOP_PARAMS[s->cursor_loop - 1] : 0;
-        if (d && pad->s && catch_value(&s->fader_caught, last, now, knob_position(d, pad)))
-            loop_set(s, d, (int)((int64_t)param_max(d, pad) * now / 127));
+        int pos = d && pad->s ? catch_value(s, &s->fader_caught, last, now, knob_position(d, pad)) : -1;
+        if (pos >= 0) loop_set(s, d, (int)((int64_t)param_max(d, pad) * pos / 127));
     }
 }
 
@@ -2441,6 +2483,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         s->screen == OS_WARP || s->screen == OS_PREFS || s->screen == OS_DISK || s->screen == OS_SEQCOPY ||
         s->screen == OS_ARPEDIT || s->screen == OS_MULTI || s->screen == OS_INSERT) {
         if (input_down(in, IN_MUTE) && !in->shift) mute_open(s); // the Track Mute page
+        if (input_down(in, IN_MUTE) && in->shift) mute_unmute_all(s, u); // UNMUTE ALL
         if (input_down(in, IN_SAMPLE_REC) && in->shift) { // the main page: back a bar. Elsewhere: help
             if (s->screen == OS_MAIN) seq_locate_bar(&s->seq, -1);
             else if (!help_open(s, 0)) toast(s, u, "No help for this page");
@@ -2510,6 +2553,10 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
     if (s->screen == OS_BROWSER && input_down(in, IN_SAMPLE_REC) && in->shift) help_open(s, 0); // its help too
     seq_transport(s, u, in);
     if (input_down(in, IN_ERASE)) s->erase_used = 0; // set again if a pad is hit with ERASE held
+    if (input_down(in, IN_ERASE) && in->shift && s->screen != OS_TITLE && s->screen != OS_SHUTDOWN) {
+        s->erase_used = 1; // COPY, not a tap of ERASE
+        copy_pad_open(s, u);
+    }
     // Note Repeat works while NOTE REPEAT is held. Shift + NOTE REPEAT: the page for its rate.
     if (input_down(in, IN_NOTE_REPEAT) && in->shift && s->screen != OS_TITLE) seq_repeat_open(s);
     else if (input_down(in, IN_NOTE_REPEAT)) seq_set_repeat(&s->seq, 1);

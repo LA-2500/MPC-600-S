@@ -17,17 +17,22 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM };
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_VERSION "LA Version 1.2 (11/14/26)" // 26 columns: a four-digit year will not fit
+#define OS_VERSION "LA Version 1.3 (11/16/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
 #define OS_POWER_FORCE_MS 15000 // if an orderly shutdown has not finished by then, cut the power
 
 enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI, OS_INSERT };
 enum { DISK_SAVE, DISK_LOAD, DISK_EXPORT, DISK_MODES };
-enum { DISK_PROJECT, DISK_PROGRAM, DISK_SAMPLE, DISK_SETTINGS, DISK_AUTOLOAD, DISK_FX, DISK_ARP, DISK_TRACKFX, DISK_WAVE, DISK_SEQUENCE, DISK_SONG,
+enum { DISK_PROJECT, DISK_PROGRAM, DISK_SAMPLE, DISK_SETTINGS, DISK_AUTOLOAD, DISK_FX, DISK_ARP, DISK_TRACKFX, DISK_WAVE,
+       DISK_SEQFILE, DISK_MIDI, DISK_MPC, DISK_MPCPGM, DISK_MPCPRJ, // a sequence on its own; LOAD only: a MIDI file,
+                                                       // an MPC .ALL/.SEQ, an MPC .PGM, an MPC .PRJ
+       DISK_SEQUENCE, DISK_SONG,
        DISK_MIX_SEQ, DISK_MIX_SONG, DISK_TYPES }; // the last four: EXPORT's; the mixdowns write only the stereo mix
 #define DISK_FILES_MAX 200
 enum { BUTTON_RED, BUTTON_WHITE, BUTTON_PINK, BUTTON_OFF, BUTTON_LIGHTS };
+// Knob Mode (Additional Settings): how K1-K3 and the slider take over a value.
+enum { KNOB_CATCH, KNOB_JUMP, KNOB_SCALE, KNOB_MODES };
 enum { PAD_LIGHT_BLUE, PAD_LIGHT_RED, PAD_LIGHT_WHITE, PAD_LIGHT_OFF, PAD_LIGHTS };
 enum { MUTE_TRACK, MUTE_TRACK_SOLO, MUTE_PAD, MUTE_PAD_SOLO, MUTE_SEQUENCE, MUTE_TYPES };
 enum { LEVELS_VELOCITY, LEVELS_TUNE };
@@ -41,6 +46,7 @@ enum { STEM_DRUMS, STEM_BASS, STEM_VOCALS, STEM_MUSIC, STEM_KINDS };
 struct stem_job;
 struct warp_job;
 struct disk_job;
+struct seq_import;
 struct umx_model;
 enum { PGM_NONE, PGM_COPY, PGM_SWAP, PGM_DELETE };
 enum { MCOMP_OFF, MCOMP_DBX, MCOMP_VINYL, MCOMP_TYPES };
@@ -177,6 +183,7 @@ struct os {
     int group_page[3]; // the page each of B1, B2, B3 last showed
     int frame_slot;    // which of the three parameters the wheel edits
     int knob_last[3], knob_caught[3];
+    int knob_mode; // KNOB_CATCH (to start), KNOB_JUMP or KNOB_SCALE
     int sounding[16]; // engine pad held under each physical pad, or -1
     int sounding_key[16];
     int rec_tune[16];
@@ -427,17 +434,24 @@ struct os {
     int disk_ask, disk_pending, disk_renaming; // a question up, an action next frame ('S' 'L' 'E' 'D' 'R')
     char disk_name[40];
     struct disk_job *disk_job;    // an export running in the background, or NULL
+    struct seq_import *imp;       // a MIDI or MPC file read, its tracks being chosen; or NULL
     char disk_files[DISK_FILES_MAX][40];
     unsigned char disk_isdir[DISK_FILES_MAX]; // each entry: 0 a saved item, 1 a folder, 2 ".." (up a folder)
     char disk_at[512];    // the folder browsed to, anywhere on the card; "" for the type's own: where saves go and loads come from
     int disk_newdir;      // naming a new folder (the name field holds its name)
     char disk_keep[40];   // the item's name, kept while a folder is named
+    char disk_last[DISK_TYPES][512]; // each type's folder when last used, until power-off ("": its own)
+    char disk_last_item[DISK_TYPES][40]; // and the item last loaded or saved there, to start on
+    int mpc_missing; // the last MPC program's samples with no WAV found
     struct { int id, key, channel, note; int64_t until; } aud[16]; // Step Edit's auditions, to be released
     int led_style; // which colours of the two-colour button LEDs light: 0 both, 1 A, 2 B
     void (*set_led_style)(int style);
 };
 
 void os_toast(struct os *s, const struct ui *u, const char *text);
+// A knob or the slider at `now` (0..127), `last` before (-1: not read yet), on a value at `at`
+// (0..127): the position to set the value to, by Knob Mode, or -1 to leave it as it is.
+int os_knob_take(const struct os *s, int *caught, int last, int now, int at);
 
 // Programs. The engine slot of a pad in the current program.
 int os_pad_slot(const struct os *s, int pad);
@@ -531,6 +545,7 @@ void os_sample_release(struct os *s, struct sample *x);
 void mute_open(struct os *s);
 void mute_frame(struct os *s, struct ui *u, const struct input *in);
 void mute_pad(struct os *s, struct ui *u, int i); // a pad on the page, 0..15
+void mute_unmute_all(struct os *s, struct ui *u);  // SHIFT + MUTE: every track unmuted
 int help_open(struct os *s, int page); // 1 when the current page has help
 void help_frame(struct os *s, struct ui *u, const struct input *in);
 int help_pages(struct os *s, int screen, int page, int *small); // tests
@@ -561,6 +576,18 @@ int disk_project_save(struct os *s, const char *dir);
 int disk_project_load(struct os *s, const char *dir);
 int disk_program_save(struct os *s, int program, const char *dir);
 int disk_program_load(struct os *s, int program, const char *dir);
+int disk_seq_save(struct os *s, int which, const char *path); // one sequence, all its tracks
+// An MPC 1000 / 2500 / 500 program (.PGM) and its samples (WAVs beside it) into `program`.
+// Returns the pads loaded, or -1; *layers: pads whose extra layers were left out.
+int disk_mpc_program_load(struct os *s, int program, const char *path, int *layers);
+// An MPC 1000 / 2500 / 500 project (.PRJ: the list of its files): each program into the next empty program, then
+// each sequence of its .ALL into the next empty sequence. Returns 0, or -1; how many of each went in.
+int disk_mpc_project_load(struct os *s, const char *path, int *programs, int *sequences);
+// The project as an MPC 2500 one, into folder `dir`: NAME.PRJ, ALL_SEQS&SONGS.ALL, a .PGM for each
+// program with sounds, a WAV for each sample. Returns 0 or -1; *dropped: pads, tracks or notes an
+// MPC has no room for (pads past D16, tracks past 64).
+int disk_mpc_project_save(struct os *s, const char *dir, const char *name, int *programs, int *sequences, int *dropped);
+int disk_seq_load(struct os *s, int which, const char *path); // into sequence `which`, replacing it
 int disk_export(struct os *s, int song, int which, int tracks, int mix, const char *dir); // files written
 int disk_busy(const struct os *s); // an export is running
 

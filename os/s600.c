@@ -261,12 +261,8 @@ static int to_position(const struct s6field *f, int v) {
     return (int)lround(x * 127);
 }
 
-static int catch_up(int *caught, int last, int now, int at) {
-    if (!*caught) {
-        int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-        if (crossed || (now - at <= 2 && at - now <= 2)) *caught = 1;
-    }
-    return *caught;
+static int catch_up(const struct os *s, int *caught, int last, int now, int at) { // the position, or -1
+    return os_knob_take(s, caught, last, now, at);
 }
 
 // Where the cursor starts on a page. Main's first three are on K1-K3, so it starts on Poly;
@@ -439,16 +435,16 @@ void s600_frame(struct os *s, struct ui *u, const struct input *in) {
         for (int i = 0; i < n; i++) {
             if (fields[i].knob != k) continue;
             s->s600_cursor = i;
-            if (pad->s && catch_up(&s->knob_caught[k], last, now, to_position(&fields[i], *field_ptr(pad, &fields[i]))))
-                set_field(s, &fields[i], to_value(&fields[i], now)), record_move(s, &fields[i], now);
+            int pos = pad->s ? catch_up(s, &s->knob_caught[k], last, now, to_position(&fields[i], *field_ptr(pad, &fields[i]))) : -1;
+            if (pos >= 0) set_field(s, &fields[i], to_value(&fields[i], pos)), record_move(s, &fields[i], pos);
         }
     }
     if (in->fader_moved) { // the fader moves the framed field
         int last = s->fader_last, now = in->fader;
         s->fader_last = now;
         const struct s6field *f = &fields[s->s600_cursor];
-        if (pad->s && catch_up(&s->fader_caught, last, now, to_position(f, *field_ptr(pad, f))))
-            set_field(s, f, to_value(f, now)), record_move(s, f, now);
+        int pos = pad->s ? catch_up(s, &s->fader_caught, last, now, to_position(f, *field_ptr(pad, f))) : -1;
+        if (pos >= 0) set_field(s, f, to_value(f, pos)), record_move(s, f, pos);
     }
 
     draw_keys6(u, s);

@@ -176,11 +176,8 @@ void eq_frame(struct os *s, struct ui *u, const struct input *in) {
         int *g = k == 0 ? &q->lg : k == 1 ? &q->mg : &q->hg, max = eq_gain_max(q->type);
         int at = (*g + max) * 127 / (2 * max), last = s->knob_last[k], now = in->knob[k];
         s->knob_last[k] = now;
-        if (!s->knob_caught[k]) {
-            int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-            if (crossed || abs(now - at) <= 2) s->knob_caught[k] = 1;
-        }
-        if (s->knob_caught[k]) *g = (now * 2 * max / 127 - max) / 5 * 5, changed = 1;
+        int pos = os_knob_take(s, &s->knob_caught[k], last, now, at);
+        if (pos >= 0) *g = (pos * 2 * max / 127 - max) / 5 * 5, changed = 1;
         s->cursor_eq = k == 0 ? E_LG : k == 1 ? E_MG : E_HG;
     }
     struct track_eq show = *q;

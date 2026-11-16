@@ -8,16 +8,16 @@ Sampler and sequencer OS for the **Akai MPC Sample**, based on the design of the
 
 | | |
 |---|---|
-| **[⬇ OS v1.2 (MPC-600-S-OS-v1.2.zip)](../../releases/latest/download/MPC-600-S-OS-v1.2.zip)** | SD-card package |
+| **[⬇ OS v1.3 (MPC-600-S-OS-v1.3.zip)](../../releases/latest/download/MPC-600-S-OS-v1.3.zip)** | SD-card package |
 | **[⬇ Quick Start (PDF)](../../releases/latest/download/MPC-600-S-Quick-Start.pdf)** | Installation, 3 pages |
-| **[⬇ Operator's Manual v1.2 (PDF)](../../releases/latest/download/MPC-600-S-Manual-v1.2.pdf)** | Full reference |
+| **[⬇ Operator's Manual v1.3 (PDF)](../../releases/latest/download/MPC-600-S-Manual-v1.3.pdf)** | Full reference |
 | [⬇ Stems models (107 MB, optional)](../../releases/latest/download/MPC600S-stems.zip) | Required only by the Stems page |
 
 Links resolve to the latest release. Earlier versions: [Releases](../../releases).
 
 ## Install
 
-1. Extract **MPC-600-S-OS-v1.2.zip**. Copy the `autorun` folder to the SD card root (FAT32 or exFAT). Do not rename or edit its files: the stock runner verifies `autorun.check` (SHA-256) before execution.
+1. Extract **MPC-600-S-OS-v1.3.zip**. Copy the `autorun` folder to the SD card root (FAT32 or exFAT). Do not rename or edit its files: the stock runner verifies `autorun.check` (SHA-256) before execution.
 2. Power on with the card inserted. The stock OS boots; the MPC 600 S stops it and takes over the display and panel within 45 s of power-on.
 3. Stock OS: power off, remove the card. Update: replace the `autorun` folder. User data in `MPC600S/` is not touched.
 
@@ -39,7 +39,9 @@ Help for the current page: **SHIFT + SAMPLE REC**. Procedure and troubleshooting
 | Editing | Trim, loop, zones (pad marks, equal regions, or TRANSIENT: a zone at every drum hit), warp, S-series timestretch, print effects; audio tracks; resampling |
 | Stem separation | Open-Unmix UMX-HQ on device: drums, bass, vocals, music; up to 20 s per sound |
 | Effects | Input, track send and pad effects (reverb, delay, modulation, drive, amp and cabinet, EQ); insert effects in any track's channel (8 slots shared across tracks, weighted by measured cost: reverb 4, amps/delays/modulation 2, EQ/dynamics/drive 1); track mixer with EQ; master EQ and compression; live CPU meter |
-| Storage | Save/Load to any folder on the card; WAV export of tracks, mixes and mixdowns |
+| Storage | Save/Load to any folder on the card; one sequence on its own; WAV export of tracks, mixes and mixdowns |
+| Other machines | MIDI files (tracks chosen, onto empty tracks); MPC 1000 / 2500 / 500 sequences (.ALL, .SEQ), programs (.PGM with WAVs, start and end points) and projects (.PRJ); saving as an MPC 2500 project (.PRJ, .ALL, .PGM, WAVs) |
+| Controls | Knob Mode: CATCH, JUMP or SCALE for K1–K3 and the slider |
 | Display / audio | 320 × 240 DRM framebuffer; 44.1 kHz |
 | Build | C; static aarch64 (musl) via `zig cc` |
 

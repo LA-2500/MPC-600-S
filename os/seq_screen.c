@@ -471,11 +471,8 @@ static int knob_follow(struct os *s, const struct input *in, int k, int v, int l
     if (!in->knob_moved[k]) return v;
     int at = knob_at(v, lo, hi), last = s->knob_last[k], now = in->knob[k];
     s->knob_last[k] = now;
-    if (!s->knob_caught[k]) {
-        int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-        if (crossed || (now - at <= 2 && at - now <= 2)) s->knob_caught[k] = 1;
-    }
-    return s->knob_caught[k] ? knob_value(now, lo, hi) : v;
+    int pos = os_knob_take(s, &s->knob_caught[k], last, now, at);
+    return pos >= 0 ? knob_value(pos, lo, hi) : v;
 }
 
 // K1 the track, K2 the BPM (whole), K3 the program; each takes over once it reaches the value.
@@ -492,21 +489,18 @@ static void main_knobs(struct os *s, const struct input *in) {
         else at = midi ? knob_at(t->program, 0, 128) : knob_at(t->kit, 0, OS_PROGRAMS - 1);
         int last = s->knob_last[k], now = in->knob[k];
         s->knob_last[k] = now;
-        if (!s->knob_caught[k]) {
-            int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-            if (crossed || (now - at <= 2 && at - now <= 2)) s->knob_caught[k] = 1;
-        }
-        if (!s->knob_caught[k]) continue;
+        int pos = os_knob_take(s, &s->knob_caught[k], last, now, at);
+        if (pos < 0) continue;
         if (k == 0) {
-            sq->track = knob_value(now, 0, SEQ_TRACKS - 1);
+            sq->track = knob_value(pos, 0, SEQ_TRACKS - 1);
             s->knob_caught[2] = 0; // another track's program: K3 catches up to it again
             s->cursor_play = MAIN_TRACK_FIELD;
         } else if (k == 1) {
-            q->tempo10 = knob_value(now, 300, 3000) / 10 * 10;
+            q->tempo10 = knob_value(pos, 300, 3000) / 10 * 10;
             s->cursor_play = 1;
         } else {
-            if (midi) t->program = knob_value(now, 0, 128);
-            else t->kit = knob_value(now, 0, OS_PROGRAMS - 1);
+            if (midi) t->program = knob_value(pos, 0, 128);
+            else t->kit = knob_value(pos, 0, OS_PROGRAMS - 1);
             s->cursor_play = MAIN_PGM_FIELD;
         }
     }
@@ -1122,12 +1116,9 @@ void seq_mixer_frame(struct os *s, struct ui *u, const struct input *in) {
     if (in->fader_moved) { // the slider is the channel's level, once it reaches it, so nothing jumps
         int last = s->fader_last, now = in->fader, at = k->level * 127 / 100;
         s->fader_last = now;
-        if (!s->fader_caught) {
-            int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-            if (crossed || (now - at <= 2 && at - now <= 2)) s->fader_caught = 1;
-        }
-        if (s->fader_caught) {
-            k->level = now * 100 / 127;
+        int pos = os_knob_take(s, &s->fader_caught, last, now, at);
+        if (pos >= 0) {
+            k->level = pos * 100 / 127;
             changed = 1;
         }
     }
@@ -1143,12 +1134,9 @@ void seq_mixer_frame(struct os *s, struct ui *u, const struct input *in) {
         int *g = b == 0 ? &k->eq.lg : b == 1 ? &k->eq.mg : &k->eq.hg, max = eq_gain_max(k->eq.type);
         int at = (*g + max) * 127 / (2 * max), last = s->knob_last[b], now = in->knob[b];
         s->knob_last[b] = now;
-        if (!s->knob_caught[b]) {
-            int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-            if (crossed || (now - at <= 2 && at - now <= 2)) s->knob_caught[b] = 1;
-        }
-        if (s->knob_caught[b]) {
-            *g = (now * 2 * max / 127 - max) / 5 * 5;
+        int pos = os_knob_take(s, &s->knob_caught[b], last, now, at);
+        if (pos >= 0) {
+            *g = (pos * 2 * max / 127 - max) / 5 * 5;
             eq_changed = 1;
             band = b == 0 ? "Low" : b == 1 ? "Mid" : "High";
         }

@@ -29,20 +29,31 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "seqimport.h"
 
 #define NAME_MAX_LEN 16
 static const char CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 static const char *const MODES[DISK_MODES] = {"SAVE", "LOAD", "EXPORT"};
 static const char *const TYPES[DISK_TYPES] = {"PROJECT", "PROGRAM", "SAMPLE", "SETTINGS", "AUTOLOAD", "FX CHAIN", "ARP PATTERN",
-                                              "TRACK FX", "S600 WAVE", "SEQUENCE", "SONG", "MIXDOWN SEQ", "MIXDOWN SONG"};
+                                              "TRACK FX", "S600 WAVE", "SEQUENCE", "MIDI FILE", "MPC SEQ", "MPC PROGRAM", "MPC 2500 PROJECT", "SEQUENCE", "SONG",
+                                              "MIXDOWN SEQ", "MIXDOWN SONG"};
 static const char *const DIRS[DISK_TYPES] = {"projects", "programs", "samples", "settings", "autoload", "fx", "arp", "trackfx",
-                                             "s600", "exports", "exports", "exports", "exports"};
-static const char *const EXT[DISK_TYPES] = {"", "", ".wav", ".txt", "", ".fxc", ".arp", ".tfx", ".wav", "", "", ".wav", ".wav"};
+                                             "s600", "sequences", "sequences", "sequences", "programs", "projects", "exports", "exports", "exports", "exports"};
+static const char *const EXT[DISK_TYPES] = {"", "", ".wav", ".txt", "", ".fxc", ".arp", ".tfx", ".wav", ".sq6", ".mid", "",
+                                            ".pgm", ".prj", "", "", ".wav", ".wav"};
 // Inside a saved project or program's folder, the file that makes it one (not a folder of yours).
-static const char *const MARK[DISK_TYPES] = {"project.bin", "program.bin", "", "", "", "", "", "", "", "", "", "", ""};
+static const char *const MARK[DISK_TYPES] = {"project.bin", "program.bin", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""};
 
 static int is_sound(int type) { // a sound on the selected pad, as a WAV
     return type == DISK_SAMPLE || type == DISK_WAVE;
+}
+
+static int is_prog(int type) { // into or from a program
+    return type == DISK_PROGRAM || type == DISK_MPCPGM;
+}
+
+static int is_seqtype(int type) { // a sequence on its own, a MIDI file or an MPC .ALL: into or from a sequence
+    return type == DISK_SEQFILE || type == DISK_MIDI || type == DISK_MPC;
 }
 
 static int is_song(int type) {
@@ -121,8 +132,13 @@ static int make_dirs(const char *path) { // like mkdir -p
     return mkdir(p, 0755) == 0 || errno == EEXIST ? 0 : -1;
 }
 
+static int is_mpc(int type) { // another MPC's files: they are wherever they were copied to
+    return type == DISK_MPC || type == DISK_MPCPGM || type == DISK_MPCPRJ;
+}
+
 static void type_dir(const struct os *s, int type, char *b, size_t n) {
     if (s->disk_at[0] && type != DISK_AUTOLOAD) snprintf(b, n, "%s", s->disk_at);
+    else if (is_mpc(type)) snprintf(b, n, "%s/..", s->data_dir); // the top of the card, where an MPC's folders are copied
     else snprintf(b, n, "%s/%s", s->data_dir, DIRS[type]);
 }
 
@@ -150,6 +166,19 @@ static void item_path(const struct os *s, int type, const char *name, char *b, s
     char dir[600];
     type_dir(s, type, dir, sizeof dir);
     snprintf(b, n, "%s/%s%s", dir, name, EXT[type]);
+    if (!EXT[type][0] || access(b, F_OK) == 0) return;
+    // Not there as named: the same name in any case (an MPC's .PGM and .ALL, a MIDI file's .MID).
+    DIR *d = opendir(dir);
+    if (!d) return;
+    char want[200];
+    snprintf(want, sizeof want, "%s%s", name, EXT[type]);
+    struct dirent *e;
+    while ((e = readdir(d)))
+        if (strcasecmp(e->d_name, want) == 0) {
+            snprintf(b, n, "%s/%s", dir, e->d_name);
+            break;
+        }
+    closedir(d);
 }
 
 // A USER step pattern on its own: "M6A1", then the line the settings keep it as.
@@ -585,6 +614,292 @@ int disk_program_load(struct os *s, int program, const char *dir) {
     return b.ok ? 0 : -1;
 }
 
+// ---- An MPC 1000 / 2500 / 500 program ----
+// "MPC1000 PGM": 64 pads of 0xa4 bytes from 0x18. Each: four layers of 0x18 (the sample's name
+// (16), its level, velocity range, tuning in cents (16 bits), play mode: 1 Note On), then the
+// pad's: +0x63 mute group, +0x66 attack, +0x67 decay, +0x68 decay mode (0 END), +0x71 filter type
+// (0 OFF, 1 LOW, 2 BAND, 3 HIGH, 4 LOW BOOST), +0x72 cutoff, +0x73 resonance, +0x8f mixer level,
+// +0x90 pan (50 the middle). The samples are WAVs of those names, in the same folder.
+
+// A sample's WAV, any case: in the program's folder, else a folder inside it, else the one above.
+static int find_wav(const char *dir, const char *name, char *out, size_t n) {
+    char want[40];
+    snprintf(want, sizeof want, "%s.WAV", name);
+    char up[700], sub[900];
+    snprintf(up, sizeof up, "%s/..", dir);
+    const char *tries[2] = {dir, up};
+    for (int pass = 0; pass < 3; pass++) {
+        const char *d0 = pass == 2 ? tries[1] : tries[0];
+        DIR *d = opendir(d0);
+        if (!d) continue;
+        struct dirent *e;
+        while ((e = readdir(d))) {
+            if (e->d_name[0] == '.') continue;
+            if (pass != 1 && strcasecmp(e->d_name, want) == 0) {
+                snprintf(out, n, "%s/%s", d0, e->d_name);
+                closedir(d);
+                return 1;
+            }
+            if (pass == 1) { // one folder down
+                snprintf(sub, sizeof sub, "%s/%s", d0, e->d_name);
+                struct stat st;
+                if (stat(sub, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+                DIR *d2 = opendir(sub);
+                struct dirent *e2;
+                while (d2 && (e2 = readdir(d2)))
+                    if (strcasecmp(e2->d_name, want) == 0) {
+                        snprintf(out, n, "%s/%s", sub, e2->d_name);
+                        closedir(d2), closedir(d);
+                        return 1;
+                    }
+                if (d2) closedir(d2);
+            }
+        }
+        closedir(d);
+    }
+    return 0;
+}
+
+static uint32_t le32(const unsigned char *p) {
+    return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+// The trim an MPC 1000 / 2500 / 500 keeps in its WAV: the "smpl" chunk, made by Akai (0x47), its 20
+// bytes of sampler data holding the start (at 10) and the last frame played (at 14); a standard
+// loop, if it has one. Returns 1 with them in frames of the file (end exclusive; loop -1 none).
+static int mpc_wav_trim(const char *path, int32_t *start, int32_t *end, int32_t *loop, int32_t *frames) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    unsigned char h[12], c[8];
+    int ok = 0, channels = 0, bytes = 0;
+    *frames = 0, *loop = -1;
+    if (fread(h, 1, 12, f) != 12 || memcmp(h, "RIFF", 4) || memcmp(h + 8, "WAVE", 4)) return fclose(f), 0;
+    unsigned char sm[36 + 24 + 64];
+    int have_smpl = 0;
+    while (fread(c, 1, 8, f) == 8) {
+        uint32_t l = c[4] | c[5] << 8 | c[6] << 16 | (uint32_t)c[7] << 24;
+        long next = ftell(f) + (long)l + (l & 1);
+        if (!memcmp(c, "fmt ", 4) && l >= 16) {
+            unsigned char fm[16];
+            if (fread(fm, 1, 16, f) == 16) channels = fm[2] | fm[3] << 8, bytes = (fm[14] | fm[15] << 8) / 8;
+        } else if (!memcmp(c, "data", 4) && channels > 0 && bytes > 0) {
+            *frames = (int32_t)(l / (uint32_t)(channels * bytes));
+        } else if (!memcmp(c, "smpl", 4) && l >= 36) {
+            size_t want = l < sizeof sm ? l : sizeof sm;
+            have_smpl = fread(sm, 1, want, f) == want && want >= 36;
+        }
+        if (fseek(f, next, SEEK_SET) != 0) break;
+    }
+    fclose(f);
+    if (have_smpl && *frames > 0 && sm[0] == 0x47) { // Akai's
+        uint32_t nl = le32(sm + 28), sd = le32(sm + 32);
+        const unsigned char *x = sm + 36 + 24 * (nl > 1 ? 1 : nl);
+        if (nl >= 1) *loop = (int32_t)le32(sm + 36 + 8);
+        if (sd >= 18 && x + 18 <= sm + sizeof sm) {
+            *start = (int32_t)le32(x + 10), *end = (int32_t)le32(x + 14) + 1;
+            ok = *start >= 0 && *start < *end && *end <= *frames;
+        }
+    }
+    return ok;
+}
+
+static int mpc_ms(int v) { // the MPC's 0..100 attack and decay, as milliseconds
+    v = clampi(v, 0, 100);
+    return v * v * 3; // 100: three seconds
+}
+
+int disk_mpc_program_load(struct os *s, int to, const char *path, int *layers) {
+    *layers = 0, s->mpc_missing = 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    unsigned char *b = malloc(0x2a04);
+    size_t n = b ? fread(b, 1, 0x2a04, f) : 0;
+    fclose(f);
+    if (n < 0x2918 || memcmp(b + 4, "MPC1000 PGM", 11) != 0) return free(b), -1;
+    char dir[700], pname[40];
+    snprintf(dir, sizeof dir, "%s", path);
+    char *slash = strrchr(dir, '/');
+    snprintf(pname, sizeof pname, "%s", slash ? slash + 1 : path);
+    if (slash) *slash = 0;
+    char *dot = strrchr(pname, '.');
+    if (dot) *dot = 0;
+    os_undo_save(s, "Load Program");
+    int keep = s->program, loaded = 0;
+    os_program_clear(s, to);
+    os_set_program(s, to);
+    snprintf(s->programs[to].name, sizeof s->programs[to].name, "%.16s", pname);
+    for (int pad = 0; pad < 64 && pad < OS_PADS; pad++) {
+        const unsigned char *o = b + 0x18 + pad * 0xa4;
+        char name[17] = {0};
+        memcpy(name, o, 16);
+        if (!name[0]) continue;
+        if (o[0x18] || o[0x30] || o[0x48]) (*layers)++; // more layers: only the first is loaded
+        char file[900] = "";
+        struct sample *x = find_wav(dir, name, file, sizeof file) ? wav_load(file) : 0;
+        if (!x) {
+            s->mpc_missing++;
+            continue;
+        }
+        os_pad_load(s, pad, x, name);
+        struct pad_params *p = &s->pads[pad].p;
+        int32_t ts, te, tl, tf;
+        if (mpc_wav_trim(file, &ts, &te, &tl, &tf) && tf > 0) { // its start and end as on the MPC, in this sound's frames
+            double k = (double)x->frames / tf;
+            p->start = (int32_t)(ts * k), p->end = (int32_t)(te * k);
+            if (p->end > x->frames) p->end = x->frames;
+            if (tl >= 0 && tl < tf) p->loop = (int32_t)(tl * k), p->loop_on = 1;
+        }
+        int16_t cents = (int16_t)(o[0x14] | o[0x15] << 8);
+        p->volume = clampi(o[0x11] * o[0x8f] / 100, 0, 100);
+        p->pan = clampi(o[0x90] - 50, -50, 50);
+        p->semi = clampi(cents / 100, -36, 36), p->fine = clampi(cents % 100, -100, 100);
+        p->gate = o[0x16] == 1;
+        p->mute_group = clampi(o[0x63], 0, 32);
+        p->attack_ms = mpc_ms(o[0x66]);
+        p->decay_end = o[0x68] == 0;
+        p->decay_ms = o[0x68] == 0 && o[0x67] <= 5 ? 0 : mpc_ms(o[0x67]); // END with the default: to the end
+        static const int FT[5] = {FILTER_OFF, FILTER_LP2, FILTER_BP2, FILTER_HP2, FILTER_LP2};
+        p->filter = FT[o[0x71] < 5 ? o[0x71] : 0];
+        p->cutoff = clampi(o[0x72], 0, 100), p->reso = clampi(o[0x73], 0, 100);
+        if (p->filter == FILTER_LP2 && p->cutoff >= 100) p->filter = FILTER_OFF; // fully open: none
+        os_pad_push(s, pad);
+        loaded++;
+    }
+    free(b);
+    os_set_program(s, keep);
+    return loaded;
+}
+
+// ---- One sequence: its settings and all its tracks ----
+
+static int seq_in_use(struct os *s, int which) { // any notes or moves in it
+    pthread_mutex_lock(&s->seq.lock);
+    int used = seq_used(&s->seq.sequence[which]);
+    pthread_mutex_unlock(&s->seq.lock);
+    return used;
+}
+
+int disk_seq_save(struct os *s, int which, const char *path) {
+    struct bin b = {fopen(path, "wb"), 1};
+    if (!b.f) return -1;
+    fwrite("M6S1", 1, 4, b.f);
+    struct seq *sq = &s->seq;
+    pthread_mutex_lock(&sq->lock);
+    const struct seq_sequence *q = &sq->sequence[clampi(which, 0, SEQ_COUNT - 1)];
+    wstr(&b, q->name);
+    int32_t f[] = {q->bars, q->sig_num, q->sig_den, q->tempo10, q->loop_bar};
+    wints(&b, f, 5);
+    w32(&b, SEQ_TRACKS);
+    for (int t = 0; t < SEQ_TRACKS; t++) write_track(&b, &q->track[t]);
+    pthread_mutex_unlock(&sq->lock);
+    int ok = b.ok;
+    if (fclose(b.f) != 0) ok = 0;
+    return ok ? 0 : -1;
+}
+
+int disk_seq_load(struct os *s, int which, const char *path) {
+    struct bin b = {fopen(path, "rb"), 1};
+    if (!b.f) return -1;
+    char magic[4] = {0};
+    if (fread(magic, 1, 4, b.f) != 4 || memcmp(magic, "M6S1", 4) != 0) return fclose(b.f), -1;
+    struct seq_sequence *tmp = calloc(1, sizeof *tmp); // read whole first; then it goes in
+    if (!tmp) return fclose(b.f), -1;
+    rstr(&b, tmp->name, sizeof tmp->name);
+    int32_t f[5] = {2, 4, 4, 900, 0};
+    rints(&b, f, 5);
+    int ntr = r32(&b);
+    for (int t = 0; t < ntr && b.ok; t++) {
+        struct seq_track spare = {0};
+        read_track(&b, t < SEQ_TRACKS ? &tmp->track[t] : &spare);
+        free(spare.notes), free(spare.autos);
+    }
+    fclose(b.f);
+    if (!b.ok) {
+        for (int t = 0; t < SEQ_TRACKS; t++) free(tmp->track[t].notes), free(tmp->track[t].autos);
+        free(tmp);
+        return -1;
+    }
+    os_undo_save(s, "Load Sequence");
+    struct seq *sq = &s->seq;
+    pthread_mutex_lock(&sq->lock);
+    struct seq_sequence *q = &sq->sequence[clampi(which, 0, SEQ_COUNT - 1)];
+    snprintf(q->name, sizeof q->name, "%s", tmp->name);
+    q->bars = clampi(f[0], 1, SEQ_MAX_BARS), q->sig_num = clampi(f[1], 1, 16), q->sig_den = f[2] == 8 || f[2] == 16 ? f[2] : 4;
+    q->tempo10 = clampi(f[3], 300, 3000), q->loop_bar = clampi(f[4], 0, q->bars);
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        free(q->track[t].notes), free(q->track[t].autos);
+        q->track[t] = tmp->track[t];
+        if (t >= ntr) q->track[t].on = 1, q->track[t].vel_pct = 100, q->track[t].level = 100; // not in the file: as new
+    }
+    pthread_mutex_unlock(&sq->lock);
+    free(tmp);
+    s->eq_seq = -1; // the tracks' EQ and sends to the engine, next frame
+    return 0;
+}
+
+// ---- An MPC 1000 / 2500 / 500 project ----
+// Project01.PRJ lists the project's files, a line each: its .ALL, its programs, its samples.
+
+int disk_mpc_project_load(struct os *s, const char *path, int *programs, int *sequences) {
+    *programs = *sequences = 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    char dir[700], lines[64][128];
+    int nl = 0;
+    snprintf(dir, sizeof dir, "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) *slash = 0;
+    char line[256];
+    while (fgets(line, sizeof line, f) && nl < 64) {
+        size_t l = strlen(line);
+        while (l && (line[l - 1] == '\n' || line[l - 1] == '\r' || line[l - 1] == ' ')) line[--l] = 0;
+        if (l > 4 && l < sizeof lines[0]) snprintf(lines[nl++], sizeof lines[0], "%s", line);
+    }
+    fclose(f);
+    char p[900];
+    uint32_t fresh = 0;
+    int missing = 0;
+    // The programs first, so the sequences' tracks find theirs by name.
+    for (int i = 0; i < nl; i++) {
+        size_t l = strlen(lines[i]);
+        if (strcasecmp(lines[i] + l - 4, ".pgm") != 0) continue;
+        int to = -1;
+        for (int g = 0; g < OS_PROGRAMS && to < 0; g++)
+            if (!os_program_sounds(s, g)) to = g;
+        if (to < 0) break; // no empty program left
+        snprintf(p, sizeof p, "%s/%s", dir, lines[i]);
+        int layers;
+        char keep[17];
+        snprintf(keep, sizeof keep, "%s", s->programs[to].name);
+        int got = disk_mpc_program_load(s, to, p, &layers);
+        missing += s->mpc_missing;
+        if (got > 0) (*programs)++, fresh |= to < 32 ? 1u << to : 0;
+        else os_program_clear(s, to), snprintf(s->programs[to].name, sizeof s->programs[to].name, "%s", keep); // its samples missing: left as it was
+    }
+    for (int i = 0; i < nl; i++) {
+        size_t l = strlen(lines[i]);
+        if (strcasecmp(lines[i] + l - 4, ".all") != 0) continue;
+        snprintf(p, sizeof p, "%s/%s", dir, lines[i]);
+        struct seq_import im;
+        if (imp_mpc_load(&im, p) != 0) continue;
+        im.fresh = fresh;
+        int to = 0;
+        for (int q = 0; q < im.nseq; q++) {
+            while (to < SEQ_COUNT && seq_in_use(s, to)) to++;
+            if (to >= SEQ_COUNT) break;
+            im.pick = q;
+            imp_select_all(&im, 1);
+            int first, dropped;
+            if (imp_apply(s, &im, to, &first, &dropped) > 0) (*sequences)++;
+            to++;
+        }
+        imp_free(&im);
+    }
+    s->eq_seq = -1;
+    s->mpc_missing = missing;
+    return *programs || *sequences ? 0 : -1;
+}
+
 // ---- Exports: a sequence or song rendered apart from what is playing ----
 
 // An export running in the background, and how far it has got, for the page to show.
@@ -796,7 +1111,7 @@ enum { DF_MODE, DF_TYPE, DF_WHICH, DF_TRACKS, DF_MIX, DF_NAME, DF_FILE, DF_FIELD
 static int field_shown(const struct os *s, int f) {
     int t = s->disk_type, m = s->disk_mode;
     switch (f) {
-    case DF_WHICH: return t == DISK_PROGRAM || is_sound(t) || t == DISK_ARP || m == DISK_EXPORT;
+    case DF_WHICH: return is_prog(t) || is_sound(t) || t == DISK_ARP || m == DISK_EXPORT || is_seqtype(t);
     case DF_TRACKS: case DF_MIX: return m == DISK_EXPORT && !is_mixdown(t);
     case DF_NAME: return (m == DISK_SAVE && t != DISK_AUTOLOAD) || m == DISK_EXPORT || s->disk_renaming;
     case DF_FILE: return (m != DISK_SAVE || t != DISK_AUTOLOAD) && !s->disk_renaming && !s->disk_newdir;
@@ -838,10 +1153,20 @@ static void list_files(struct os *s) {
             char m[900];
             snprintf(m, sizeof m, "%s/%s", sub, mark);
             item = mark[0] && access(m, F_OK) == 0;
-            if (!mark[0] && !el) item = 1; // the exports: each is a folder of WAVs
+            if (is_mpc(s->disk_type)) { // the MPC 600 S's own saved projects and programs are not an MPC's
+                snprintf(m, sizeof m, "%s/project.bin", sub);
+                int own = access(m, F_OK) == 0;
+                snprintf(m, sizeof m, "%s/program.bin", sub);
+                if (own || access(m, F_OK) == 0) continue;
+            }
+            if (!mark[0] && !el && s->disk_type != DISK_MPC) item = 1; // the exports: each is a folder of WAVs
             el = 0;
         } else {
-            if (!el || len <= el || strcasecmp(e->d_name + len - el, ext) != 0) continue;
+            if (s->disk_type == DISK_MPC) { // an .ALL or a .SEQ, named in full so the two show apart
+                if (len <= 4 || (strcasecmp(e->d_name + len - 4, ".all") != 0 && strcasecmp(e->d_name + len - 4, ".seq") != 0)) continue;
+            } else if (!el || len <= el || strcasecmp(e->d_name + len - el, ext) != 0) {
+                continue;
+            }
             item = 1;
         }
         snprintf(s->disk_files[s->disk_nfiles], sizeof s->disk_files[0], "%.*s", (int)(len - el), e->d_name);
@@ -878,7 +1203,20 @@ static void open_folder(struct os *s, int i) {
         snprintf(s->disk_at, sizeof s->disk_at, "%.400s/%s", here, s->disk_files[i]);
     }
     s->disk_file = 0;
+    snprintf(s->disk_last[s->disk_type], sizeof s->disk_last[0], "%s", s->disk_at); // kept for next time
     list_files(s);
+}
+
+// The type's folder as last used (if it is still there), and the item last loaded or saved in it.
+static void restore_folder(struct os *s) {
+    const char *at = s->disk_last[s->disk_type];
+    struct stat st;
+    if (at[0] && stat(at, &st) == 0 && S_ISDIR(st.st_mode)) snprintf(s->disk_at, sizeof s->disk_at, "%s", at);
+    else s->disk_at[0] = 0;
+    s->disk_file = 0;
+    list_files(s);
+    for (int i = 0; i < s->disk_nfiles; i++)
+        if (!s->disk_isdir[i] && !strcmp(s->disk_files[i], s->disk_last_item[s->disk_type])) s->disk_file = i;
 }
 
 static void default_name(struct os *s) {
@@ -887,6 +1225,8 @@ static void default_name(struct os *s) {
     if (is_sound(s->disk_type) && s->pads[s->selected].s) base = s->pads[s->selected].name;
     if (s->disk_type == DISK_PROGRAM) base = s->programs[s->disk_which].name;
     if (s->disk_type == DISK_ARP) base = "PATTERN";
+    if (s->disk_type == DISK_SEQFILE) base = s->seq.sequence[s->disk_which].name;
+    if (s->disk_type == DISK_MPCPRJ) base = "PROJECT";
     char clean[NAME_MAX_LEN + 1];
     int j = 0;
     for (int i = 0; base[i] && j < NAME_MAX_LEN; i++) clean[j++] = strchr(CHARS, base[i]) && base[i] != ' ' ? base[i] : '_';
@@ -906,10 +1246,9 @@ void disk_open(struct os *s, int mode, int type) {
     s->disk_mode = mode, s->disk_type = type;
     s->disk_cursor = s->disk_mode == DISK_SAVE ? DF_NAME : DF_MODE;
     s->disk_ask = 0, s->disk_renaming = 0, s->disk_pending = 0, s->disk_newdir = 0;
-    s->disk_which = type == DISK_PROGRAM ? s->program : 0;
-    s->disk_at[0] = 0; // each type's own folder to start with
+    s->disk_which = is_prog(type) ? s->program : is_seqtype(type) ? s->seq.current : 0;
     default_name(s);
-    list_files(s);
+    restore_folder(s); // where this type was last used; its own folder to start with
 }
 
 static void trimmed(const char *in, char *out, size_t n) { // the name without trailing spaces
@@ -944,10 +1283,27 @@ static void perform(struct os *s, struct ui *u, int action) {
         case DISK_FX: rc = infx_chain_save(s, path, 0); break;
         case DISK_TRACKFX: rc = infx_chain_save(s, path, 1); break;
         case DISK_ARP: rc = arp_save(s, clampi(s->disk_which, 0, ARP_USER - 1), path); break;
+        case DISK_SEQFILE: rc = disk_seq_save(s, s->disk_which, path); break;
+        case DISK_MPCPRJ: { // a folder of MPC files, named as the project
+            char dir[700], folder[800];
+            type_dir(s, t, dir, sizeof dir);
+            snprintf(folder, sizeof folder, "%s/%s", dir, name);
+            int pg, sq, dropped;
+            rc = disk_mpc_project_save(s, folder, name, &pg, &sq, &dropped);
+            if (rc == 0) {
+                if (dropped) snprintf(msg, sizeof msg, "Saved; %d left out (no room)", dropped);
+                else snprintf(msg, sizeof msg, "Saved %d pgm, %d seq", pg, sq);
+                os_toast(s, u, msg);
+                list_files(s);
+                return;
+            }
+            break;
+        }
         }
         snprintf(msg, sizeof msg, rc == 0 ? "Saved: %.16s" : "Could not save %.10s", t == DISK_AUTOLOAD ? "AUTOLOAD" : name);
     } else if (action == 'L') { // load
         const char *file = s->disk_files[s->disk_file];
+        snprintf(s->disk_last_item[t], sizeof s->disk_last_item[0], "%s", file);
         item_path(s, t, file, path, sizeof path);
         switch (t) {
         case DISK_PROJECT: case DISK_AUTOLOAD: rc = disk_project_load(s, path); break;
@@ -973,6 +1329,41 @@ static void perform(struct os *s, struct ui *u, int action) {
         case DISK_FX: rc = infx_chain_load(s, path, 0); break;
         case DISK_TRACKFX: rc = infx_chain_load(s, path, 1); break;
         case DISK_ARP: rc = arp_load(s, clampi(s->disk_which, 0, ARP_USER - 1), path); break;
+        case DISK_SEQFILE: rc = disk_seq_load(s, s->disk_which, path); break;
+        case DISK_MPCPRJ: {
+            int pg = 0, sq = 0;
+            if (disk_mpc_project_load(s, path, &pg, &sq) != 0) snprintf(msg, sizeof msg, "Nothing to load in %.10s", file);
+            else if (s->mpc_missing) snprintf(msg, sizeof msg, "%d pgm %d seq; %d WAVs missing", pg, sq, s->mpc_missing);
+            else snprintf(msg, sizeof msg, "%d programs, %d sequences", pg, sq);
+            os_toast(s, u, msg);
+            list_files(s);
+            return;
+        }
+        case DISK_MPCPGM: {
+            int layers = 0, pads = disk_mpc_program_load(s, s->disk_which, path, &layers);
+            if (pads < 0) snprintf(msg, sizeof msg, "Not an MPC program");
+            else if (s->mpc_missing) snprintf(msg, sizeof msg, "%d pads; %d WAVs not found", pads, s->mpc_missing);
+            else if (layers) snprintf(msg, sizeof msg, "%d pads; %d layered, 1st only", pads, layers);
+            else snprintf(msg, sizeof msg, "Loaded %d pads", pads);
+            os_toast(s, u, msg);
+            list_files(s);
+            return;
+        }
+        case DISK_MIDI: case DISK_MPC: { // read; then its tracks are chosen
+            struct seq_import *im = calloc(1, sizeof *im);
+            if (im && (t == DISK_MIDI ? imp_midi_load(im, path) : imp_mpc_load(im, path)) == 0) {
+                snprintf(im->file, sizeof im->file, "%.39s", file);
+                s->imp = im;
+                s->disk_ask = t == DISK_MPC && im->nseq > 1 ? 'Q' : 'T';
+                list_files(s);
+                return;
+            }
+            free(im);
+            snprintf(msg, sizeof msg, t == DISK_MIDI ? "No notes in %.12s" : "No sequences in %.10s", file);
+            os_toast(s, u, msg);
+            list_files(s);
+            return;
+        }
         }
         snprintf(msg, sizeof msg, rc == 0 ? "Loaded: %.16s" : "Could not load %.10s", file);
     } else if (action == 'E') { // export
@@ -1053,6 +1444,97 @@ static int export_progress(struct os *s, struct ui *u) {
     return 1;
 }
 
+// Choosing from a MIDI file or an MPC .ALL: the sequence (an .ALL holds several), then its tracks,
+// which go onto the first empty tracks of the sequence on Into.
+static void import_frame(struct os *s, struct ui *u, const struct input *in) {
+    struct seq_import *im = s->imp;
+    char line[48];
+    int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
+    if (s->disk_ask == 'Q') {
+        im->pick = clampi(im->pick + d, 0, im->nseq - 1);
+        if (input_down(in, IN_B1)) { // <Cancel>
+            imp_free(im), free(im), s->imp = 0, s->disk_ask = 0;
+            ui_wake(u, 1);
+            return;
+        }
+        if (input_down(in, IN_B3) || in->encoder_press) imp_select_all(im, 1), im->cursor = 0, s->disk_ask = 'T'; // <Tracks>
+        lcd_rule(u, TITLE_ROW, "Load MPC Seq");
+        snprintf(line, sizeof line, "%.24s", im->file);
+        lcd_text(u, 0, 3, line);
+        lcd_text(u, 0, 4, "Which sequence:");
+        int rows = 8, first = clampi(im->pick - rows / 2, 0, im->nseq > rows ? im->nseq - rows : 0);
+        for (int r = 0; r < rows && first + r < im->nseq; r++) {
+            const struct imp_seq *q = &im->seq[first + r];
+            snprintf(line, sizeof line, " %02d %-10.10s%4db %3d.%d ", first + r + 1, q->name, q->bars, q->tempo10 / 10, q->tempo10 % 10);
+            if (first + r == im->pick) lcd_inverse(u, 0, 5 + r, line);
+            else lcd_text(u, 0, 5 + r, line);
+        }
+        lcd_text(u, 0, KEY_ROW, "<Cancel>");
+        lcd_text(u, 18, KEY_ROW, "<Tracks>");
+        lcd_rule(u, BOTTOM_ROW, 0);
+        ui_wake(u, 1);
+        return;
+    }
+    const struct imp_seq *q = &im->seq[im->pick];
+    im->cursor = clampi(im->cursor + d, 0, q->ntracks - 1);
+    if (in->encoder_press && in->shift) { // SHIFT and push: a drum part or a melodic one
+        struct imp_track *t = &im->seq[im->pick].track[im->cursor];
+        t->midi = !t->midi;
+    } else if (in->encoder_press) {
+        im->sel[im->cursor] = !im->sel[im->cursor]; // pushed: in or out
+    }
+    if (input_down(in, IN_B1)) { // <Back> to the sequences, or <Cancel>
+        if (im->kind == IMP_MPC && im->nseq > 1) s->disk_ask = 'Q';
+        else imp_free(im), free(im), s->imp = 0, s->disk_ask = 0;
+        ui_wake(u, 1);
+        return;
+    }
+    if (input_down(in, IN_B2)) { // <All>, or <None> when all are in
+        int all = 1;
+        for (int t = 0; t < q->ntracks; t++) all &= im->sel[t];
+        imp_select_all(im, !all);
+    }
+    if (input_down(in, IN_B3)) { // <Load>
+        int any = 0;
+        for (int t = 0; t < q->ntracks; t++) any |= im->sel[t];
+        if (!any) {
+            os_toast(s, u, "Choose a track first");
+        } else {
+            os_undo_save(s, "Load Tracks");
+            int first, dropped, n = imp_apply(s, im, s->disk_which, &first, &dropped);
+            if (n <= 0) snprintf(line, sizeof line, "No empty tracks in Seq %02d", s->disk_which + 1);
+            else if (dropped) snprintf(line, sizeof line, "Trk %d-%d; %d notes off pads", first + 1, first + n, dropped);
+            else if (n == 1) snprintf(line, sizeof line, "Loaded to track %d", first + 1);
+            else snprintf(line, sizeof line, "Loaded to tracks %d-%d", first + 1, first + n);
+            os_toast(s, u, line);
+            if (n > 0) s->eq_seq = -1;
+            imp_free(im), free(im), s->imp = 0, s->disk_ask = 0;
+            ui_wake(u, 1);
+            return;
+        }
+    }
+    lcd_rule(u, TITLE_ROW, im->kind == IMP_MPC ? "Load MPC Seq" : "Load MIDI File");
+    snprintf(line, sizeof line, "%.12s: %db %d.%d BPM", q->name, q->bars, q->tempo10 / 10, q->tempo10 % 10);
+    lcd_text(u, 0, 3, line);
+    snprintf(line, sizeof line, "Into Seq %02d, empty tracks", s->disk_which + 1);
+    lcd_text(u, 0, 4, line);
+    int rows = 8, first = clampi(im->cursor - rows / 2, 0, q->ntracks > rows ? q->ntracks - rows : 0);
+    for (int r = 0; r < rows && first + r < q->ntracks; r++) {
+        const struct imp_track *t = &q->track[first + r];
+        snprintf(line, sizeof line, "%c%-12.12s %-4s%5d ", im->sel[first + r] ? '*' : ' ', t->name, t->midi ? "KEYS" : "DRUM", t->count);
+        if (first + r == im->cursor) lcd_inverse(u, 0, 5 + r, line);
+        else lcd_text(u, 0, 5 + r, line);
+    }
+    lcd_text(u, 0, 13, "Push: in/out  SHIFT: type");
+    int all = 1;
+    for (int t = 0; t < q->ntracks; t++) all &= im->sel[t];
+    lcd_text(u, 0, KEY_ROW, im->kind == IMP_MPC && im->nseq > 1 ? "<Back>" : "<Cancel>");
+    lcd_text(u, 9, KEY_ROW, all ? "<None>" : "<All>");
+    lcd_text(u, 20, KEY_ROW, "<Load>");
+    lcd_rule(u, BOTTOM_ROW, 0);
+    ui_wake(u, 1);
+}
+
 void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     if (export_progress(s, u)) return;
     if (s->disk_pending) { // drawn "Working..." last frame: now it happens
@@ -1064,6 +1546,10 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         lcd_rule(u, TITLE_ROW, "Save/Load");
         lcd_center(u, 6, "No card folder");
         lcd_rule(u, BOTTOM_ROW, 0);
+        return;
+    }
+    if (s->imp && (s->disk_ask == 'Q' || s->disk_ask == 'T')) { // choosing from a MIDI or MPC file
+        import_frame(s, u, in);
         return;
     }
     if (s->disk_ask) { // a question first: replacing or deleting
@@ -1083,7 +1569,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
                 }
             }
         }
-        if (input_down(in, IN_B3)) s->disk_pending = s->disk_ask == 'P' ? 'L' : s->disk_ask, s->disk_ask = 0;
+        if (input_down(in, IN_B3)) s->disk_pending = s->disk_ask == 'P' || s->disk_ask == 'O' ? 'L' : s->disk_ask, s->disk_ask = 0;
         lcd_text(u, 0, KEY_ROW, s->disk_ask == 'P' ? "<Cancel>" : "<No>");
         if (s->disk_ask == 'P') lcd_text(u, 9, KEY_ROW, "<To Empty>");
         lcd_text(u, 21, KEY_ROW, "<Yes>");
@@ -1091,6 +1577,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         char q[48];
         if (s->disk_ask == 'D') snprintf(q, sizeof q, "Delete %.16s?", s->disk_files[s->disk_file]);
         else if (s->disk_ask == 'P') snprintf(q, sizeof q, "Load into Program %02d?", s->disk_which + 1);
+        else if (s->disk_ask == 'O') snprintf(q, sizeof q, "Replace Seq %02d?", s->disk_which + 1);
         else snprintf(q, sizeof q, "Replace %.16s?", s->disk_name);
         lcd_center(u, 6, q);
         if (s->disk_ask == 'D') lcd_center(u, 8, "This cannot be undone");
@@ -1119,10 +1606,13 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         if (input_down(in, IN_B1) && on_item) { // <Rename>
             snprintf(s->disk_name, sizeof s->disk_name, "%s", s->disk_files[s->disk_file]);
             s->disk_renaming = 1, s->disk_cursor = DF_NAME, s->disk_pos = 0;
+        } else if (input_down(in, IN_B1) && s->disk_nfiles && s->disk_isdir[0] == 2) { // <Up>: out of this folder
+            open_folder(s, 0);
         }
         if (input_down(in, IN_B2) && on_item) s->disk_ask = 'D'; // <Delete>
         if (input_down(in, IN_B3) && on_folder) open_folder(s, s->disk_file); // <Open>
-        else if (input_down(in, IN_B3) && on_item && s->disk_type == DISK_PROGRAM) s->disk_ask = 'P'; // <Load>: asked first
+        else if (input_down(in, IN_B3) && on_item && is_prog(s->disk_type)) s->disk_ask = 'P'; // <Load>: asked first
+        else if (input_down(in, IN_B3) && on_item && s->disk_type == DISK_SEQFILE && seq_in_use(s, s->disk_which)) s->disk_ask = 'O';
         else if (input_down(in, IN_B3) && on_item) s->disk_pending = 'L'; // <Load>
     } else if (m != DISK_LOAD && s->disk_type != DISK_AUTOLOAD && input_down(in, IN_B1)) { // <New Dir>
         snprintf(s->disk_keep, sizeof s->disk_keep, "%s", s->disk_name);
@@ -1138,7 +1628,13 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         if (m == DISK_EXPORT && !name[0]) os_toast(s, u, "Name it first");
         else if (m == DISK_EXPORT) s->disk_ask = access(path, F_OK) == 0 ? 'E' : 0, s->disk_pending = s->disk_ask ? 0 : 'E';
         else if (!name[0] && s->disk_type != DISK_AUTOLOAD) os_toast(s, u, "Name it first");
-        else if (access(path, F_OK) == 0) s->disk_ask = 'S'; // already there: replace it?
+        else if (s->disk_type == DISK_MPCPRJ) { // a folder of that name already: replace?
+            char dir[700], folder[800];
+            type_dir(s, s->disk_type, dir, sizeof dir);
+            snprintf(folder, sizeof folder, "%s/%s", dir, name);
+            if (access(folder, F_OK) == 0) s->disk_ask = 'S';
+            else s->disk_pending = 'S';
+        } else if (access(path, F_OK) == 0) s->disk_ask = 'S'; // already there: replace it?
         else s->disk_pending = 'S';
     }
     // The cursor, over the fields shown.
@@ -1156,19 +1652,23 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
             s->disk_mode = clampi(m + d, 0, DISK_MODES - 1);
             if (s->disk_mode == DISK_EXPORT && s->disk_type < DISK_SEQUENCE) s->disk_type = DISK_SEQUENCE;
             if (s->disk_mode != DISK_EXPORT && s->disk_type >= DISK_SEQUENCE) s->disk_type = DISK_PROJECT;
-            s->disk_at[0] = 0;
-            default_name(s), list_files(s);
+            if (s->disk_mode == DISK_SAVE && (s->disk_type == DISK_MIDI || s->disk_type == DISK_MPC)) s->disk_type = DISK_SEQFILE;
+            if (s->disk_mode == DISK_SAVE && s->disk_type == DISK_MPCPGM) s->disk_type = DISK_PROGRAM;
+            default_name(s), restore_folder(s); // the new type's folder: where it was last used
             break;
         case DF_TYPE:
             if (m == DISK_EXPORT) s->disk_type = clampi(s->disk_type + d, DISK_SEQUENCE, DISK_MIX_SONG);
-            else s->disk_type = clampi(s->disk_type + d, 0, DISK_WAVE);
-            s->disk_which = s->disk_type == DISK_PROGRAM ? s->program : 0;
-            s->disk_at[0] = 0;
-            default_name(s), list_files(s);
+            else if (m == DISK_SAVE) { // MIDI FILE, MPC SEQ, MPC PROGRAM: load only
+                int t2 = clampi(s->disk_type + d, 0, DISK_MPCPRJ);
+                while (t2 > DISK_SEQFILE && t2 < DISK_MPCPRJ) t2 += d > 0 ? 1 : -1;
+                s->disk_type = t2;
+            } else s->disk_type = clampi(s->disk_type + d, 0, DISK_MPCPRJ);
+            s->disk_which = is_prog(s->disk_type) ? s->program : is_seqtype(s->disk_type) ? s->seq.current : 0;
+            default_name(s), restore_folder(s); // the new type's folder: where it was last used
             break;
         case DF_WHICH:
             if (is_sound(s->disk_type)) s->selected = clampi(s->selected + d, 0, OS_PADS - 1);
-            else s->disk_which = clampi(s->disk_which + d, 0, (s->disk_type == DISK_PROGRAM ? OS_PROGRAMS : is_song(s->disk_type) ? SEQ_SONGS
+            else s->disk_which = clampi(s->disk_which + d, 0, (is_prog(s->disk_type) ? OS_PROGRAMS : is_song(s->disk_type) ? SEQ_SONGS
                                                               : s->disk_type == DISK_ARP ? ARP_USER : SEQ_COUNT) - 1);
             if (m != DISK_LOAD) default_name(s);
             break;
@@ -1197,6 +1697,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         lcd_text(u, 22, KEY_ROW, "<OK>");
     } else if (m == DISK_LOAD) {
         if (on_item) lcd_text(u, 0, KEY_ROW, "<Rename>"), lcd_text(u, 9, KEY_ROW, "<Delete>");
+        else if (s->disk_nfiles && s->disk_isdir[0] == 2) lcd_text(u, 0, KEY_ROW, "<Up>");
         if (on_folder) lcd_text(u, 20, KEY_ROW, "<Open>");
         else if (on_item) lcd_text(u, 20, KEY_ROW, "<Load>");
     } else if (s->disk_type != DISK_AUTOLOAD) {
@@ -1220,12 +1721,13 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     if (s->disk_cursor == DF_TYPE) lcd_inverse(u, 6, 4, v);
     else lcd_text(u, 6, 4, v);
     if (field_shown(s, DF_WHICH)) {
-        const char *label = s->disk_type == DISK_PROGRAM ? (m == DISK_LOAD ? "Into:" : "Pgm:") : is_sound(s->disk_type) ? "Pad:"
+        const char *label = is_prog(s->disk_type) || is_seqtype(s->disk_type) ? (m == DISK_LOAD ? "Into:" : is_prog(s->disk_type) ? "Pgm:" : "Seq:")
+                          : is_sound(s->disk_type) ? "Pad:"
                           : is_song(s->disk_type) ? "Song:" : s->disk_type == DISK_ARP ? "User:" : "Seq:";
         if (is_sound(s->disk_type))
             snprintf(v, sizeof v, " %c%02d %.12s ", 'A' + s->selected / 16, s->selected % 16 + 1,
                      s->pads[s->selected].s ? s->pads[s->selected].name : "(empty)");
-        else if (s->disk_type == DISK_PROGRAM) snprintf(v, sizeof v, " %02d-%.12s ", s->disk_which + 1, s->programs[s->disk_which].name);
+        else if (is_prog(s->disk_type)) snprintf(v, sizeof v, " %02d-%.12s ", s->disk_which + 1, s->programs[s->disk_which].name);
         else if (is_song(s->disk_type)) snprintf(v, sizeof v, " %02d (%d steps) ", s->disk_which + 1, s->seq.song[s->disk_which].nsteps);
         else if (s->disk_type == DISK_ARP) snprintf(v, sizeof v, " USER %d ", s->disk_which + 1);
         else snprintf(v, sizeof v, " %02d-%.12s ", s->disk_which + 1, s->seq.sequence[s->disk_which].name);
@@ -1264,6 +1766,9 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         int top = m == DISK_SAVE ? 8 : m == DISK_EXPORT ? 9 : 7, rows = 13 - top;
         if (s->disk_cursor == DF_NAME && m != DISK_LOAD) top++, rows--; // under the name's hint
         if (!s->disk_nfiles) lcd_text(u, 0, top, "(empty)");
+        int items = 0;
+        for (int i = 0; i < s->disk_nfiles; i++) items += !s->disk_isdir[i] || s->disk_isdir[i] == 1;
+        if (m == DISK_LOAD && s->disk_nfiles && !items) lcd_text(u, 0, top + 1, "(nothing to load here)");
         int first = s->disk_file - rows / 2 < 0 ? 0 : s->disk_file - rows / 2;
         for (int r = 0; r < rows && first + r < s->disk_nfiles; r++) {
             int i = first + r;
@@ -1293,7 +1798,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_rule(u, BOTTOM_ROW, 0);
     if (s->disk_pending) { // what is about to happen, plainly, while it does
         static const char *const WHAT[DISK_TYPES] = {"project", "program", "sample", "settings", "autoload", "FX chain", "arp pattern",
-                                                     "track FX", "S600 wave", "", "", "", ""};
+                                                     "track FX", "S600 wave", "sequence", "MIDI file", "MPC file", "MPC program", "MPC project", "", "", "", ""};
         char a[40];
         int act = s->disk_pending;
         if (act == 'E') snprintf(a, sizeof a, "Starting export");

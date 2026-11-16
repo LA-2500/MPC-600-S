@@ -96,8 +96,7 @@ void record_defaults(struct os *s) {
     *a = (struct rec_settings){.mode = REC_STEREO, .thres_db = THRES_OFF, .bits = 12, .rate = 44100, .aa = 1,
                                .normalize = 1, .count_bars = 2, .length = RLEN_SEQ};
     s->rec_set[2] = (struct rec_settings){.mode = REC_MONO_LR, .bits = 12, .rate = 26040, .aa = 1, .normalize = 1};
-    s->rec_set[4] = (struct rec_settings){.mode = REC_STEREO, .thres_db = -30, .bits = 16, .rate = 44100, .aa = 1,
-                                          .start_force = 1};
+    s->rec_set[4] = (struct rec_settings){.mode = REC_STEREO, .thres_db = -30, .bits = 16, .rate = 44100, .aa = 1};
     s->rec_set[5] = *a, s->rec_set[5].length = RLEN_SEQ; // Live Looper: as Audiotrack Record, one pass
     // The Auto Sampler: 12-bit mono at 29.76 kHz; 8 samples, one velocity layer, 3 seconds each
     // from the -30 dB threshold, normalized together.
@@ -228,7 +227,7 @@ static void value(const struct os *s, const struct rec_settings *r, int kind, ch
         break;
     case F_WHAT: snprintf(b, n, " %s ", r->what ? "SEQUENCE" : "LIVE"); break;
     case F_RTHRU: snprintf(b, n, " %s ", r->thru_record ? "RECORD" : "MUTE"); break;
-    case F_START: snprintf(b, n, " %s ", r->start_force ? "FORCE" : "THRESHOLD"); break;
+    case F_START: snprintf(b, n, " %s ", r->start_force ? "MANUAL" : "THRESHOLD"); break;
     case F_PAD: {
         const struct os_pad *p = &s->pads[s->selected];
         snprintf(b, n, " %c%02d %.11s ", 'A' + s->selected / 16, s->selected % 16 + 1, p->s ? p->name : "(empty)");

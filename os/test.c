@@ -6,6 +6,7 @@
 #include "lcd.h"
 #include "seq_screen.h"
 #include "wav.h"
+#include "seqimport.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2424,7 +2425,7 @@ static void test_levels(const char *shot_dir) {
     os.selected = 3;
     tap(IN_LEVELS);
     CHECK(os.levels_on && os.levels_type == LEVELS_VELOCITY && os.levels_pad == 3);
-    CHECK(os.levels_root == 3 * 16 + 12); // Tune's root starts on D13
+    CHECK(os.levels_root == 7); // Tune's root starts on A08
     if (shot_dir) { // the 16 Levels page in Velocity
         struct input shot = blank();
         shot.down = shot.held = (1u << IN_LEVELS) | (1u << IN_SHIFT), shot.shift = 1;
@@ -4472,8 +4473,8 @@ static void test_input_select(void) {
     os.screen = OS_MAIN;
 }
 
-// Shift + Pad 11: Resample. The main output, 16 bit 44.1 to start with: LIVE at once (FORCE),
-// or the whole sequence, trimmed to its exact length.
+// Shift + Pad 11: Resample. The main output, 16 bit 44.1 to start with, from the threshold (or
+// MANUAL: at once); LIVE, or the whole sequence, trimmed to its exact length.
 static void test_resample(const char *shot_dir) {
     seq_fresh();
     os.seq.metronome = METRO_OFF;
@@ -4483,14 +4484,15 @@ static void test_resample(const char *shot_dir) {
     frame(&in);
     CHECK(os.screen == OS_RECORD && os.record_page == 4 && os.cursor_record == 0);
     const struct rec_settings *r = &os.rec_set[4];
-    CHECK(r->bits == 12 && r->rate == 29760 && r->start_force && !r->what && !r->thru_record);
+    CHECK(r->bits == 12 && r->rate == 29760 && !r->start_force && !r->what && !r->thru_record);
     os.rec_set[4].bits = 16, os.rec_set[4].rate = 44100; // the main output as it is, below
+    os.rec_set[4].start_force = 1;                        // MANUAL, for the take below
     CHECK(atomic_load(&os.rec.source) == 1); // its meter: the main output
     struct input idle = blank();
     frame(&idle);
     if (shot_dir) write_shot(shot_dir, "resample");
 
-    tap(IN_B3); // <Rec>, LIVE, FORCE: no input needed, it takes the main output at once
+    tap(IN_B3); // <Rec>, LIVE, MANUAL: no input needed, it takes the main output at once
     CHECK(atomic_load(&os.rec.state) == REC_ARMED && atomic_load(&os.rec.source) == 1);
     static float buf[256];
     for (int i = 0; i < 256; i++) buf[i] = 0.25f;
@@ -5459,6 +5461,335 @@ static void test_help_and_locate(const char *shot_dir) {
     }
     os.screen = OS_MAIN;
     CHECK(help_open(&os, 0) == 0); // the main page has none
+}
+
+// SHIFT + ERASE (COPY): Program Config, the pad pressed last, Copy started; the next pad takes it.
+static void test_shift_erase_copy(void) {
+    seq_fresh();
+    load_pad(0);
+    os.screen = OS_MAIN;
+    os.selected = 0;
+    struct input in = blank();
+    in.down = in.held = (1u << IN_ERASE) | (1u << IN_SHIFT);
+    in.shift = 1;
+    frame(&in);
+    CHECK(os.screen == OS_PROGRAM && os.pgm_mode == PGM_COPY);
+    in = blank();
+    in.up = 1u << IN_ERASE;
+    frame(&in);
+    CHECK(os.screen == OS_PROGRAM); // letting go of ERASE does not open the Erase page
+    in = blank();
+    in.pad_hit[4] = 100, in.pad_down[4] = 1;
+    frame(&in);
+    CHECK(os.pgm_mode == PGM_NONE && os.pads[4].s != 0 && os.selected == 4);
+    in = blank();
+    in.pad_release[4] = 1;
+    frame(&in);
+    os.screen = OS_MAIN;
+}
+
+// Knob Mode: CATCH waits for the knob to reach the value, JUMP takes it at once, SCALE moves it
+// from where it is, so the two meet at the ends.
+static void test_knob_modes(void) {
+    seq_fresh();
+    int c = 0;
+    os.knob_mode = KNOB_CATCH;
+    CHECK(os_knob_take(&os, &c, 10, 20, 64) == -1 && !c);
+    CHECK(os_knob_take(&os, &c, 60, 70, 64) == 70 && c); // crossed it
+    c = 0;
+    os.knob_mode = KNOB_JUMP;
+    CHECK(os_knob_take(&os, &c, 10, 90, 40) == 90);
+    os.knob_mode = KNOB_SCALE;
+    int a = os_knob_take(&os, &c, 64, 96, 32);
+    CHECK(a > 32 && a < 96);                              // up, but less than the knob went
+    CHECK(os_knob_take(&os, &c, 96, 127, a) == 127);      // they meet at the top
+    CHECK(os_knob_take(&os, &c, 64, 0, 100) == 0);        // and at the bottom
+    a = os_knob_take(&os, &c, 64, 63, 100);
+    CHECK(a >= 98 && a < 100);                           // a small turn moves it a little
+    CHECK(os_knob_take(&os, &c, -1, 63, 100) == -1);      // the first reading moves nothing
+    // A pad's Volume on the Vol page, by K1, in JUMP: straight to where the knob is.
+    load_pad(0);
+    os.selected = 0;
+    os.page = PAGE_MIX;
+    os.knob_mode = KNOB_JUMP;
+    os.knob_last[0] = 10;
+    struct input in = blank();
+    in.knob_moved[0] = 1, in.knob[0] = 127;
+    frame(&in);
+    CHECK(os.pads[0].p.volume == 100);
+    os.knob_mode = KNOB_CATCH;
+}
+
+static void put32(unsigned char *p, uint32_t v) {
+    p[0] = (unsigned char)v, p[1] = (unsigned char)(v >> 8), p[2] = (unsigned char)(v >> 16), p[3] = (unsigned char)(v >> 24);
+}
+
+// A sequence saved on its own and loaded into another; a MIDI file's tracks onto the first empty
+// tracks; an MPC .ALL's sequence, its drum notes onto pads by the program file beside it; an MPC
+// program and its WAV.
+static void test_seq_files(const char *shot_dir) {
+    seq_fresh();
+    char cmd0[1600];
+    char dir[] = "/tmp/claude-mpc-seqfiles-XXXXXX";
+    CHECK(mkdtemp(dir) != 0);
+    char p[600];
+    struct seq *sq = &os.seq;
+    // One sequence, saved and loaded into sequence 4.
+    snprintf(sq->sequence[0].name, sizeof sq->sequence[0].name, "GROOVE");
+    sq->sequence[0].tempo10 = 935, sq->sequence[0].bars = 3;
+    seq_add_note(sq, 0, 2, 96, 5, 101, 24);
+    snprintf(p, sizeof p, "%s/one.sq6", dir);
+    CHECK(disk_seq_save(&os, 0, p) == 0);
+    CHECK(disk_seq_load(&os, 3, p) == 0);
+    struct seq_sequence *q = &sq->sequence[3];
+    CHECK(q->tempo10 == 935 && q->bars == 3 && !strcmp(q->name, "GROOVE") && q->track[2].count == 1 &&
+          q->track[2].notes[0].tick == 96 && q->track[2].notes[0].note == 5 && q->track[2].notes[0].vel == 101);
+
+    // A MIDI file, format 1, 480 a beat: a tempo map, a bass on channel 1, drums on channel 10.
+    static const unsigned char mid[] = {
+        'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 1, 0, 3, 0x01, 0xe0,
+        'M', 'T', 'r', 'k', 0, 0, 0, 19, 0, 0xff, 0x51, 3, 0x07, 0xa1, 0x20, 0, 0xff, 0x58, 4, 3, 2, 24, 8, 0, 0xff, 0x2f, 0,
+        'M', 'T', 'r', 'k', 0, 0, 0, 21, 0, 0xff, 0x03, 4, 'B', 'a', 's', 's', 0, 0x90, 48, 100, 0x83, 0x60, 0x80, 48, 0, 0, 0xff, 0x2f, 0,
+        'M', 'T', 'r', 'k', 0, 0, 0, 13, 0x87, 0x40, 0x99, 37, 90, 60, 37, 0, 0, 0xff, 0x2f, 0};
+    snprintf(p, sizeof p, "%s/song.mid", dir);
+    FILE *f = fopen(p, "wb");
+    fwrite(mid, 1, sizeof mid, f);
+    fclose(f);
+    struct seq_import im;
+    CHECK(imp_midi_load(&im, p) == 0 && im.nseq == 1 && im.seq[0].ntracks == 2);
+    CHECK(im.seq[0].tempo10 == 1200 && im.seq[0].sig_num == 3 && im.seq[0].sig_den == 4);
+    CHECK(im.seq[0].track[0].midi && !im.seq[0].track[1].midi && !strcmp(im.seq[0].track[0].name, "Bass"));
+    CHECK(im.seq[0].track[0].notes[0].dur == 96 && im.seq[0].track[1].notes[0].tick == 192);
+    if (shot_dir) { // the tracks to choose from, on Save/Load
+        struct seq_import *show = calloc(1, sizeof *show);
+        CHECK(imp_midi_load(show, p) == 0);
+        snprintf(show->file, sizeof show->file, "song.mid");
+        os.imp = show, os.disk_ask = 'T', os.screen = OS_DISK, os.disk_which = 5, os.data_dir = dir;
+        struct input in = blank();
+        frame(&in);
+        write_shot(shot_dir, "disk_midi_tracks");
+        in = blank();
+        in.down = in.held = 1u << IN_B1; // <Cancel>
+        frame(&in);
+        CHECK(os.imp == 0 && os.disk_ask == 0);
+        os.screen = OS_MAIN, os.data_dir = 0;
+    }
+    seq_add_note(sq, 5, 0, 0, 0, 100, 24); // sequence 6 has track 1 in use
+    int first, dropped, n = imp_apply(&os, &im, 5, &first, &dropped);
+    CHECK(n == 2 && first == 1 && dropped == 0);
+    q = &sq->sequence[5];
+    CHECK(q->track[1].type == TRACK_MIDI && q->track[1].channel == 1 && q->track[1].notes[0].note == 48);
+    CHECK(q->track[2].type == TRACK_DRUM && seq_pad_note(q->track[2].notes[0].note) == 37);
+    imp_free(&im);
+
+    // An MPC .ALL: one sequence at 98 BPM; track 1 KCK on program TESTPGM, its note 40 on pad 3.
+    enum { TRK = 0x30 + 4000, EV = TRK + 65 * 0x30 + 16 };
+    int L = EV + 2 * 16 + 16;
+    unsigned char *all = calloc(1, (size_t)(0x30 + L));
+    put32(all, (uint32_t)(0x30 + L));
+    memcpy(all + 4, "MPC1000 ALL 1.00", 16);
+    put32(all + 0x2c, 0x30);
+    unsigned char *c = all + 0x30;
+    put32(c, (uint32_t)L);
+    memcpy(c + 4, "BEAT", 4);
+    put32(c + 0x1c, 2), put32(c + 0x20, 980);
+    put32(c + 0x30, 0x60000000), put32(c + 0x34, 0x60000180); // bars of 384 ticks: 4/4
+    memcpy(c + TRK + 1 * 0x30, "KCK", 3);
+    memcpy(c + TRK + 1 * 0x30 + 0x11, "TESTPGM", 7);
+    unsigned char *e1 = c + EV, *e2 = c + EV + 16;
+    put32(e1, 0), e1[4] = 1, e1[5] = 0x90, e1[6] = 40, e1[7] = 120, put32(e1 + 8, 12);
+    put32(e2, 192), e2[4] = 1, e2[5] = 0x90, e2[6] = 99, e2[7] = 120, put32(e2 + 8, 12); // note 99: no pad
+    memset(c + EV + 32, 0xff, 3), c[EV + 35] = 0x7f;
+    snprintf(p, sizeof p, "%s/ALL_SEQS.ALL", dir);
+    f = fopen(p, "wb");
+    fwrite(all, 1, (size_t)(0x30 + L), f);
+    fclose(f);
+    memcpy(c + 4, "MPC1000 SEQ 1.00", 16); // the same sequence saved on its own: a .SEQ
+    snprintf(p, sizeof p, "%s/MY BEAT.SEQ", dir);
+    f = fopen(p, "wb");
+    fwrite(c, 1, (size_t)L, f);
+    fclose(f);
+    free(all);
+    CHECK(imp_mpc_load(&im, p) == 0 && im.nseq == 1 && !strcmp(im.seq[0].name, "MY BEAT") && im.seq[0].tempo10 == 980 &&
+          im.seq[0].ntracks == 1 && im.seq[0].track[0].count == 2);
+    imp_free(&im);
+    // The program beside it: pad 1 plays KICK, level 100, mixer 80, pan 60, tuned down a semitone.
+    unsigned char *pgm = calloc(1, 0x2a04);
+    put32(pgm, 0x2a04);
+    memcpy(pgm + 4, "MPC1000 PGM 1.01", 16);
+    unsigned char *pad = pgm + 0x18;
+    memcpy(pad, "KICK", 4);
+    pad[0x11] = 100, pad[0x13] = 127, pad[0x14] = (unsigned char)(-100 & 0xff), pad[0x15] = 0xff;
+    pad[0x67] = 5, pad[0x8f] = 80, pad[0x90] = 60, pad[0x63] = 2;
+    memset(pgm + 0x2958, 0x40, 128);
+    pgm[0x2958 + 40] = 3;
+    snprintf(p, sizeof p, "%s/TESTPGM.PGM", dir);
+    f = fopen(p, "wb");
+    fwrite(pgm, 1, 0x2a04, f);
+    fclose(f);
+    free(pgm);
+    snprintf(p, sizeof p, "%s/ALL_SEQS.ALL", dir);
+    CHECK(imp_mpc_load(&im, p) == 0 && im.nseq == 1 && im.seq[0].tempo10 == 980 && im.seq[0].ntracks == 1);
+    CHECK(im.seq[0].track[0].has_map && !im.seq[0].track[0].midi && !strcmp(im.seq[0].track[0].name, "KCK"));
+    n = imp_apply(&os, &im, 8, &first, &dropped);
+    q = &sq->sequence[8];
+    CHECK(n == 1 && first == 0 && dropped == 1 && q->tempo10 == 980 && q->track[0].count == 1 && q->track[0].notes[0].note == 3);
+    imp_free(&im);
+    // The program, and its WAV.
+    snprintf(p, sizeof p, "%s/KICK.wav", dir);
+    CHECK(wav_save(p, tone(60, 44100, 4410, 0.5f), 16) == 0);
+    { // with the MPC's trim in it: an Akai smpl chunk, start 100, last frame 1999
+        FILE *w = fopen(p, "r+b");
+        fseek(w, 0, SEEK_END);
+        long riff = ftell(w);
+        unsigned char ch[8 + 56] = {'s', 'm', 'p', 'l', 56, 0, 0, 0, 0x47, 0, 0, 1, 0x5e};
+        unsigned char *x = ch + 8 + 36;
+        ch[8 + 32] = 20; // sampler data: 20 bytes
+        x[0] = 1, x[2] = 60;
+        put32(x + 10, 100), put32(x + 14, 1999);
+        fwrite(ch, 1, sizeof ch, w);
+        unsigned char sz[4];
+        put32(sz, (uint32_t)(riff + (long)sizeof ch - 8));
+        fseek(w, 4, SEEK_SET);
+        fwrite(sz, 1, 4, w);
+        fclose(w);
+    }
+    snprintf(p, sizeof p, "%s/TESTPGM.PGM", dir);
+    int layers;
+    CHECK(disk_mpc_program_load(&os, 2, p, &layers) == 1 && layers == 0);
+    const struct os_pad *pp = &os.programs[2].pads[0];
+    CHECK(pp->s && pp->p.volume == 80 && pp->p.pan == 10 && pp->p.semi == -1 && pp->p.fine == 0 && pp->p.mute_group == 2);
+    CHECK(pp->p.start == 100 && pp->p.end == 2000); // the trim from the MPC
+    CHECK(!strcmp(os.programs[2].name, "TESTPGM") && os.program == 0);
+    // The whole project: TESTPGM into the first empty program, then its sequence into the first empty
+    // sequence, playing it.
+    snprintf(p, sizeof p, "%s/Project01.PRJ", dir);
+    f = fopen(p, "wb");
+    fputs("ALL_SEQS.ALL\r\nTESTPGM.PGM\r\nKICK.WAV\r\n", f);
+    fclose(f);
+    int npg, nsq, empty_pg = -1, empty_sq = -1;
+    for (int g = 0; g < OS_PROGRAMS && empty_pg < 0; g++)
+        if (!os_program_sounds(&os, g)) empty_pg = g;
+    for (int g = 0; g < SEQ_COUNT && empty_sq < 0; g++)
+        if (!seq_used(&sq->sequence[g])) empty_sq = g;
+    CHECK(disk_mpc_project_load(&os, p, &npg, &nsq) == 0 && npg == 1 && nsq == 1);
+    CHECK(os.programs[empty_pg].pads[0].s && sq->sequence[empty_sq].track[0].kit == empty_pg &&
+          sq->sequence[empty_sq].tempo10 == 980);
+    if (getenv("MPC_PRJ")) { // a real one, to look at: MPC_PRJ=path/Project01.PRJ
+        seq_fresh();
+        CHECK(disk_mpc_project_load(&os, getenv("MPC_PRJ"), &npg, &nsq) == 0);
+        printf("  %s: %d programs, %d sequences\n", getenv("MPC_PRJ"), npg, nsq);
+        for (int g = 0; g < 4; g++) printf("    pgm %d %s: %d pads\n", g + 1, os.programs[g].name, os_program_sounds(&os, g));
+        for (int q = 0; q < 3; q++) {
+            const struct seq_sequence *qq = &os.seq.sequence[q];
+            printf("    seq %d %s %d.%d BPM %d bars:", q + 1, qq->name, qq->tempo10 / 10, qq->tempo10 % 10, qq->bars);
+            for (int t = 0; t < 8; t++)
+                if (qq->track[t].count) printf(" [%s pgm%d n%d]", qq->track[t].name, qq->track[t].kit + 1, qq->track[t].count);
+            printf("\n");
+        }
+    }
+    // On Save/Load: MPC PROJECT opens at the top of the card, with an MPC's folder there; the MPC 600 S's
+    // own saved projects are not shown; B1 goes up out of a folder.
+    {
+        char top[] = "/tmp/claude-mpc-card-XXXXXX", q2[700];
+        CHECK(mkdtemp(top) != 0);
+        snprintf(q2, sizeof q2, "%s/MPC600S/projects/MINE/samples", top);
+        CHECK(system((snprintf(cmd0, sizeof cmd0, "mkdir -p '%s' '%s/MPC BEAT' && touch '%s/MPC600S/projects/MINE/project.bin' && cp '%s'/* '%s/MPC BEAT/'",
+                               q2, top, top, dir, top), cmd0)) == 0);
+        snprintf(q2, sizeof q2, "%s/MPC600S", top);
+        os.data_dir = q2;
+        disk_open(&os, DISK_LOAD, DISK_MPCPRJ);
+        CHECK(os.disk_nfiles == 2 && !strcmp(os.disk_files[0], "MPC BEAT") && !strcmp(os.disk_files[1], "MPC600S"));
+        struct input in = blank();
+        in.down = in.held = 1u << IN_B3; // <Open>
+        frame(&in);
+        CHECK(os.disk_isdir[0] == 2 && !strcmp(os.disk_files[os.disk_file], "Project01") && !os.disk_isdir[os.disk_file]);
+        os.screen = OS_MAIN; // opened again, and on another type and back: still in that folder
+        disk_open(&os, DISK_LOAD, DISK_MPCPRJ);
+        CHECK(os.disk_isdir[0] == 2 && !strcmp(os.disk_files[os.disk_file], "Project01"));
+        os.disk_cursor = 1; // Type
+        in = blank();
+        in.encoder = -1;
+        frame(&in);
+        in.encoder = 1;
+        frame(&in);
+        CHECK(os.disk_type == DISK_MPCPRJ && !strcmp(os.disk_files[os.disk_file], "Project01"));
+        os.disk_file = 0; // onto ..
+        in = blank();
+        in.down = in.held = 1u << IN_B1; // <Up>
+        frame(&in);
+        CHECK(os.disk_nfiles == 2 && !strcmp(os.disk_files[0], "MPC BEAT"));
+        os.disk_file = 1; // into MPC600S, then projects: MINE is not listed
+        in = blank();
+        in.down = in.held = 1u << IN_B3;
+        frame(&in);
+        int i = 0;
+        while (i < os.disk_nfiles && strcmp(os.disk_files[i], "projects")) i++;
+        os.disk_file = i;
+        in = blank();
+        in.down = in.held = 1u << IN_B3;
+        frame(&in);
+        CHECK(os.disk_nfiles == 1 && os.disk_isdir[0] == 2); // only ..
+        os.screen = OS_MAIN, os.data_dir = 0;
+        snprintf(cmd0, sizeof cmd0, "rm -rf %s", top);
+        CHECK(system(cmd0) == 0);
+    }
+    // The sequence again, now its program is loaded: the track plays it.
+    snprintf(p, sizeof p, "%s/ALL_SEQS.ALL", dir);
+    CHECK(imp_mpc_load(&im, p) == 0);
+    n = imp_apply(&os, &im, 9, &first, &dropped);
+    CHECK(n == 1 && !strcmp(os.programs[sq->sequence[9].track[0].kit].name, "TESTPGM"));
+    imp_free(&im);
+    // Saved as an MPC 2500 project, and loaded back: the same sample and trim, pads and notes.
+    {
+        seq_fresh();
+        snprintf(p, sizeof p, "%s/KICK.wav", dir);
+        os_pad_load(&os, 3, wav_load(p), "KICK");
+        os.pads[3].p.start = 100, os.pads[3].p.end = 2000, os.pads[3].p.volume = 70, os.pads[3].p.pan = -20, os.pads[3].p.semi = 2;
+        snprintf(os.programs[0].name, sizeof os.programs[0].name, "MY KIT");
+        snprintf(sq->sequence[2].name, sizeof sq->sequence[2].name, "VERSE");
+        sq->sequence[2].tempo10 = 935, sq->sequence[2].bars = 4;
+        seq_add_note(sq, 2, 0, 96, 3, 110, 24);
+        seq_add_note(sq, 2, 0, 288, 3, 90, 24);
+        snprintf(sq->sequence[2].track[0].name, sizeof sq->sequence[2].track[0].name, "KICKS");
+        char out[700];
+        snprintf(out, sizeof out, "%s/OUT", dir);
+        int pg, nq, dr;
+        CHECK(disk_mpc_project_save(&os, out, "SONG", &pg, &nq, &dr) == 0 && pg == 1 && nq == 1 && dr == 0);
+        snprintf(p, sizeof p, "%s/SONG.PRJ", out);
+        seq_fresh();
+        CHECK(disk_mpc_project_load(&os, p, &pg, &nq) == 0 && pg == 1 && nq == 1);
+        const struct os_pad *k3 = &os.programs[0].pads[3];
+        CHECK(!strcmp(os.programs[0].name, "MY KIT") && k3->s && k3->p.start == 100 && k3->p.end == 2000 && k3->p.volume == 70 &&
+              k3->p.pan == -20 && k3->p.semi == 2);
+        const struct seq_sequence *v = &os.seq.sequence[0];
+        CHECK(!strcmp(v->name, "VERSE") && v->tempo10 == 935 && v->bars == 4 && v->track[0].count == 2 &&
+              v->track[0].notes[0].tick == 96 && v->track[0].notes[0].note == 3 && v->track[0].notes[1].vel == 90 &&
+              !strcmp(v->track[0].name, "KICKS") && v->track[0].kit == 0);
+        snprintf(p, sizeof p, "%s/ALL_SEQS&SONGS.ALL", out);
+        CHECK(imp_mpc_load(&im, p) == 0 && im.nseq == 1); // and its index points at sequence 3, not 1
+        imp_free(&im);
+        seq_fresh();
+    }
+    char cmd[700];
+    snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
+    CHECK(system(cmd) == 0);
+}
+
+// SHIFT + MUTE (UNMUTE ALL): from any page, every track of the sequence unmuted, solos left alone.
+static void test_unmute_all(void) {
+    seq_fresh();
+    struct seq_sequence *q = &os.seq.sequence[0];
+    q->track[1].mute = q->track[5].mute = 1;
+    q->track[2].solo = 1;
+    os.screen = OS_MAIN;
+    struct input in = blank();
+    in.down = in.held = (1u << IN_MUTE) | (1u << IN_SHIFT);
+    in.shift = 1;
+    frame(&in);
+    CHECK(!q->track[1].mute && !q->track[5].mute && q->track[2].solo);
+    CHECK(os.screen == OS_MAIN); // it does not open Track Mute
+    q->track[2].solo = 0;
 }
 
 static void test_track_mute(const char *shot_dir) {
@@ -7176,6 +7507,10 @@ int main(int argc, char **argv) {
     test_fx_modes(argc > 1 ? argv[1] : 0);
     test_help_and_locate(argc > 1 ? argv[1] : 0);
     test_track_mute(argc > 1 ? argv[1] : 0);
+    test_unmute_all();
+    test_knob_modes();
+    test_seq_files(argc > 1 ? argv[1] : 0);
+    test_shift_erase_copy();
     test_arpeggiator(argc > 1 ? argv[1] : 0);
     test_s600_lpf();
     test_seq_bars_and_tempo(argc > 1 ? argv[1] : 0);

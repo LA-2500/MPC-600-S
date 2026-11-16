@@ -87,6 +87,16 @@ static void clear_type(struct os *s) {
     if (s->mute_type == MUTE_PAD_SOLO) memset(sq->pad_solo[kit], 0, 128);
 }
 
+// SHIFT + MUTE (UNMUTE ALL), on any page: every track of the sequence playing unmuted.
+void mute_unmute_all(struct os *s, struct ui *u) {
+    struct seq *sq = &s->seq;
+    pthread_mutex_lock(&sq->lock);
+    struct seq_sequence *q = &sq->sequence[sq->current];
+    for (int t = 0; t < SEQ_TRACKS; t++) q->track[t].mute = 0;
+    pthread_mutex_unlock(&sq->lock);
+    os_toast(s, u, "All tracks unmuted");
+}
+
 static void cell(struct ui *u, int i, const char *top, const char *bottom, int lit) {
     int x = (i % 4) * CELL_PX_W, y = GRID_Y + (3 - i / 4) * CELL_PX_H; // pad 1 bottom left, as on the pads
     uint32_t ink = lit ? LCD_BG : LCD_FG;

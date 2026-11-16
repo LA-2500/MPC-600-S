@@ -176,6 +176,7 @@ static const struct {
      "SAMPLE REC again: back to Sample New Sound."},
     {OS_RECORD, 4, "Resample",
      "Records the main output: live as you play, or the whole sequence from its start.\n"
+     "Start: THRESHOLD waits for the sound to reach Thres; MANUAL starts at once on <Rec>.\n"
      "Input Thru: MUTE keeps the input out of the take, RECORD puts it in.\n"
      "Opened with Shift+Pad 11."},
     {OS_REPEAT, -1, "Note Repeat",
@@ -297,7 +298,8 @@ static const struct {
      "keyboard).\n"
      "Inst (S600 and S600 MULTI): the Instrument, the pad MIDI keys play. A01 to start; turn "
      "the wheel, or with the cursor here press a pad. LAST PAD (S600): the pad pressed last.\f"
-     "Copy, Swap, Delete work on single pads: choose, then press the other pad.\f"
+     "Copy, Swap, Delete work on single pads: choose, then press the other pad.\n"
+     "SHIFT+ERASE (COPY), on any page: here, Copy started on the pad pressed last.\f"
      "Hidden keys: <Copy Pgm>, <Clear Pgm> with Shift.\n"
      "Snd: gives the selected pad any sound in memory."},
     {OS_TC, -1, "Timing Correct",
@@ -432,6 +434,7 @@ static const struct {
      "Pads mute tracks, solo them, mute or solo single pads, or queue sequences.\n"
      "B1 <Type> changes which. PAD BANK shows the next sixteen.\f"
      "<All Off> clears the type shown.\n"
+     "SHIFT+MUTE (UNMUTE ALL), on any page: every track unmuted.\n"
      "Next Seq: with the wheel on every type: the sequence that plays next."},
     {OS_SONG, -1, "Song",
      "Sequences chained into a song. Press pads to add steps: A01 is sequence 1, B01 is 17. "
@@ -487,17 +490,32 @@ static const struct {
      "Input Thru: ALWAYS ON (to start) hears the input at power-on; OFF starts with it off, "
      "to turn on by hand (Monitor on Sample New Sound).\n"
      "Rec Mode: STEREO (to start), MONO LFT, MONO RGT or MONO LR. Convert Sample always "
-     "starts in MONO LR."},
+     "starts in MONO LR.\f"
+     "Knob Mode: how K1-K3 and the slider take over a value.\n"
+     "CATCH (to start): nothing moves until the knob reaches the value.\n"
+     "JUMP: the value goes to where the knob is, at once.\n"
+     "SCALE: the value moves from where it is, in step with the knob, so the two meet at the "
+     "ends of its travel."},
     {OS_DISK, -1, "Save/Load",
      "SAVE, LOAD or EXPORT. Types: project (everything), program, sample, settings, autoload "
      "(loaded at power-on), FX chain (the input chain), arp pattern (a USER step pattern), "
-     "track FX (the Track/Mixer send effects), S600 wave (the S600 waveforms).\f"
+     "track FX (the Track/Mixer send effects), S600 wave (the S600 waveforms), sequence (one "
+     "sequence and all its tracks; Seq: which).\f"
+     "LOAD only: MIDI FILE (.mid), MPC SEQ (an MPC 1000, 2500 or 500 .ALL or .SEQ file) and MPC "
+     "PROGRAM (their .PGM, with its WAVs beside it), MPC 2500 PROJECT (also SAVE: a folder an MPC 2500 loads, with its .PRJ, .ALL, programs and WAVs. LOAD: an MPC 2500 .PRJ; MPC 1000 and 500 ones too: every program into the next empty program, then every sequence into the next empty sequence). Into: the sequence or program they go into.\f"
+     "MIDI FILE and MPC SEQ: choose the sequence (an .ALL holds several), then the tracks: push "
+     "puts a track in or out, SHIFT+push makes it DRUM or KEYS, B2 all or none, B3 loads. They "
+     "go onto the first empty tracks. An empty sequence takes the file's tempo, time signature "
+     "and length.\f"
+     "DRUM tracks go onto the pads: an MPC's notes by its program file beside the .ALL, a MIDI "
+     "file's by Pad Notes; each plays its MPC program, if loaded (MPC PROGRAM first). KEYS tracks play the program's S600 Instrument, or are MIDI tracks "
+     "on an MPC program.\f"
      "Names: the wheel sets the letter, - and + move along it.\n"
      "Folders: each type opens in its own; .. goes up, anywhere on the card. Folders show as "
      "/NAME.\f"
      "SAVE and EXPORT:\nB1 <New Dir> makes a folder here.\nB2 <Open> goes into a folder (or "
      "takes an item's name).\nB3 saves or exports here.\f"
-     "LOAD:\nB1 renames.\nB2 deletes (asked first).\nB3 loads, or opens a folder.\f"
+     "LOAD:\nB1 renames (on a folder: <Up>, out of this one).\nB2 deletes (asked first).\nB3 loads, or opens a folder.\f"
      "EXPORT: a sequence or song as a folder of WAVs: each track with notes (mono or stereo), "
      "and the stereo mix with Master FX.\n"
      "MIXDOWN SEQ, MIXDOWN SONG: the stereo mix alone, one WAV.\f"

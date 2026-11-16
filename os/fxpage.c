@@ -33,11 +33,8 @@ static int knob_params(struct os *s, const struct input *in, int *p) {
         if (!in->knob_moved[k]) continue;
         int last = s->knob_last[k], now = in->knob[k], at = p[k];
         s->knob_last[k] = now;
-        if (!s->knob_caught[k]) {
-            int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-            if (crossed || abs(now - at) <= 2) s->knob_caught[k] = 1;
-        }
-        if (s->knob_caught[k]) p[k] = now;
+        int pos = os_knob_take(s, &s->knob_caught[k], last, now, at);
+        if (pos >= 0) p[k] = pos;
         moved = k;
     }
     return moved;
@@ -892,11 +889,8 @@ void sends_frame(struct os *s, struct ui *u, const struct input *in) {
     if (in->fader_moved) { // the slider is the send, once it reaches it
         int last = s->fader_last, now = in->fader, at = send[fx] * 127 / 100;
         s->fader_last = now;
-        if (!s->fader_caught) {
-            int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-            if (crossed || abs(now - at) <= 2) s->fader_caught = 1;
-        }
-        if (s->fader_caught) send[fx] = (unsigned char)(now * 100 / 127), changed_send = 1;
+        int pos = os_knob_take(s, &s->fader_caught, last, now, at);
+        if (pos >= 0) send[fx] = (unsigned char)(pos * 100 / 127), changed_send = 1;
     }
     int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
     if (d) send[fx] = (unsigned char)clamp(send[fx] + d, 0, 100), changed_send = 1;

@@ -469,12 +469,9 @@ static void knob(struct os *s, const struct input *in, int k, int *v, int lo, in
     int at = log_scale ? (int)(log((double)*v / lo) / log((double)hi / lo) * 127 + 0.5) : (*v - lo) * 127 / (hi - lo);
     int last = s->knob_last[k], now = in->knob[k];
     s->knob_last[k] = now;
-    if (!s->knob_caught[k]) {
-        int crossed = last >= 0 && ((last <= at && now >= at) || (last >= at && now <= at));
-        if (crossed || abs(now - at) <= 2) s->knob_caught[k] = 1;
-    }
-    if (!s->knob_caught[k]) return;
-    int val = log_scale ? (int)(lo * pow((double)hi / lo, now / 127.0) + 0.5) : lo + (hi - lo) * now / 127;
+    int pos = os_knob_take(s, &s->knob_caught[k], last, now, at);
+    if (pos < 0) return;
+    int val = log_scale ? (int)(lo * pow((double)hi / lo, pos / 127.0) + 0.5) : lo + (hi - lo) * pos / 127;
     if (val != *v) *v = val, s->warp_dirty = 1;
     s->warp_cursor = k;
 }
