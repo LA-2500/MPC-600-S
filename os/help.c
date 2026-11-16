@@ -304,7 +304,8 @@ static const struct {
      "Snd: gives the selected pad any sound in memory."},
     {OS_TC, -1, "Timing Correct",
      "Note value and Swing for recording, Shift timing to push notes early or late.\n"
-     "Move Existing: corrects notes already recorded over the range; press pads to pick which.\f"
+     "Move Existing: corrects notes already recorded over the range; press pads to pick which.\n"
+     "K1 Swing, K2 Shift amount, K3 the Move Existing track.\f"
      "Shift+Pad 10 turns Timing Correct off and back on.\n"
      "Shift+Pad 14 opens this page."},
     {OS_METRO, -1, "Metronome",
@@ -501,14 +502,14 @@ static const struct {
      "(loaded at power-on), FX chain (the input chain), arp pattern (a USER step pattern), "
      "track FX (the Track/Mixer send effects), S600 wave (the S600 waveforms), sequence (one "
      "sequence and all its tracks; Seq: which).\f"
-     "LOAD only: MIDI FILE (.mid), MPC SEQ (an MPC 1000, 2500 or 500 .ALL or .SEQ file) and MPC "
-     "PROGRAM (their .PGM, with its WAVs beside it), MPC 2500 PROJECT (also SAVE: a folder an MPC 2500 loads, with its .PRJ, .ALL, programs and WAVs. LOAD: an MPC 2500 .PRJ; MPC 1000 and 500 ones too: every program into the next empty program, then every sequence into the next empty sequence). Into: the sequence or program they go into.\f"
-     "MIDI FILE and MPC SEQ: choose the sequence (an .ALL holds several), then the tracks: push "
+     "LOAD only: MIDI FILE (.mid), MPC 2500 SEQUENCE (an MPC 2500 .ALL or .SEQ; MPC 1000 and 500 "
+     "ones too) and MPC 2500 PROGRAM (its .PGM, with its WAVs beside it). MPC 2500 PROJECT (also SAVE: a folder an MPC 2500 loads, with its .PRJ, .ALL, programs and WAVs. LOAD: an MPC 2500 .PRJ; MPC 1000 and 500 ones too: every program into the next empty program, then every sequence into the next empty sequence). Into: the sequence or program they go into.\f"
+     "MIDI FILE and MPC 2500 SEQUENCE: choose the sequence (an .ALL holds several), then the tracks: push "
      "puts a track in or out, SHIFT+push makes it DRUM or KEYS, B2 all or none, B3 loads. They "
      "go onto the first empty tracks. An empty sequence takes the file's tempo, time signature "
      "and length.\f"
      "DRUM tracks go onto the pads: an MPC's notes by its program file beside the .ALL, a MIDI "
-     "file's by Pad Notes; each plays its MPC program, if loaded (MPC PROGRAM first). KEYS tracks play the program's S600 Instrument, or are MIDI tracks "
+     "file's by Pad Notes; each plays its MPC program, if loaded (MPC 2500 PROGRAM first). KEYS tracks play the program's S600 Instrument, or are MIDI tracks "
      "on an MPC program.\f"
      "Names: the wheel sets the letter, - and + move along it.\n"
      "Folders: each type opens in its own; .. goes up, anywhere on the card. Folders show as "

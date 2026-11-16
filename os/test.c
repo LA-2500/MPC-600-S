@@ -5490,6 +5490,28 @@ static void test_shift_erase_copy(void) {
 
 // Knob Mode: CATCH waits for the knob to reach the value, JUMP takes it at once, SCALE moves it
 // from where it is, so the two meet at the ends.
+// Timing Correct: K1 Swing, K2 Shift amount, K3 the Move Existing track (JUMP, so at once).
+static void test_tc_knobs(void) {
+    seq_fresh();
+    os.seq.tc = TC_16;
+    seq_tc_open(&os);
+    os.knob_mode = KNOB_JUMP;
+    struct input in = blank();
+    in.knob_moved[0] = 1, in.knob[0] = 127;
+    in.knob_moved[1] = 1, in.knob[1] = 127;
+    in.knob_moved[2] = 1, in.knob[2] = 0;
+    for (int i = 0; i < 3; i++) os.knob_last[i] = 64;
+    frame(&in);
+    CHECK(os.seq.swing == 75 && os.seq.shift_ticks == SEQ_PPQ / 2 - 1 && os.tc_track == 0 && os.cursor_tc == 4);
+    os.seq.res = SEQ_RES_SP1200;
+    in = blank();
+    in.knob_moved[0] = 1, in.knob[0] = 60; // about 61%: the SP12's 63
+    frame(&in);
+    CHECK(os.seq.swing == 63 && os.cursor_tc == 1);
+    os.seq.res = SEQ_RES_MPC3000, os.knob_mode = KNOB_CATCH;
+    os.screen = OS_MAIN;
+}
+
 static void test_knob_modes(void) {
     seq_fresh();
     int c = 0;
@@ -5633,7 +5655,7 @@ static void test_seq_files(const char *shot_dir) {
     CHECK(im.seq[0].track[0].has_map && !im.seq[0].track[0].midi && !strcmp(im.seq[0].track[0].name, "KCK"));
     n = imp_apply(&os, &im, 8, &first, &dropped);
     q = &sq->sequence[8];
-    CHECK(n == 1 && first == 0 && dropped == 1 && q->tempo10 == 980 && q->track[0].count == 1 && q->track[0].notes[0].note == 3);
+    CHECK(n == 1 && first == 0 && dropped == 1 && q->tempo10 == 980 && q->loop_bar == 1 && q->track[0].count == 1 && q->track[0].notes[0].note == 3);
     imp_free(&im);
     // The program, and its WAV.
     snprintf(p, sizeof p, "%s/KICK.wav", dir);
@@ -7509,6 +7531,7 @@ int main(int argc, char **argv) {
     test_track_mute(argc > 1 ? argv[1] : 0);
     test_unmute_all();
     test_knob_modes();
+    test_tc_knobs();
     test_seq_files(argc > 1 ? argv[1] : 0);
     test_shift_erase_copy();
     test_arpeggiator(argc > 1 ? argv[1] : 0);

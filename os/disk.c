@@ -35,7 +35,7 @@
 static const char CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 static const char *const MODES[DISK_MODES] = {"SAVE", "LOAD", "EXPORT"};
 static const char *const TYPES[DISK_TYPES] = {"PROJECT", "PROGRAM", "SAMPLE", "SETTINGS", "AUTOLOAD", "FX CHAIN", "ARP PATTERN",
-                                              "TRACK FX", "S600 WAVE", "SEQUENCE", "MIDI FILE", "MPC SEQ", "MPC PROGRAM", "MPC 2500 PROJECT", "SEQUENCE", "SONG",
+                                              "TRACK FX", "S600 WAVE", "SEQUENCE", "MIDI FILE", "MPC 2500 SEQUENCE", "MPC 2500 PROGRAM", "MPC 2500 PROJECT", "SEQUENCE", "SONG",
                                               "MIXDOWN SEQ", "MIXDOWN SONG"};
 static const char *const DIRS[DISK_TYPES] = {"projects", "programs", "samples", "settings", "autoload", "fx", "arp", "trackfx",
                                              "s600", "sequences", "sequences", "sequences", "programs", "projects", "exports", "exports", "exports", "exports"};
@@ -1458,7 +1458,7 @@ static void import_frame(struct os *s, struct ui *u, const struct input *in) {
             return;
         }
         if (input_down(in, IN_B3) || in->encoder_press) imp_select_all(im, 1), im->cursor = 0, s->disk_ask = 'T'; // <Tracks>
-        lcd_rule(u, TITLE_ROW, "Load MPC Seq");
+        lcd_rule(u, TITLE_ROW, "Load MPC 2500 Seq");
         snprintf(line, sizeof line, "%.24s", im->file);
         lcd_text(u, 0, 3, line);
         lcd_text(u, 0, 4, "Which sequence:");
@@ -1513,7 +1513,7 @@ static void import_frame(struct os *s, struct ui *u, const struct input *in) {
             return;
         }
     }
-    lcd_rule(u, TITLE_ROW, im->kind == IMP_MPC ? "Load MPC Seq" : "Load MIDI File");
+    lcd_rule(u, TITLE_ROW, im->kind == IMP_MPC ? "Load MPC 2500 Seq" : "Load MIDI File");
     snprintf(line, sizeof line, "%.12s: %db %d.%d BPM", q->name, q->bars, q->tempo10 / 10, q->tempo10 % 10);
     lcd_text(u, 0, 3, line);
     snprintf(line, sizeof line, "Into Seq %02d, empty tracks", s->disk_which + 1);
@@ -1658,7 +1658,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
             break;
         case DF_TYPE:
             if (m == DISK_EXPORT) s->disk_type = clampi(s->disk_type + d, DISK_SEQUENCE, DISK_MIX_SONG);
-            else if (m == DISK_SAVE) { // MIDI FILE, MPC SEQ, MPC PROGRAM: load only
+            else if (m == DISK_SAVE) { // MIDI FILE, MPC 2500 SEQUENCE, MPC 2500 PROGRAM: load only
                 int t2 = clampi(s->disk_type + d, 0, DISK_MPCPRJ);
                 while (t2 > DISK_SEQFILE && t2 < DISK_MPCPRJ) t2 += d > 0 ? 1 : -1;
                 s->disk_type = t2;

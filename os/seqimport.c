@@ -366,7 +366,7 @@ int imp_apply(struct os *s, struct seq_import *im, int to, int *first, int *drop
     for (int t = 0; t < SEQ_TRACKS; t++) empty &= q->track[t].count == 0 && q->track[t].nauto == 0;
     if (empty) { // a new sequence: the file's tempo, time signature, length and name
         q->tempo10 = src->tempo10, q->sig_num = src->sig_num, q->sig_den = src->sig_den, q->bars = src->bars;
-        q->loop_bar = 0;
+        q->loop_bar = 1; // looping, to bar 1, as a new sequence does
         snprintf(q->name, sizeof q->name, "%s", src->name);
     } else if (q->bars < src->bars) {
         q->bars = src->bars; // long enough for it

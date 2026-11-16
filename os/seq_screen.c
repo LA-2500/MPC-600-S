@@ -748,7 +748,21 @@ void seq_tc_open(struct os *s) {
     s->tc_to = (uint32_t)seq_length(current(s));
     memset(s->tc_notes, 0, sizeof s->tc_notes);
     s->tc_count = 0;
+    for (int i = 0; i < 3; i++) s->knob_caught[i] = 0; // K1-K3 are this page's now
     pthread_mutex_unlock(&s->seq.lock);
+}
+
+// K1 Swing (an SP12's six settings in SP12 mode), K2 Shift amount, K3 the Move Existing track;
+// each takes the cursor to its field. Caller holds the lock.
+static void tc_knobs(struct os *s, const struct input *in) {
+    struct seq *sq = &s->seq;
+    if (in->knob_moved[0]) {
+        int v = knob_follow(s, in, 0, sq->swing, 50, 75);
+        if (v != sq->swing) sq->swing = sq->res == SEQ_RES_SP1200 ? seq_swing_step(sq, v, 0) : v;
+        if (swing_shown(s)) s->cursor_tc = 1;
+    }
+    if (in->knob_moved[1]) sq->shift_ticks = knob_follow(s, in, 1, sq->shift_ticks, 0, SEQ_PPQ / 2 - 1), s->cursor_tc = 3;
+    if (in->knob_moved[2]) s->tc_track = knob_follow(s, in, 2, s->tc_track, 0, SEQ_TRACKS - 1), s->cursor_tc = 4;
 }
 
 // Each pad hit adds that pad to the notes Move Existing works on, or takes it off again.
@@ -762,6 +776,7 @@ void seq_tc_frame(struct os *s, struct ui *u, const struct input *in) {
     struct seq *sq = &s->seq;
     pthread_mutex_lock(&sq->lock);
     edit_fields(s, in, TC_FIELDS, COUNT(TC_FIELDS), &s->cursor_tc);
+    tc_knobs(s, in);
     int move = input_down(in, IN_B3);
     uint32_t from = s->tc_from < s->tc_to ? s->tc_from : s->tc_to;
     uint32_t to = s->tc_from < s->tc_to ? s->tc_to : s->tc_from;
@@ -781,6 +796,7 @@ void seq_tc_frame(struct os *s, struct ui *u, const struct input *in) {
     if (swing_shown(s)) lcd_text(u, 0, 4, "Swing%:");
     lcd_rule(u, 7, "Move Existing");
     draw_fields(s, u, TC_FIELDS, COUNT(TC_FIELDS), s->cursor_tc);
+    lcd_text(u, 0, 13, "K1 Swing K2 Shift K3 Track");
     lcd_rule(u, BOTTOM_ROW, 0);
     pthread_mutex_unlock(&sq->lock);
 }
