@@ -4,6 +4,12 @@ Sampler and sequencer OS for the **Akai MPC Sample**, based on the design of the
 
 <p align="center"><img src="docs/img/tour.gif" alt="A tour of the MPC 600 S screens" width="480"></p>
 
+## Video manual
+
+<p align="center"><a href="https://youtu.be/MTibHXiCgGk"><img src="https://img.youtube.com/vi/MTibHXiCgGk/hqdefault.jpg" alt="MPC 600 S video manual on YouTube" width="480"></a></p>
+
+The full video manual on YouTube (53 min, in chapters): installation, sequencing, timing correct and swing, the arpeggiator, S600 programs, sampling, effects, saving and loading. **[Watch on YouTube](https://youtu.be/MTibHXiCgGk)**
+
 ## Download
 
 | | |
