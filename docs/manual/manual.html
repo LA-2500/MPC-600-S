@@ -1118,7 +1118,7 @@
 
 <!-- ===================================================================================== -->
 <h1 class="chapter" id="ch15"><small>Chapter 15</small>Saving, Loading and Exporting</h1>
-<p><span class="key">SHIFT + Pad 16</span> opens Save/Load (<span class="key">SHIFT + SAMPLE SELECT</span> opens it ready to save the pad&rsquo;s sound). <strong>Mode</strong>: SAVE, LOAD or EXPORT. Sequences and MIDI files open in <span class="lcd">MPC600S/sequences</span>. MPC 2500 SEQUENCE, MPC 2500 PROGRAM and MPC 2500 PROJECT open at the top of the card, where an MPC&rsquo;s folders go when copied from its card, and they do not list the MPC 600 S&rsquo;s own saved projects and programs. Any folder on the card can be browsed to.</p>
+<p><span class="key">SHIFT + Pad 16</span> opens Save/Load (<span class="key">SHIFT + SAMPLE SELECT</span> opens it ready to save the pad&rsquo;s sound). It opens on the Mode and Type you used last (after loading an MPC 2500 PROJECT, LOAD and MPC 2500 PROJECT again); the first time after power-on, SAVE and PROJECT. <strong>Mode</strong>: SAVE, LOAD or EXPORT. Sequences and MIDI files open in <span class="lcd">MPC600S/sequences</span>. MPC 2500 SEQUENCE, MPC 2500 PROGRAM and MPC 2500 PROJECT open at the top of the card, where an MPC&rsquo;s folders go when copied from its card, and they do not list the MPC 600 S&rsquo;s own saved projects and programs. Any folder on the card can be browsed to.</p>
 <table>
   <tr><th>Type</th><th>Saves and loads</th></tr>
   <tr><td>PROJECT</td><td>Everything: every program and sound, the sounds in memory, the sequences, songs, mixer, effects and Master Effects. Master Effects are kept only in projects (and the Autoload project): with no Autoload, they start off at power-on.</td></tr>
@@ -1161,9 +1161,10 @@
 <table>
   <tr><th>Mode</th><th>B1</th><th>B2</th><th>B3</th></tr>
   <tr><td>SAVE, EXPORT</td><td>&lt;New Dir&gt;: name a folder and make it here; you go into it</td><td>&lt;Open&gt;: into the folder highlighted, or back up; on a saved item, its name, to save over it</td><td>&lt;Save&gt; or &lt;Export&gt;: into the folder you are in</td></tr>
-  <tr><td>LOAD</td><td>&lt;Rename&gt; the item; on a folder or <span class="lcd">..</span>, &lt;Up&gt; out of this folder</td><td>&lt;Delete&gt; the item (asks first)</td><td>&lt;Load&gt; the item, or &lt;Open&gt; a folder</td></tr>
+  <tr><td>LOAD</td><td>&lt;Rename&gt; the item; on a folder or <span class="lcd">..</span>, &lt;Up&gt; out of this folder</td><td><span class="key">SHIFT + B2</span>: &lt;Delete&gt; the item (asks first)</td><td>&lt;Load&gt; the item, or &lt;Open&gt; a folder</td></tr>
 </table>
-<p>Names: the wheel sets each letter, <span class="key">&minus;</span>/<span class="key">+</span> move along the name. Saving over a name asks first. In LOAD, <span class="key">B1</span> renames, <span class="key">B2</span> deletes (asking first: this cannot be undone), <span class="key">B3</span> loads.</p>
+<p>Names: the wheel sets each letter, <span class="key">&minus;</span>/<span class="key">+</span> move along the name. Saving over a name asks first. In LOAD, <span class="key">B1</span> renames, <span class="key">SHIFT + B2</span> deletes (only with SHIFT, so it cannot happen by accident; it asks first: this cannot be undone), <span class="key">B3</span> loads.</p>
+<p><strong>Clear all</strong> (LOAD of a project, program, sample, sequence, MIDI file or MPC 2500 file): YES empties memory before the load. <span class="key">&lt;Load&gt;</span> asks <span class="lcd">Clear all, then load?</span> first: <em>Yes</em> clears every program, sound, sequence and song (as at power-on; your settings stay), then loads. It is NO each time the page opens, and goes back to NO after it is used.</p>
 <h2>Exporting</h2>
 <p>EXPORT renders a sequence or song to WAV files, in the background, showing its progress, while the music keeps playing. It goes into the folder you are in (exports to start with), and asks before replacing one already there.</p>
 <table>

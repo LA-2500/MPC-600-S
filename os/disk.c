@@ -574,6 +574,28 @@ int disk_project_load(struct os *s, const char *dir) {
     return 0;
 }
 
+// Clear all: everything a project holds goes, as at power-on: playing stopped, every pad, sound,
+// program, sequence and song emptied, undo forgotten. Settings stay.
+void disk_clear_all(struct os *s) {
+    seq_stop(&s->seq, 1);
+    engine_kill_all(s->engine);
+    os_undo_clear(s);
+    for (int m = 0; m < s->nmemory; m++) os_sample_release(s, s->memory[m].s);
+    s->nmemory = 0;
+    for (int g = 0; g < OS_PROGRAMS; g++) {
+        os_program_clear(s, g);
+        snprintf(s->programs[g].name, sizeof s->programs[g].name, "Program%02d", g + 1);
+    }
+    struct seq *sq = &s->seq;
+    pthread_mutex_lock(&sq->lock);
+    for (int n = 0; n < SEQ_COUNT; n++) seq_sequence_reset(&sq->sequence[n], n);
+    for (int g = 0; g < SEQ_SONGS; g++) sq->song[g].nsteps = 0;
+    sq->current = 0, sq->track = 0, sq->pos = 0, sq->next = -1;
+    pthread_mutex_unlock(&sq->lock);
+    s->eq_seq = -1; // every track's EQ and sends to the engine, next frame
+    s->selected = 0;
+}
+
 int disk_program_save(struct os *s, int program, const char *dir) {
     if (make_dirs(dir) != 0) return -1;
     char p[700];
@@ -1106,12 +1128,17 @@ void disk_autoload(struct os *s) {
 
 // ---- The page ----
 
-enum { DF_MODE, DF_TYPE, DF_WHICH, DF_TRACKS, DF_MIX, DF_NAME, DF_FILE, DF_FIELDS };
+enum { DF_MODE, DF_TYPE, DF_WHICH, DF_CLEAR, DF_TRACKS, DF_MIX, DF_NAME, DF_FILE, DF_FIELDS };
+
+static int clear_ok(int t) { // a load that adds to what is in memory: Clear all can come first
+    return t == DISK_PROJECT || is_prog(t) || is_sound(t) || is_seqtype(t) || t == DISK_MPCPRJ;
+}
 
 static int field_shown(const struct os *s, int f) {
     int t = s->disk_type, m = s->disk_mode;
     switch (f) {
     case DF_WHICH: return is_prog(t) || is_sound(t) || t == DISK_ARP || m == DISK_EXPORT || is_seqtype(t);
+    case DF_CLEAR: return m == DISK_LOAD && clear_ok(t) && !s->disk_renaming;
     case DF_TRACKS: case DF_MIX: return m == DISK_EXPORT && !is_mixdown(t);
     case DF_NAME: return (m == DISK_SAVE && t != DISK_AUTOLOAD) || m == DISK_EXPORT || s->disk_renaming;
     case DF_FILE: return (m != DISK_SAVE || t != DISK_AUTOLOAD) && !s->disk_renaming && !s->disk_newdir;
@@ -1246,6 +1273,7 @@ void disk_open(struct os *s, int mode, int type) {
     s->disk_mode = mode, s->disk_type = type;
     s->disk_cursor = s->disk_mode == DISK_SAVE ? DF_NAME : DF_MODE;
     s->disk_ask = 0, s->disk_renaming = 0, s->disk_pending = 0, s->disk_newdir = 0;
+    s->disk_used = 1, s->disk_clear = 0;
     s->disk_which = is_prog(type) ? s->program : is_seqtype(type) ? s->seq.current : 0;
     default_name(s);
     restore_folder(s); // where this type was last used; its own folder to start with
@@ -1569,7 +1597,10 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
                 }
             }
         }
-        if (input_down(in, IN_B3)) s->disk_pending = s->disk_ask == 'P' || s->disk_ask == 'O' ? 'L' : s->disk_ask, s->disk_ask = 0;
+        if (input_down(in, IN_B3) && s->disk_ask == 'C') { // Clear all, then the load
+            disk_clear_all(s);
+            s->disk_clear = 0, s->disk_ask = 0, s->disk_pending = 'L';
+        } else if (input_down(in, IN_B3)) s->disk_pending = s->disk_ask == 'P' || s->disk_ask == 'O' ? 'L' : s->disk_ask, s->disk_ask = 0;
         lcd_text(u, 0, KEY_ROW, s->disk_ask == 'P' ? "<Cancel>" : "<No>");
         if (s->disk_ask == 'P') lcd_text(u, 9, KEY_ROW, "<To Empty>");
         lcd_text(u, 21, KEY_ROW, "<Yes>");
@@ -1578,9 +1609,14 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         if (s->disk_ask == 'D') snprintf(q, sizeof q, "Delete %.16s?", s->disk_files[s->disk_file]);
         else if (s->disk_ask == 'P') snprintf(q, sizeof q, "Load into Program %02d?", s->disk_which + 1);
         else if (s->disk_ask == 'O') snprintf(q, sizeof q, "Replace Seq %02d?", s->disk_which + 1);
+        else if (s->disk_ask == 'C') snprintf(q, sizeof q, "Clear all, then load?");
         else snprintf(q, sizeof q, "Replace %.16s?", s->disk_name);
         lcd_center(u, 6, q);
         if (s->disk_ask == 'D') lcd_center(u, 8, "This cannot be undone");
+        if (s->disk_ask == 'C') {
+            lcd_center(u, 8, "Programs, sounds, sequences");
+            lcd_center(u, 9, "and songs are cleared");
+        }
         if (s->disk_ask == 'P') { // which program, and that what is there goes
             snprintf(q, sizeof q, "%02d-%.16s", s->disk_which + 1, s->programs[s->disk_which].name);
             lcd_center(u, 7, q);
@@ -1603,14 +1639,15 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         if (input_down(in, IN_B1)) s->disk_renaming = 0, s->disk_cursor = DF_FILE; // <Cancel>
         if (input_down(in, IN_B3)) s->disk_pending = 'R', s->disk_renaming = 0, s->disk_cursor = DF_FILE; // <OK>
     } else if (m == DISK_LOAD) {
-        if (input_down(in, IN_B1) && on_item) { // <Rename>
+        if (input_down(in, IN_B1) && on_item && !in->shift) { // <Rename>
             snprintf(s->disk_name, sizeof s->disk_name, "%s", s->disk_files[s->disk_file]);
             s->disk_renaming = 1, s->disk_cursor = DF_NAME, s->disk_pos = 0;
         } else if (input_down(in, IN_B1) && s->disk_nfiles && s->disk_isdir[0] == 2) { // <Up>: out of this folder
             open_folder(s, 0);
         }
-        if (input_down(in, IN_B2) && on_item) s->disk_ask = 'D'; // <Delete>
+        if (input_down(in, IN_B2) && on_item && in->shift) s->disk_ask = 'D'; // SHIFT + B2: <Delete>, asked first
         if (input_down(in, IN_B3) && on_folder) open_folder(s, s->disk_file); // <Open>
+        else if (input_down(in, IN_B3) && on_item && s->disk_clear && clear_ok(s->disk_type)) s->disk_ask = 'C'; // Clear all first?
         else if (input_down(in, IN_B3) && on_item && is_prog(s->disk_type)) s->disk_ask = 'P'; // <Load>: asked first
         else if (input_down(in, IN_B3) && on_item && s->disk_type == DISK_SEQFILE && seq_in_use(s, s->disk_which)) s->disk_ask = 'O';
         else if (input_down(in, IN_B3) && on_item) s->disk_pending = 'L'; // <Load>
@@ -1672,6 +1709,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
                                                               : s->disk_type == DISK_ARP ? ARP_USER : SEQ_COUNT) - 1);
             if (m != DISK_LOAD) default_name(s);
             break;
+        case DF_CLEAR: s->disk_clear = d > 0; break;
         case DF_TRACKS: s->disk_tracks = clampi(s->disk_tracks + d, 0, 2); break;
         case DF_MIX: s->disk_mix = d > 0; break;
         case DF_FILE: s->disk_file = clampi(s->disk_file + d, 0, s->disk_nfiles > 0 ? s->disk_nfiles - 1 : 0); break;
@@ -1696,7 +1734,8 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         lcd_text(u, 0, KEY_ROW, "<Cancel>");
         lcd_text(u, 22, KEY_ROW, "<OK>");
     } else if (m == DISK_LOAD) {
-        if (on_item) lcd_text(u, 0, KEY_ROW, "<Rename>"), lcd_text(u, 9, KEY_ROW, "<Delete>");
+        if (on_item && in->shift) lcd_text(u, 9, KEY_ROW, "<Delete>"); // only with SHIFT: never by accident
+        else if (on_item) lcd_text(u, 0, KEY_ROW, "<Rename>");
         else if (s->disk_nfiles && s->disk_isdir[0] == 2) lcd_text(u, 0, KEY_ROW, "<Up>");
         if (on_folder) lcd_text(u, 20, KEY_ROW, "<Open>");
         else if (on_item) lcd_text(u, 20, KEY_ROW, "<Load>");
@@ -1734,6 +1773,12 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         lcd_text(u, 0, 5, label);
         if (s->disk_cursor == DF_WHICH) lcd_inverse(u, 6, 5, v);
         else lcd_text(u, 6, 5, v);
+    }
+    if (field_shown(s, DF_CLEAR)) {
+        lcd_text(u, 0, 6, "Clear all:");
+        snprintf(v, sizeof v, " %s ", s->disk_clear ? "YES" : "NO");
+        if (s->disk_cursor == DF_CLEAR) lcd_inverse(u, 11, 6, v);
+        else lcd_text(u, 11, 6, v);
     }
     if (m == DISK_EXPORT && !is_mixdown(s->disk_type)) {
         static const char *const TR[3] = {"NONE", "MONO", "STEREO"};

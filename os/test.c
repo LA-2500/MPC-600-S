@@ -456,6 +456,15 @@ static void tap(int button) {
     frame(&in);
 }
 
+static void shift_pad16(void) { // SHIFT + Pad 16: Save/Load
+    struct input in = blank();
+    in.held = 1u << IN_SHIFT, in.shift = 1;
+    in.pad_hit[15] = 100, in.pad_down[15] = 1;
+    frame(&in);
+    in = blank();
+    frame(&in);
+}
+
 static void write_shot(const char *dir, const char *name) {
     char path[512];
     snprintf(path, sizeof path, "%s/%s.ppm", dir, name);
@@ -7154,7 +7163,13 @@ static void test_disk(const char *shot_dir) {
     in = blank();
     frame(&in);
     CHECK(os.disk_nfiles == 2 && strcmp(os.disk_files[1], "TAKE2") == 0);
-    tap(IN_B2); // <Delete>
+    tap(IN_B2); // B2 alone: nothing (Delete is SHIFT + B2, never by accident)
+    CHECK(os.disk_ask == 0);
+    {
+        struct input sh = blank();
+        sh.down = 1u << IN_B2, sh.held = 1u << IN_B2 | 1u << IN_SHIFT, sh.shift = 1;
+        frame(&sh); // SHIFT + B2: <Delete>, asked first
+    }
     CHECK(os.disk_ask == 'D');
     frame(&in);
     if (shot_dir) write_shot(shot_dir, "disk_delete");
@@ -7162,6 +7177,28 @@ static void test_disk(const char *shot_dir) {
     in = blank();
     frame(&in);
     CHECK(os.disk_nfiles == 1 && os.disk_isdir[0] == 2); // only .. left
+    // Save/Load opens again on the mode and type last used; the first time, SAVE PROJECT.
+    os.disk_used = 0;
+    os.screen = OS_MAIN;
+    shift_pad16();
+    CHECK(os.screen == OS_DISK && os.disk_mode == DISK_SAVE && os.disk_type == DISK_PROJECT);
+    disk_open(&os, DISK_LOAD, DISK_MPCPRJ);
+    os.screen = OS_MAIN;
+    shift_pad16();
+    CHECK(os.screen == OS_DISK && os.disk_mode == DISK_LOAD && os.disk_type == DISK_MPCPRJ);
+    // Clear all: shown on a load into memory, off each time the page opens, asked first, then
+    // everything emptied before the load.
+    disk_open(&os, DISK_LOAD, DISK_PROGRAM);
+    CHECK(os.disk_clear == 0);
+    {
+        struct input w = blank();
+        os.disk_cursor = 3; // DF_CLEAR
+        w.encoder = 1;
+        frame(&w);
+        CHECK(os.disk_clear == 1);
+        if (shot_dir) write_shot(shot_dir, "disk_clear");
+        os.disk_clear = 0;
+    }
     // An effects chain, out and back in.
     infx_load_preset(&os, 2);
     snprintf(p, sizeof p, "%s/chain.fxc", dir);
@@ -7235,6 +7272,16 @@ static void test_disk(const char *shot_dir) {
     CHECK(system(rm) == 0);
     os.data_dir = 0;
     render(64);
+    // Clear all: everything emptied (last here: the tests above use what is loaded).
+    {
+        struct sample *x = sample_new(100, 1, 44100);
+        os_pad_load(&os, os_pad_slot(&os, 3), x, "Kick");
+        os_memory_add(&os, x, "Kick");
+        os.seq.sequence[4].bars = 9;
+        os.seq.song[2].nsteps = 3;
+        disk_clear_all(&os);
+        CHECK(!os.pads[3].s && os.nmemory == 0 && os.seq.sequence[4].bars == 2 && os.seq.song[2].nsteps == 0);
+    }
 }
 
 static void test_swing_tables(void) {

@@ -194,6 +194,7 @@ struct seq {
 };
 
 void seq_init(struct seq *s);
+void seq_sequence_reset(struct seq_sequence *q, int i); // sequence i as at power-on, its notes freed
 
 // The audio thread's part, installed as the engine's block hook.
 void seq_audio_block(void *seq, struct engine *e, int frames);

@@ -70,23 +70,26 @@ void seq_init(struct seq *s) {
     s->click_rate = CLICK_4;
     s->click_volume = 100;
     s->erase_note = -1;
-    for (int i = 0; i < SEQ_COUNT; i++) {
-        struct seq_sequence *q = &s->sequence[i];
-        snprintf(q->name, sizeof q->name, "Sequence%02d", i + 1);
-        q->bars = 2;
-        q->sig_num = 4;
-        q->sig_den = 4;
-        q->tempo10 = 1200;
-        q->loop_bar = 1;
-        for (int t = 0; t < SEQ_TRACKS; t++) {
-            struct seq_track *k = &q->track[t];
-            snprintf(k->name, sizeof k->name, "Track%02d", t + 1);
-            k->type = TRACK_DRUM;
-            k->on = 1;
-            k->vel_pct = 100;
-            k->level = 100;
-            k->eq = (struct track_eq){.type = EQ_1073, .on = 1, .lf = 110, .mf = 1600, .mq = 7, .hf = 12000};
-        }
+    for (int i = 0; i < SEQ_COUNT; i++) seq_sequence_reset(&s->sequence[i], i);
+}
+
+void seq_sequence_reset(struct seq_sequence *q, int i) {
+    for (int t = 0; t < SEQ_TRACKS; t++) free(q->track[t].notes), free(q->track[t].autos);
+    memset(q, 0, sizeof *q);
+    snprintf(q->name, sizeof q->name, "Sequence%02d", i + 1);
+    q->bars = 2;
+    q->sig_num = 4;
+    q->sig_den = 4;
+    q->tempo10 = 1200;
+    q->loop_bar = 1;
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        struct seq_track *k = &q->track[t];
+        snprintf(k->name, sizeof k->name, "Track%02d", t + 1);
+        k->type = TRACK_DRUM;
+        k->on = 1;
+        k->vel_pct = 100;
+        k->level = 100;
+        k->eq = (struct track_eq){.type = EQ_1073, .on = 1, .lf = 110, .mf = 1600, .mq = 7, .hf = 12000};
     }
 }
 

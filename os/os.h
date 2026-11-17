@@ -430,6 +430,8 @@ struct os {
     // Save/Load (Shift + Pad 16).
     const char *data_dir;         // MPC600S on the card, or NULL (tests point it at a folder)
     int disk_mode, disk_type, disk_which, disk_cursor, disk_return, disk_pos, disk_file, disk_nfiles;
+    int disk_used;                // opened since power-on: it opens again on the mode and type last used
+    int disk_clear;               // LOAD: Clear all first (asked, then back to NO)
     int disk_tracks, disk_mix;    // EXPORT: tracks 0 none, 1 mono, 2 stereo; the mix with Master FX
     int disk_ask, disk_pending, disk_renaming; // a question up, an action next frame ('S' 'L' 'E' 'D' 'R')
     char disk_name[40];
@@ -574,6 +576,7 @@ void disk_autoload(struct os *s); // power-on: the autoload project, if one was 
 void disk_install_waves(struct os *s); // power-on: the S600 waveforms into MPC600S/s600, any missing
 int disk_project_save(struct os *s, const char *dir);
 int disk_project_load(struct os *s, const char *dir);
+void disk_clear_all(struct os *s); // every program, sound, sequence and song emptied, as at power-on
 int disk_program_save(struct os *s, int program, const char *dir);
 int disk_program_load(struct os *s, int program, const char *dir);
 int disk_seq_save(struct os *s, int which, const char *path); // one sequence, all its tracks

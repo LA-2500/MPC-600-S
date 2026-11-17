@@ -810,8 +810,9 @@ static void shift_pad(struct os *s, struct ui *u, int pad) {
         if (s->screen == OS_MIDI) s->cursor_midi = 0; // pressed again: the first field
         else midi_open(s);
         break;
-    case 15: // Shift + Pad 16: Save/Load
-        disk_open(s, DISK_SAVE, DISK_PROJECT);
+    case 15: // Shift + Pad 16: Save/Load, on the mode and type last used (SAVE PROJECT the first time)
+        if (s->disk_used) disk_open(s, s->disk_mode, s->disk_type);
+        else disk_open(s, DISK_SAVE, DISK_PROJECT);
         break;
     default:
         toast(s, u, "Not built yet");
