@@ -6581,6 +6581,7 @@ static void test_panel_input(void) {
         // Pads: under the threshold, and a light hit right after a hard one elsewhere, ignored.
         const unsigned char soft[3] = {0x99, INPUT_PAD_NOTE[0], 8}, hard[3] = {0x99, INPUT_PAD_NOTE[0], 120},
                             ghost[3] = {0x99, INPUT_PAD_NOTE[1], 20}, real[3] = {0x99, INPUT_PAD_NOTE[2], 70};
+        d2.ctl_ms = 0; // long after the knob turns above
         unsigned before = d2.rejected;
         input_begin(&i2, &d2), input_push(&d2, &i2, soft);
         CHECK(i2.pad_hit[0] < 0 && d2.rejected == before + 1);
@@ -6603,6 +6604,30 @@ static void test_panel_input(void) {
         input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[1], 50});  // corner, nearly as hard
         CHECK(i2.pad_hit[5] == 60 && i2.pad_hit[6] < 0 && i2.pad_hit[10] < 0 && i2.pad_hit[7] == 30 &&
               i2.pad_hit[1] == 50 && d2.rejected == before + 2);
+        // A knob turned, the wheel turned or pushed: light pad hits meanwhile are the panel shaking;
+        // a firm press still plays; long after, a light one plays again.
+        for (int q = 0; q < 16; q++) d2.pad_on_ms[q] = 0;
+        before = d2.rejected;
+        input_begin(&i2, &d2);
+        input_push(&d2, &i2, (const unsigned char[3]){0xB0, 17, 70});                 // K2 turned
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[13], 30}); // shaken
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[0], 90});  // pressed
+        CHECK(i2.pad_hit[13] < 0 && i2.pad_hit[0] == 90 && d2.rejected == before + 1);
+        input_begin(&i2, &d2);
+        input_push(&d2, &i2, (const unsigned char[3]){0x90, 111, 127});               // the wheel pushed, held
+        d2.ctl_ms = 0;
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[14], 40});
+        CHECK(i2.pad_hit[14] < 0 && d2.rejected == before + 2);
+        input_begin(&i2, &d2);
+        input_push(&d2, &i2, (const unsigned char[3]){0x80, 111, 0});                  // let go
+        input_begin(&i2, &d2);
+        input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 1});                  // the wheel turned
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[15], 20});
+        CHECK(i2.pad_hit[15] < 0 && d2.rejected == before + 3);
+        d2.ctl_ms = 0;                                                                     // long after
+        for (int q = 0; q < 16; q++) d2.pad_on_ms[q] = 0;
+        input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[15], 20});
+        CHECK(i2.pad_hit[15] == 20);
     }
     // Drawing: lights and a wake ask go into the frame.
     static uint32_t frame_px[UI_W * UI_H];

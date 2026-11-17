@@ -48,6 +48,8 @@ struct input_dev {
     // one far from it held back until the next reading confirms it (-1 none). A lone reading far
     // off is noise from the panel, not a turn.
     int ctl_last[5], ctl_held[5], ctl_known[5];
+    long long ctl_ms;      // the last knob, slider or wheel movement (or wheel push): pads close
+                           // to them shake while they are worked, see CTL_GUARD
     int pad_on_vel[16];    // the velocity of each pad's last press: a light hit just after it on
                            // a pad near it is that pad shaking, not a press
     unsigned rejected;     // readings and pad hits thrown away as noise

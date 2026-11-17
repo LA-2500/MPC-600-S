@@ -90,6 +90,8 @@ void panel_set_pad_threshold(int velocity) {
 // within CROSS_MS of a hit on a neighbouring pad (side or corner) and under 60% of its velocity is
 // that; from a pad further off, only one under a third (and light) is, so two hands still play.
 #define CROSS_MS 40
+#define CTL_GUARD_MS 300 // after a knob, slider or wheel movement
+#define CTL_GUARD_VEL 48 // pad hits lighter than this are taken as the panel shaking
 
 static int crosstalk(const struct input_dev *dev, int p, int value, long long now) {
     for (int q = 0; q < 16; q++) {
@@ -118,6 +120,12 @@ static void pad_message(struct input_dev *dev, struct input *in, int kind, int n
             dev->pad_bounces++;
             return;
         }
+        // Turning a knob, moving the slider, or turning or pushing the wheel presses on the panel too:
+        // light pad hits meanwhile are that, not a press.
+        if (dev && value < CTL_GUARD_VEL && (now - dev->ctl_ms < CTL_GUARD_MS || (dev->held >> IN_ENCODER & 1))) {
+            dev->rejected++;
+            return;
+        }
         if (dev && crosstalk(dev, p, value, now)) { // another pad's hit shaking this one
             dev->rejected++;
             return;
@@ -141,6 +149,7 @@ static void button_message(struct input_dev *dev, struct input *in, int kind, in
             in->down |= bit;
             if (b == IN_ENCODER) in->encoder_press = 1;
         }
+        if (b == IN_ENCODER && dev) dev->ctl_ms = clock_ms();
         in->held |= bit;
         if (dev) dev->held |= bit;
     } else if (kind == 0x80 || (kind == 0x90 && value == 0)) {
@@ -182,6 +191,7 @@ static int control_value(struct input_dev *dev, int c, int value) {
 }
 
 static void control_message(struct input_dev *dev, struct input *in, int cc, int value) {
+    if (dev && ((cc >= 16 && cc <= 20) || cc == 100)) dev->ctl_ms = clock_ms(); // a control being worked
     if (cc == 100) {
         in->encoder += value < 64 ? value : value - 128; // two's complement steps
         return;
