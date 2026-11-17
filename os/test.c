@@ -6587,10 +6587,22 @@ static void test_panel_input(void) {
         input_push(&d2, &i2, hard), input_push(&d2, &i2, ghost), input_push(&d2, &i2, real);
         CHECK(i2.pad_hit[0] == 120 && i2.pad_hit[1] < 0 && i2.pad_hit[2] == 70 && d2.rejected == before + 2);
         panel_set_pad_threshold(5);
-        d2.last_hit_ms = 0; // long after the hard hit
+        for (int q = 0; q < 16; q++) d2.pad_on_ms[q] = 0; // long after the hard hit
         input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[5], 8});
         CHECK(i2.pad_hit[5] == 8);
         panel_set_pad_threshold(12);
+        // A moderate hit: its neighbours' light note-ons (side or corner) go, a pad two away still
+        // plays, and a neighbour played nearly as hard is a real press.
+        for (int q = 0; q < 16; q++) d2.pad_on_ms[q] = 0;
+        before = d2.rejected;
+        input_begin(&i2, &d2);
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[5], 60});
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[6], 30});  // beside it
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[10], 25}); // corner
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[7], 30});  // two away
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[1], 50});  // corner, nearly as hard
+        CHECK(i2.pad_hit[5] == 60 && i2.pad_hit[6] < 0 && i2.pad_hit[10] < 0 && i2.pad_hit[7] == 30 &&
+              i2.pad_hit[1] == 50 && d2.rejected == before + 2);
     }
     // Drawing: lights and a wake ask go into the frame.
     static uint32_t frame_px[UI_W * UI_H];

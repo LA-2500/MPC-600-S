@@ -86,6 +86,20 @@ void panel_set_pad_threshold(int velocity) {
     pad_threshold = velocity < 1 ? 1 : velocity > 60 ? 60 : velocity;
 }
 
+// A pad hit shakes the panel, and the pads around it send light note-ons of their own. A note-on
+// within CROSS_MS of a hit on a neighbouring pad (side or corner) and under 60% of its velocity is
+// that; from a pad further off, only one under a third (and light) is, so two hands still play.
+#define CROSS_MS 40
+
+static int crosstalk(const struct input_dev *dev, int p, int value, long long now) {
+    for (int q = 0; q < 16; q++) {
+        if (q == p || dev->pad_on_vel[q] <= 0 || now - dev->pad_on_ms[q] >= CROSS_MS) continue;
+        int dr = p / 4 - q / 4, dc = p % 4 - q % 4, near = dr >= -1 && dr <= 1 && dc >= -1 && dc <= 1;
+        if (near ? value * 10 < dev->pad_on_vel[q] * 6 : value * 3 < dev->pad_on_vel[q] && value < 40) return 1;
+    }
+    return 0;
+}
+
 static void pad_message(struct input_dev *dev, struct input *in, int kind, int note, int value) {
     int p = 0;
     while (p < 16 && INPUT_PAD_NOTE[p] != note) p++;
@@ -104,12 +118,11 @@ static void pad_message(struct input_dev *dev, struct input *in, int kind, int n
             dev->pad_bounces++;
             return;
         }
-        // Much lighter than a hit on another pad a moment ago: that pad shaking the panel.
-        if (dev && now - dev->last_hit_ms < 25 && value * 3 < dev->last_hit_vel && value < 40) {
+        if (dev && crosstalk(dev, p, value, now)) { // another pad's hit shaking this one
             dev->rejected++;
             return;
         }
-        if (dev && (now - dev->last_hit_ms >= 25 || value > dev->last_hit_vel)) dev->last_hit_ms = now, dev->last_hit_vel = value;
+        if (dev) dev->pad_on_vel[p] = value;
         if (dev) dev->pad_down[p] = 1, dev->pad_on_ms[p] = now;
         in->pad_hit[p] = value, in->pad_down[p] = 1;
     } else if (kind == 0x80 || (kind == 0x90 && value == 0)) {
