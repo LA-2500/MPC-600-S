@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 1.5 &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 1.6 &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -106,7 +106,7 @@
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
-<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v1.5.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v1.6.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
 <ol>
   <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
   <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
@@ -1215,7 +1215,7 @@
 <ul>
   <li><strong>Button Lights</strong>: red (default), white, pink or off.</li>
   <li><strong>Pad Lights</strong>: light blue, red, white or off (default). Lit pads dim while pressed, more with pressure.</li>
-  <li><strong>Pad Thresh</strong>: the lightest pad hit that counts, 1 to 60 (default 12). Raise it if pads play by themselves; lower it to play very softly. A hit shakes the pads around it, and they can send light hits of their own: a hit on a neighbouring pad (beside it or at a corner) within 40 ms that is under 60% of its velocity is taken as that and ignored; on a pad further away, only one under a third of the velocity (and light) is, so two pads played together still both play. Turning a knob, moving the slider, or turning or pushing the data wheel presses on the panel too: for 300 ms after, and while the wheel is held down, pad hits lighter than velocity 48 are ignored, so the pad shown on the editing pages does not change by itself. A knob, slider or volume reading that jumps far from the last is ignored unless the next reading confirms it, so a stray reading cannot jump a setting or drop the volume.</li>
+  <li><strong>Pad Thresh</strong>: the lightest pad hit that counts, 1 to 60 (default 12). Raise it if pads play by themselves; lower it to play very softly. A hit shakes the pads around it, and they can send light hits of their own: a hit on a neighbouring pad (beside it or at a corner) within 40 ms that is under 60% of its velocity is taken as that and ignored; on a pad further away, only one under a third of the velocity (and light) is, so two pads played together still both play. Turning a knob, moving the slider, or turning or pushing the data wheel presses on the panel too: for 300 ms after, and while the wheel is held down, pad hits lighter than velocity 48 are ignored, so the pad shown on the editing pages does not change by itself. A knob, slider or volume reading that jumps far from the last is ignored unless the next reading confirms it (the main volume needs two more readings that agree), so a stray reading cannot jump a setting or drop the volume.</li>
   <li><strong>Screen</strong>: MPC3000 Blue (default), MPC60 Green, MPC1000 Green, MPC4000, MPC2000, Black/Red, Red/Black, Fairlight.</li>
   <li><strong>Sequencer Res</strong>: MPC 3000, MPC60, MPC 2000 (all 96 PPQN) or SP12 (24 PPQN). See Chapter 4.</li>
   <li><strong>Start BPM</strong>: the tempo every sequence has at power-on (default 120.0; SHIFT with the wheel in tenths).</li>

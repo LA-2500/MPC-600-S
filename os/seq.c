@@ -261,6 +261,8 @@ static int offset_of(const struct block *b, double ticks_in) {
     return b->late ? 0 : clamp_offset(b->done + ticks_in / b->tpf, b->frames);
 }
 
+static void cancel_pending(struct seq *s, int midi, int note, int channel, int key);
+
 static void fire(struct seq *s, const struct block *b, const struct seq_track *k, const struct seq_note *n,
                  double ticks_in) {
     if (k->type != TRACK_MIDI && k->kit >= 0 && k->kit < ENGINE_PROGRAMS && n->note < 128) { // Pad Mute, Pad Solo
@@ -275,12 +277,16 @@ static void fire(struct seq *s, const struct block *b, const struct seq_track *k
         int pad = seq_track_slot(s, k, n->note); // this track's program
         int t = (int)(k - s->sequence[s->current].track); // the mixer knows tracks by number
         engine_play_pad_mix(b->e, pad, vel, n->tune, offset_of(b, ticks_in), t + 1, k->level, k->pan);
+        // This note takes over the pad's release. An earlier note's release still waiting (a note
+        // longer than the loop: its end falls in the next pass) would otherwise cut this one off.
+        cancel_pending(s, 0, pad, 0, n->tune);
         add_pending_key(s, end, 0, pad, 0, n->tune);
     }
     int midi_note = k->type == TRACK_MIDI ? n->note : seq_plays_s600(s, k) ? 60 + n->tune : seq_pad_note(n->note);
     midi_note = midi_note < 0 ? 0 : midi_note > 127 ? 127 : midi_note;
     if (k->channel > 0) {
         send3(s, 0x90 | (k->channel - 1), midi_note, vel);
+        cancel_pending(s, 1, midi_note, k->channel, 0); // the same for a MIDI note: the new one's end counts
         add_pending(s, end, 1, midi_note, k->channel);
     }
 }

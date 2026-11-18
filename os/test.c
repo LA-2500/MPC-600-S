@@ -978,6 +978,26 @@ static void test_seq_loop_and_stop(void) {
     CHECK(os.seq.mode == SEQ_STOPPED);
 }
 
+// A note longer than the loop (MPC 2500 projects have them): its release, still waiting when the
+// next pass plays the pad again, must not cut the new note off. The new note's own release counts.
+static void test_seq_long_note_next_pass(void) {
+    seq_fresh();
+    load_pad(0);
+    os.seq.sequence[0].bars = 1; // 384 ticks
+    seq_add_note(&os.seq, 0, 0, 0, 0, 127, SEQ_PPQ * 6); // a bar and a half
+    seq_play(&os.seq, 1);
+    render(128);
+    render_until_wrap(); // pass 2: the pad again, while pass 1's release (tick 576) still waits
+    render(128);
+    int n = 0;
+    double at = 0;
+    for (int i = 0; i < os.seq.npending; i++)
+        if (!os.seq.pending[i].midi) n++, at = os.seq.pending[i].at;
+    CHECK(n == 1);                                 // only the new note's release
+    CHECK(at > SEQ_PPQ * 4 + SEQ_PPQ * 6 - 2);     // at 384 + 576, not 576
+    seq_stop(&os.seq, 1);
+}
+
 static void test_seq_correct(void) {
     struct seq *q = &os.seq;
     seq_fresh();
@@ -6588,6 +6608,16 @@ static void test_panel_input(void) {
         CHECK(i2.knob_moved[0] && i2.knob[0] == 103); // a fast turn: confirmed
         input_begin(&i2, &d2), input_push(&d2, &i2, m90), input_push(&d2, &i2, m0), input_push(&d2, &i2, m90);
         CHECK(i2.main == 90); // the dropout to 0 never got through
+        input_begin(&i2, &d2), input_push(&d2, &i2, m0), input_push(&d2, &i2, m0), input_push(&d2, &i2, m90);
+        CHECK(!i2.main_moved || i2.main == 90); // 0 twice is still a dropout: the volume stays
+        {
+            const unsigned char m2[3] = {0xB0, 19, 2};
+            input_begin(&i2, &d2), input_push(&d2, &i2, m0), input_push(&d2, &i2, m2), input_push(&d2, &i2, m0);
+            CHECK(i2.main_moved && i2.main == 0); // three readings agree: a real, fast turn down
+            input_begin(&i2, &d2), input_push(&d2, &i2, m90); // and back up (far: held)
+            input_push(&d2, &i2, m90), input_push(&d2, &i2, m90);
+            CHECK(i2.main == 90);
+        }
         // Pads: under the threshold, and a light hit right after a hard one elsewhere, ignored.
         const unsigned char soft[3] = {0x99, INPUT_PAD_NOTE[0], 8}, hard[3] = {0x99, INPUT_PAD_NOTE[0], 120},
                             ghost[3] = {0x99, INPUT_PAD_NOTE[1], 20}, real[3] = {0x99, INPUT_PAD_NOTE[2], 70};
@@ -7562,6 +7592,7 @@ int main(int argc, char **argv) {
     test_no_pad_lights();
     test_seq_sample_accurate();
     test_seq_loop_and_stop();
+    test_seq_long_note_next_pass();
     test_seq_correct();
     test_seq_record();
     test_seq_count_in_and_click();

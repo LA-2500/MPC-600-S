@@ -175,18 +175,28 @@ int input_late_releases(struct input_dev *dev, struct input *in) {
     return 1;
 }
 
-// A knob, the slider or the main volume: taken if near the last value, or if it confirms one held
-// back. A reading far from the last is held back once: alone, it was noise.
+// A knob, the slider or the main volume: taken if near the last value, or once readings confirm one
+// held back. A reading far from the last is held back: alone, it was noise. The main volume needs two
+// confirming readings, not one: a dropout to 0 sent twice in a row would otherwise silence the output
+// until the knob is touched again. A real turn passes through the values in between.
 #define CTL_JUMP 16
 static int control_value(struct input_dev *dev, int c, int value) {
     if (!dev) return value;
-    if (!dev->ctl_known[c] || abs(value - dev->ctl_last[c]) <= CTL_JUMP ||
-        (dev->ctl_held[c] >= 0 && abs(value - dev->ctl_held[c]) <= 6)) {
-        dev->ctl_known[c] = 1, dev->ctl_last[c] = value, dev->ctl_held[c] = -1;
+    int need = c == 3 ? 2 : 1;
+    if (!dev->ctl_known[c] || abs(value - dev->ctl_last[c]) <= CTL_JUMP) {
+        dev->ctl_known[c] = 1, dev->ctl_last[c] = value, dev->ctl_held[c] = -1, dev->ctl_confirms[c] = 0;
         return value;
     }
+    if (dev->ctl_held[c] >= 0 && abs(value - dev->ctl_held[c]) <= 6) {
+        if (++dev->ctl_confirms[c] >= need) {
+            dev->ctl_last[c] = value, dev->ctl_held[c] = -1, dev->ctl_confirms[c] = 0;
+            return value;
+        }
+        dev->ctl_held[c] = value;
+        return -1;
+    }
     if (dev->ctl_held[c] >= 0) dev->rejected++; // the one held back was not confirmed
-    dev->ctl_held[c] = value;
+    dev->ctl_held[c] = value, dev->ctl_confirms[c] = 0;
     return -1;
 }
 
