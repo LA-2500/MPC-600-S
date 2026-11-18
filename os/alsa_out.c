@@ -485,13 +485,26 @@ static void *audio_thread(void *arg) {
         // While resampling, muted unless Resample's Input Thru says RECORD, when it goes in.
         int state = out.rec ? atomic_load_explicit(&out.rec->state, memory_order_relaxed) : REC_IDLE;
         int taking = resample && (state == REC_ARMED || state == REC_RECORDING);
-        if (have_input && atomic_load_explicit(&out.rec->thru, memory_order_relaxed) &&
-            !(atomic_load_explicit(&mic_live, memory_order_relaxed) && atomic_load_explicit(&speaker_live, memory_order_relaxed)) &&
-            !(taking && !atomic_load_explicit(&out.rec->thru_resample, memory_order_relaxed)))
+        int thru = have_input && atomic_load_explicit(&out.rec->thru, memory_order_relaxed) &&
+                   !(atomic_load_explicit(&mic_live, memory_order_relaxed) && atomic_load_explicit(&speaker_live, memory_order_relaxed)) &&
+                   !(taking && !atomic_load_explicit(&out.rec->thru_resample, memory_order_relaxed));
+        // The computer's own audio (Input USB) through Input Thru is heard on the phones and line out,
+        // but never sent back to the computer on USB Audio Out (a loop, or the track twice). It joins
+        // the mix after Master FX and the USB tap; the jacks and the mic join before, as always.
+        int thru_after = thru && from_usb && atomic_load_explicit(&usbo.on, memory_order_relaxed);
+        if (thru && !thru_after)
             for (int i = 0; i < out.period * 2; i++) mix[i] += in[i];
-        if (resample) recorder_input(out.rec, mix, out.period, clock);
+        if (resample && thru_after) { // Resample still takes the input as Input Thru says
+            float both[MAX_PERIOD * 2];
+            for (int i = 0; i < out.period * 2; i++) both[i] = mix[i] + in[i];
+            recorder_input(out.rec, both, out.period, clock);
+        } else if (resample) {
+            recorder_input(out.rec, mix, out.period, clock);
+        }
         if (out.master) master_process(out.master, mix, out.period); // last: never resampled
         if (atomic_load_explicit(&usbo.on, memory_order_relaxed)) usbo_put(mix, out.period); // to the computer, before the volume
+        if (thru_after)
+            for (int i = 0; i < out.period * 2; i++) mix[i] += in[i];
         float target = atomic_load_explicit(out.main_gain, memory_order_relaxed);
         float step = (target - gain) / (float)out.period;
         for (int i = 0; i < out.period; i++) {
