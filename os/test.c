@@ -7057,21 +7057,21 @@ static void test_prefs(const char *shot_dir) {
     in.encoder = 2;
     frame(&in);
     CHECK(os.seq.res == SEQ_RES_SP1200);
-    { // USB Audio Out (after Seq Res): ON to start, off and on; saved with the settings
-        CHECK(os.usb_out == 1);
+    { // USB Audio Out (after Seq Res): OFF to start, on and off; saved with the settings
+        CHECK(os.usb_out == 0);
         os.cursor_prefs = 5;
         struct input w = blank();
-        w.encoder = -1;
-        frame(&w);
-        CHECK(os.usb_out == 0);
-        char line[200];
-        prefs_save_line(&os, line, sizeof line);
-        os.usb_out = 1;
-        prefs_load_line(&os, line);
-        CHECK(os.usb_out == 0);
         w.encoder = 1;
         frame(&w);
         CHECK(os.usb_out == 1);
+        char line[200];
+        prefs_save_line(&os, line, sizeof line);
+        os.usb_out = 0;
+        prefs_load_line(&os, line);
+        CHECK(os.usb_out == 1);
+        w.encoder = -1;
+        frame(&w);
+        CHECK(os.usb_out == 0);
     }
     os.cursor_prefs = 3; // Screen: the MPC60's green
     in.encoder = 1;

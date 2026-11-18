@@ -240,7 +240,7 @@ struct os {
     int inst_gain, inst_bright;  // INST: the instrument stage's gain (0..30 dB) and Bright (0..100)
     int pad_threshold;           // the lightest pad hit that counts (Additional Settings)
     void (*set_pad_threshold)(int velocity); // tells the panel, or NULL
-    int usb_out;                  // USB Audio Out: the master mix to a computer (ON to start)
+    int usb_out;                  // USB Audio Out: the master mix to a computer (OFF to start)
     void (*set_usb_out)(int on);  // tells the audio side, or NULL
     // Stems (Shift + SAMPLE REC again): one stem of a pad's sound, separated by Open-Unmix.
     int stem_kind, stem_remove;  // STEM_*; 0 EXTRACT (only it), 1 REMOVE (all but it)
