@@ -998,6 +998,66 @@ static void test_seq_long_note_next_pass(void) {
     seq_stop(&os.seq, 1);
 }
 
+// MPC_PRJ: the long sounds of a real project, played three passes; every early end of one logged with
+// why (a look at a user's project, not a check).
+static void mpc_prj_playback(int q) {
+    struct seq *sq = &os.seq;
+    sq->current = q;
+    struct seq_sequence *qq = &sq->sequence[q];
+    int len = qq->bars * qq->sig_num * SEQ_PPQ * 4 / qq->sig_den;
+    printf("  seq %d: %d bars, %d ticks, %.1f BPM, loop bar %d\n", q + 1, qq->bars, len, qq->tempo10 / 10.0, qq->loop_bar);
+    for (int g = 0; g < 4; g++)
+        for (int i = 0; i < OS_PADS; i++) {
+            const struct os_pad *pad = &os.programs[g].pads[i];
+            if (!pad->s || pad->s->frames < 44100 * 4) continue;
+            const struct pad_params *pp = &pad->p;
+            printf("    pgm%d pad %c%02d %-12s %d frames, start %d end %d, loop %d/%d, gate %d, mono %d, mute %d, "
+                   "decay %d (end %d), attack %d\n", g + 1, 'A' + i / 16, i % 16 + 1, pad->name, pad->s->frames, pp->start,
+                   pp->end, pp->loop_on, pp->loop, pp->gate, pp->mono, pp->mute_group, pp->decay_ms, pp->decay_end, pp->attack_ms);
+        }
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        const struct seq_track *k = &qq->track[t];
+        for (int n = 0; n < k->count; n++) {
+            int slot = seq_track_slot(sq, k, k->notes[n].note);
+            const struct os_pad *pad = &os.programs[slot / OS_PADS].pads[slot % OS_PADS];
+            if (pad->s && pad->s->frames >= 44100 * 4)
+                printf("    track %d note %d (%s): tick %u dur %u vel %d\n", t + 1, k->notes[n].note, pad->name,
+                       k->notes[n].tick, k->notes[n].dur, k->notes[n].vel);
+        }
+    }
+    render(16);
+    seq_play(sq, 1);
+    struct { uint32_t age; int pad; double pos; int fading; const struct sample *s; } was[ENGINE_VOICES] = {{0}};
+    double secs_per_tick = 60.0 / (qq->tempo10 / 10.0) / SEQ_PPQ;
+    int max_voices = 0;
+    for (long b = 0; b < (long)(3.0 * len * secs_per_tick * 44100 / 128) + 200; b++) {
+        render(128);
+        int nv = voices();
+        if (nv > max_voices) max_voices = nv;
+        for (int i = 0; i < ENGINE_VOICES; i++) {
+            const struct voice *v = &e.voice[i];
+            if (was[i].s && was[i].s->frames >= 44100 * 4) {
+                int same = v->stage != 0 && v->age == was[i].age;
+                double left = (double)was[i].s->frames - was[i].pos;
+                if ((!same || (v->fading && !was[i].fading)) && left > 4410) {
+                    double at = b * 128.0 / 44100.0, tick = at / secs_per_tick;
+                    const char *why = !same ? "voice taken (stolen)" : "fading";
+                    // who started just now
+                    uint32_t newest = 0; int np = -1;
+                    for (int j = 0; j < ENGINE_VOICES; j++)
+                        if (e.voice[j].stage && e.voice[j].age >= newest) newest = e.voice[j].age, np = e.voice[j].pad;
+                    printf("    CUT %.2fs pass %d bar %.2f: pad %d (%.1fs of sound left) %s; %d voices; newest voice pad %d\n",
+                           at, (int)(tick / len) + 1, fmod(tick, len) / (SEQ_PPQ * 4) + 1, was[i].pad, left / 44100, why, nv, np);
+                }
+            }
+            was[i].age = v->age, was[i].pad = v->pad, was[i].pos = v->pos, was[i].fading = v->fading;
+            was[i].s = v->stage ? v->s : 0;
+        }
+    }
+    printf("    most voices at once: %d of %d\n", max_voices, ENGINE_VOICES);
+    seq_stop(sq, 1);
+}
+
 static void test_seq_correct(void) {
     struct seq *q = &os.seq;
     seq_fresh();
@@ -5738,6 +5798,7 @@ static void test_seq_files(const char *shot_dir) {
                 if (qq->track[t].count) printf(" [%s pgm%d n%d]", qq->track[t].name, qq->track[t].kit + 1, qq->track[t].count);
             printf("\n");
         }
+        mpc_prj_playback(getenv("MPC_PRJ_SEQ") ? atoi(getenv("MPC_PRJ_SEQ")) - 1 : 0);
     }
     // On Save/Load: MPC PROJECT opens at the top of the card, with an MPC's folder there; the MPC 600 S's
     // own saved projects are not shown; B1 goes up out of a folder.
@@ -6996,13 +7057,29 @@ static void test_prefs(const char *shot_dir) {
     in.encoder = 2;
     frame(&in);
     CHECK(os.seq.res == SEQ_RES_SP1200);
+    { // USB Audio Out (after Seq Res): ON to start, off and on; saved with the settings
+        CHECK(os.usb_out == 1);
+        os.cursor_prefs = 5;
+        struct input w = blank();
+        w.encoder = -1;
+        frame(&w);
+        CHECK(os.usb_out == 0);
+        char line[200];
+        prefs_save_line(&os, line, sizeof line);
+        os.usb_out = 1;
+        prefs_load_line(&os, line);
+        CHECK(os.usb_out == 0);
+        w.encoder = 1;
+        frame(&w);
+        CHECK(os.usb_out == 1);
+    }
     os.cursor_prefs = 3; // Screen: the MPC60's green
     in.encoder = 1;
     frame(&in);
     CHECK(os.screen_scheme == SCREEN_MPC60 && lcd_bg != 0x408cfa);
     if (shot_dir) write_shot(shot_dir, "prefs");
     tap(IN_B3); // <Page 2>
-    CHECK(os.cursor_prefs == 9);
+    CHECK(os.cursor_prefs == 10);
     in.encoder = 1; // Loop Conv: IMMEDIATE (the default), AFTER 1ST LOOP
     CHECK(os.loop_conv == LOOP_CONV_IMMEDIATE);
     frame(&in);
@@ -7011,7 +7088,7 @@ static void test_prefs(const char *shot_dir) {
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(os.cursor_prefs == 10 && os.auto_root == 1);
+    CHECK(os.cursor_prefs == 11 && os.auto_root == 1);
     in = blank(), in.encoder = -1;
     frame(&in);
     CHECK(os.auto_root == 0);
@@ -7022,7 +7099,7 @@ static void test_prefs(const char *shot_dir) {
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(os.cursor_prefs == 11 && os.start_rate == 29760);
+    CHECK(os.cursor_prefs == 12 && os.start_rate == 29760);
     in = blank();
     in.encoder = 1;
     frame(&in);
@@ -7034,7 +7111,7 @@ static void test_prefs(const char *shot_dir) {
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(os.rate_edit && os.cursor_prefs == 11); // pushed in: the number, the cursor stays
+    CHECK(os.rate_edit && os.cursor_prefs == 12); // pushed in: the number, the cursor stays
     in = blank();
     in.encoder = -3;
     frame(&in);
@@ -7043,7 +7120,7 @@ static void test_prefs(const char *shot_dir) {
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(!os.rate_edit && os.cursor_prefs == 11);
+    CHECK(!os.rate_edit && os.cursor_prefs == 12);
     in = blank();
     in.encoder = -1; // off SET: back to the slider's rates
     frame(&in);
@@ -7051,18 +7128,18 @@ static void test_prefs(const char *shot_dir) {
     in.encoder = -1;
     frame(&in);
     CHECK(os.start_rate == 29760);
-    os.cursor_prefs = 12; // Bit Rate
+    os.cursor_prefs = 13; // Bit Rate
     frame(&in);
     CHECK(os.start_bits == 8 && os.rec_set[2].bits == 8);
     in.encoder = 1;
     frame(&in);
-    os.cursor_prefs = 15; // Input Thru: OFF, then on by hand
+    os.cursor_prefs = 16; // Input Thru: OFF, then on by hand
     in.encoder = -1;
     frame(&in);
     CHECK(os.start_thru == 0 && os.input_thru == 0);
     in.encoder = 1;
     frame(&in);
-    os.cursor_prefs = 16; // Rec Mode
+    os.cursor_prefs = 17; // Rec Mode
     frame(&in);
     CHECK(os.start_mode == REC_MONO_L && os.rec_set[4].mode == REC_MONO_L && os.rec_set[2].mode == REC_MONO_LR);
     in.encoder = -1;

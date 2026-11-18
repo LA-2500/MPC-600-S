@@ -17,7 +17,7 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM };
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_VERSION "LA Version 1.6 (11/18/26)" // 26 columns: a four-digit year will not fit
+#define OS_VERSION "LA Version 1.6B (11/18/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
 #define OS_POWER_FORCE_MS 15000 // if an orderly shutdown has not finished by then, cut the power
@@ -240,6 +240,8 @@ struct os {
     int inst_gain, inst_bright;  // INST: the instrument stage's gain (0..30 dB) and Bright (0..100)
     int pad_threshold;           // the lightest pad hit that counts (Additional Settings)
     void (*set_pad_threshold)(int velocity); // tells the panel, or NULL
+    int usb_out;                  // USB Audio Out: the master mix to a computer (ON to start)
+    void (*set_usb_out)(int on);  // tells the audio side, or NULL
     // Stems (Shift + SAMPLE REC again): one stem of a pad's sound, separated by Open-Unmix.
     int stem_kind, stem_remove;  // STEM_*; 0 EXTRACT (only it), 1 REMOVE (all but it)
     int stem_too_long;           // the 20 second message is up

@@ -319,6 +319,139 @@ static void usb_take(float *in, int frames) {
     }
 }
 
+// ---- USB audio out: the master mix to the computer, through the same gadget ----
+//
+// The gadget's playback stream is what the computer records. The audio thread copies each
+// finished period (after Master FX, before the main volume: the phones mix) into a ring; this
+// thread feeds the gadget from it on the computer's clock, reading a hair faster or slower to
+// keep the ring half full, as the input does. With no computer recording, the ring simply
+// runs on and nothing waits. The audio thread never touches the gadget.
+
+static struct {
+    atomic_int on, run;
+    int fd, bytes;
+    pthread_t thread;
+    int started;
+    float ring[USB_RING * 2];
+    atomic_uint written; // frames the audio thread has put in, all told
+    double read, ratio;
+} usbo = {.fd = -1, .ratio = 1.0};
+
+static void usbo_put(const float *mix, int frames) { // the audio thread: a period in, no waiting
+    unsigned w = atomic_load_explicit(&usbo.written, memory_order_relaxed);
+    for (int i = 0; i < frames; i++) {
+        unsigned at = (w + (unsigned)i) & (USB_RING - 1);
+        usbo.ring[at * 2] = mix[i * 2], usbo.ring[at * 2 + 1] = mix[i * 2 + 1];
+    }
+    atomic_store_explicit(&usbo.written, w + (unsigned)frames, memory_order_release);
+}
+
+static int usbo_open(void) {
+    int card = usb_card();
+    if (card < 0) return -1;
+    int fd = open_pcm(card, 0);
+    if (fd < 0) return -1;
+    static const struct { unsigned format; int bytes; } FORMATS[] = {
+        {SNDRV_PCM_FORMAT_S16_LE, 2}, {SNDRV_PCM_FORMAT_S24_3LE, 3}, {SNDRV_PCM_FORMAT_S32_LE, 4},
+    };
+    int ok = 0;
+    for (size_t i = 0; i < sizeof FORMATS / sizeof FORMATS[0] && !ok; i++) {
+        if (configure_as(fd, 2, 256, 8, 0, FORMATS[i].format) == 0) usbo.bytes = FORMATS[i].bytes, ok = 1;
+        else ioctl(fd, SNDRV_PCM_IOCTL_HW_FREE);
+    }
+    if (!ok) {
+        close(fd);
+        return -1;
+    }
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    usbo.fd = fd;
+    unsigned w = atomic_load(&usbo.written);
+    usbo.read = (double)w - USB_FILL < 0 ? 0 : (double)w - USB_FILL;
+    usbo.ratio = 1.0;
+    return 0;
+}
+
+static void usbo_close_fd(void) {
+    if (usbo.fd < 0) return;
+    ioctl(usbo.fd, SNDRV_PCM_IOCTL_DROP);
+    close(usbo.fd);
+    usbo.fd = -1;
+}
+
+// A period from the ring, steering its fill to USB_FILL (the reader here is the computer).
+static void usbo_take(float *buf, int frames) {
+    unsigned w = atomic_load_explicit(&usbo.written, memory_order_acquire);
+    double fill = (double)w - usbo.read;
+    if (fill < frames + 2 || fill > USB_RING - frames * 2) { // starved or overrun: start again at the fill
+        memset(buf, 0, (size_t)frames * 2 * sizeof *buf);
+        usbo.read = (double)w - USB_FILL < 0 ? 0 : (double)w - USB_FILL;
+        usbo.ratio = 1.0;
+        return;
+    }
+    double err = (fill - USB_FILL) / USB_FILL; // above: read faster
+    double want = 1.0 + (err > 1 ? 1 : err < -1 ? -1 : err) * 0.0005;
+    usbo.ratio += (want - usbo.ratio) * 0.01;
+    for (int i = 0; i < frames; i++) {
+        unsigned a = (unsigned)usbo.read, b = a + 1;
+        float t = (float)(usbo.read - floor(usbo.read));
+        const float *pa = &usbo.ring[(a & (USB_RING - 1)) * 2], *pb = &usbo.ring[(b & (USB_RING - 1)) * 2];
+        buf[i * 2] = pa[0] + t * (pb[0] - pa[0]);
+        buf[i * 2 + 1] = pa[1] + t * (pb[1] - pa[1]);
+        usbo.read += usbo.ratio;
+    }
+}
+
+static void *usbo_thread(void *arg) {
+    (void)arg;
+    float f[256 * 2];
+    unsigned char raw[256 * 2 * 4];
+    while (atomic_load(&usbo.run)) {
+        if (!atomic_load(&usbo.on)) { // switched off: let the gadget go
+            usbo_close_fd();
+            nap_ms(200);
+            continue;
+        }
+        if (usbo.fd < 0 && usbo_open() != 0) { // no computer, or the gadget away (USB card mode): later
+            nap_ms(1000);
+            continue;
+        }
+        struct pollfd p = {.fd = usbo.fd, .events = POLLOUT};
+        if (poll(&p, 1, 100) <= 0) { // the computer is not taking any: keep the ring's read up to date
+            unsigned w = atomic_load(&usbo.written);
+            if ((double)w - usbo.read > USB_RING / 2) usbo.read = (double)w - USB_FILL;
+            continue;
+        }
+        if (p.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            if (ioctl(usbo.fd, SNDRV_PCM_IOCTL_PREPARE) != 0) usbo_close_fd();
+            continue;
+        }
+        usbo_take(f, 256);
+        for (int i = 0; i < 256 * 2; i++) {
+            float x = f[i] > 1.0f ? 1.0f : f[i] < -1.0f ? -1.0f : f[i];
+            int32_t a = (int32_t)(x * 2147483392.0f);
+            unsigned char *d = raw + i * usbo.bytes;
+            if (usbo.bytes == 2) d[0] = (unsigned char)(a >> 16), d[1] = (unsigned char)(a >> 24);
+            else if (usbo.bytes == 3) d[0] = (unsigned char)(a >> 8), d[1] = (unsigned char)(a >> 16), d[2] = (unsigned char)(a >> 24);
+            else d[0] = (unsigned char)a, d[1] = (unsigned char)(a >> 8), d[2] = (unsigned char)(a >> 16), d[3] = (unsigned char)(a >> 24);
+        }
+        struct snd_xferi x = {.buf = raw, .frames = 256};
+        if (ioctl(usbo.fd, SNDRV_PCM_IOCTL_WRITEI_FRAMES, &x) != 0) {
+            if (errno == EPIPE) ioctl(usbo.fd, SNDRV_PCM_IOCTL_PREPARE); // the computer fell behind: go on
+            else if (errno != EAGAIN && errno != EINTR) usbo_close_fd();  // the gadget went: open it again later
+        }
+    }
+    usbo_close_fd();
+    return 0;
+}
+
+void alsa_out_set_usb_out(int on) {
+    atomic_store(&usbo.on, on != 0);
+    if (!usbo.started) { // the thread starts the first time, and then follows the switch
+        atomic_store(&usbo.run, 1);
+        if (pthread_create(&usbo.thread, 0, usbo_thread, 0) == 0) usbo.started = 1;
+    }
+}
+
 static void *audio_thread(void *arg) {
     (void)arg;
     flush_denormals();
@@ -358,6 +491,7 @@ static void *audio_thread(void *arg) {
             for (int i = 0; i < out.period * 2; i++) mix[i] += in[i];
         if (resample) recorder_input(out.rec, mix, out.period, clock);
         if (out.master) master_process(out.master, mix, out.period); // last: never resampled
+        if (atomic_load_explicit(&usbo.on, memory_order_relaxed)) usbo_put(mix, out.period); // to the computer, before the volume
         float target = atomic_load_explicit(out.main_gain, memory_order_relaxed);
         float step = (target - gain) / (float)out.period;
         for (int i = 0; i < out.period; i++) {

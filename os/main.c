@@ -137,6 +137,8 @@ int main(void) {
     os.set_led_style = panel_set_bicolour_style;
     os.set_pad_threshold = panel_set_pad_threshold;
     panel_set_pad_threshold(os.pad_threshold);
+    if (!failed) os.set_usb_out = alsa_out_set_usb_out, alsa_out_set_usb_out(os.usb_out); // the mix to a computer
+    log_line(os.usb_out ? "USB Audio Out: on" : "USB Audio Out: off");
     panel_set_bicolour_style(os.led_style);
     static char power_status[32];
     int power_keys = power_key_open();

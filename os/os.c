@@ -337,7 +337,7 @@ void os_init(struct os *s, struct engine *e) {
     s->auto_root = 1;
     s->button_lights = BUTTON_RED, s->pad_lights = PAD_LIGHT_OFF, s->screen_scheme = SCREEN_MPC3000;
     s->start_bpm10 = 1200, s->start_bars = 2, s->start_tc = TC_16, s->start_swing = 50;
-    s->inst_gain = 12, s->inst_bright = 50, s->pad_threshold = 12;
+    s->inst_gain = 12, s->inst_bright = 50, s->pad_threshold = 12, s->usb_out = 1;
     s->padtpl_oct = 2; // pad note templates from C2
     s->led_style = 1; // colour A alone: red on the two-colour buttons
     lcd_set_scheme(SCREEN_MPC3000);

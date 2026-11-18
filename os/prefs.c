@@ -15,7 +15,7 @@ static const char *const LOOP_CONV[LOOP_CONVS] = {"IMMEDIATE", "AFTER 1ST LOOP"}
 static const int RES_ORDER[SEQ_RES_COUNT] = {SEQ_RES_MPC3000, SEQ_RES_MPC60, SEQ_RES_MPC2000, SEQ_RES_SP1200};
 // Page 1: lights, pads, screen, timing and the Start sequencer values. Page 2: Live Loop
 // Conversion and the Start recording values.
-enum { PF_BUTTONS, PF_PADS, PF_THRESH, PF_SCREEN, PF_RES, PF_BPM, PF_BARS, PF_TC, PF_SWING, // page 1
+enum { PF_BUTTONS, PF_PADS, PF_THRESH, PF_SCREEN, PF_RES, PF_USBOUT, PF_BPM, PF_BARS, PF_TC, PF_SWING, // page 1
        PF_LOOPCONV, PF_AUTOROOT, PF_RATE, PF_BITS, PF_AA, PF_NORM, PF_THRU, PF_MODE, PF_KNOB, PF_FIELDS }; // page 2
 #define PF_PAGE2 PF_LOOPCONV
 static const char *const MODES[REC_MODES] = {"STEREO", "MONO LFT", "MONO RGT", "MONO LR"};
@@ -37,6 +37,7 @@ void prefs_apply(struct os *s) {
     static const int STYLE[BUTTON_LIGHTS] = {1, 2, 0, 2};
     s->led_style = STYLE[clampi(s->button_lights, 0, BUTTON_LIGHTS - 1)];
     if (s->set_pad_threshold) s->set_pad_threshold(s->pad_threshold);
+    if (s->set_usb_out) s->set_usb_out(s->usb_out);
     if (s->set_led_style) s->set_led_style(s->led_style);
     lcd_set_scheme(s->screen_scheme);
 }
@@ -75,6 +76,7 @@ static void change(struct os *s, int f, int d, int shift) {
     case PF_BUTTONS: s->button_lights = clampi(s->button_lights + d, 0, BUTTON_LIGHTS - 1); break;
     case PF_PADS: s->pad_lights = clampi(s->pad_lights + d, 0, PAD_LIGHTS - 1); break;
     case PF_THRESH: s->pad_threshold = clampi(s->pad_threshold + d, 1, 60); break;
+    case PF_USBOUT: s->usb_out = d > 0; return;
     case PF_RES:
         pthread_mutex_lock(&s->seq.lock);
         {
@@ -142,7 +144,7 @@ void prefs_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_text(u, 0, KEY_ROW, "<MIDI>");
     lcd_text(u, 18, KEY_ROW, page ? "<Page 1>" : "<Page 2>");
     lcd_rule(u, TITLE_ROW, page ? "Additional Settings 2" : "Additional Settings");
-    const char *labels[PF_FIELDS] = {"Button Lights:", "Pad Lights:", "Pad Thresh:", "Screen:", "", "Start BPM:", "Start Bars:",
+    const char *labels[PF_FIELDS] = {"Button Lights:", "Pad Lights:", "Pad Thresh:", "Screen:", "", "USB Audio Out:", "Start BPM:", "Start Bars:",
                                      "Start TC:", "Start Swing:", "Loop Conv:", "Root Auto-Detect:", "Sample Rate:", "Bit Rate:", "Anti-Aliasing:",
                                      "Normalize:", "Input Thru:", "Rec Mode:", "Knob Mode:"};
     char bpm[12], sw[8], bars[8], thresh[8], rate[16], bits[8];
@@ -156,11 +158,11 @@ void prefs_frame(struct os *s, struct ui *u, const struct input *in) {
     else if (s->start_rate_set) snprintf(rate, sizeof rate, "SET %d.%02dk", r / 1000, r % 1000 / 10);
     else snprintf(rate, sizeof rate, "%d.%02d kHz", r / 1000, r % 1000 / 10);
     const char *values[PF_FIELDS] = {BUTTONS[s->button_lights], PADS[s->pad_lights], thresh, lcd_scheme_name(s->screen_scheme),
-                                     RES[s->seq.res], bpm, bars, seq_tc_name(s->start_tc), sw, LOOP_CONV[s->loop_conv], s->auto_root ? "ON" : "OFF", rate, bits,
+                                     RES[s->seq.res], s->usb_out ? "ON" : "OFF", bpm, bars, seq_tc_name(s->start_tc), sw, LOOP_CONV[s->loop_conv], s->auto_root ? "ON" : "OFF", rate, bits,
                                      s->start_aa ? "ON" : "OFF", s->start_norm ? "ON" : "OFF",
                                      s->start_thru ? "ALWAYS ON" : "OFF", MODES[s->start_mode], KNOB_NAMES[s->knob_mode]};
-    const int rows[PF_FIELDS] = {3, 4, 5, 6, 8, 10, 11, 12, 13, 3, 4, 6, 7, 8, 9, 10, 11, 13};
-    const int cols[PF_FIELDS] = {14, 14, 14, 7, 14, 12, 12, 12, 12, 10, 17, 14, 14, 14, 14, 14, 14, 11};
+    const int rows[PF_FIELDS] = {3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 3, 4, 6, 7, 8, 9, 10, 11, 13};
+    const int cols[PF_FIELDS] = {14, 14, 14, 7, 14, 14, 12, 12, 12, 12, 10, 17, 14, 14, 14, 14, 14, 14, 11};
     for (int i = first; i < first + count; i++) {
         lcd_text(u, 0, rows[i], labels[i]);
         snprintf(v, sizeof v, " %s ", values[i]);
@@ -195,16 +197,17 @@ void prefs_pad_lights(struct os *s, struct ui *u) {
 }
 
 void prefs_save_line(const struct os *s, char *b, size_t n) {
-    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res,
+    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res,
              s->screen_scheme, s->start_bpm10, s->start_tc, s->start_swing, s->start_bars, s->inst_gain, s->inst_bright,
              s->pad_threshold, s->loop_conv, s->start_rate, s->start_bits, s->start_aa, s->start_norm, s->start_thru, s->start_mode,
-             s->auto_root, s->knob_mode);
+             s->auto_root, s->knob_mode, s->usb_out);
 }
 
 void prefs_load_line(struct os *s, const char *line) {
-    int v[20];
-    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5],
-                     &v[6], &v[7], &v[8], &v[9], &v[10], &v[11], &v[12], &v[13], &v[14], &v[15], &v[16], &v[17], &v[18], &v[19]);
+    int v[21];
+    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5],
+                     &v[6], &v[7], &v[8], &v[9], &v[10], &v[11], &v[12], &v[13], &v[14], &v[15], &v[16], &v[17], &v[18], &v[19], &v[20]);
+    if (got >= 21) s->usb_out = v[20] != 0;
     if (got >= 19) s->auto_root = v[18] != 0;
     if (got >= 20) s->knob_mode = clampi(v[19], 0, KNOB_MODES - 1);
     if (got >= 10) s->inst_gain = clampi(v[8], 0, 30), s->inst_bright = clampi(v[9], 0, 100);

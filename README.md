@@ -14,16 +14,16 @@ The full video manual on YouTube (53 min, in chapters): installation, sequencing
 
 | | |
 |---|---|
-| **[⬇ OS v1.6 (MPC-600-S-OS-v1.6.zip)](../../releases/latest/download/MPC-600-S-OS-v1.6.zip)** | SD-card package |
+| **[⬇ OS v1.6B (MPC-600-S-OS-v1.6B.zip)](../../releases/latest/download/MPC-600-S-OS-v1.6B.zip)** | SD-card package |
 | **[⬇ Quick Start (PDF)](../../releases/latest/download/MPC-600-S-Quick-Start.pdf)** | Installation, 3 pages |
-| **[⬇ Operator's Manual v1.6 (PDF)](../../releases/latest/download/MPC-600-S-Manual-v1.6.pdf)** | Full reference |
+| **[⬇ Operator's Manual v1.6B (PDF)](../../releases/latest/download/MPC-600-S-Manual-v1.6B.pdf)** | Full reference |
 | [⬇ Stems models (107 MB, optional)](../../releases/latest/download/MPC600S-stems.zip) | Required only by the Stems page |
 
 Links resolve to the latest release. Earlier versions: [Releases](../../releases).
 
 ## Install
 
-1. Extract **MPC-600-S-OS-v1.6.zip**. Copy the `autorun` folder to the SD card root (FAT32 or exFAT). Do not rename or edit its files: the stock runner verifies `autorun.check` (SHA-256) before execution.
+1. Extract **MPC-600-S-OS-v1.6B.zip**. Copy the `autorun` folder to the SD card root (FAT32 or exFAT). Do not rename or edit its files: the stock runner verifies `autorun.check` (SHA-256) before execution.
 2. Power on with the card inserted. The stock OS boots; the MPC 600 S stops it and takes over the display and panel within 45 s of power-on.
 3. Stock OS: power off, remove the card. Update: replace the `autorun` folder. User data in `MPC600S/` is not touched.
 
@@ -48,6 +48,7 @@ Help for the current page: **SHIFT + SAMPLE REC**. Procedure and troubleshooting
 | Storage | Save/Load to any folder on the card; one sequence on its own; WAV export of tracks, mixes and mixdowns |
 | Other machines | MIDI files (tracks chosen, onto empty tracks); MPC 1000 / 2500 / 500 sequences (.ALL, .SEQ), programs (.PGM with WAVs, start and end points) and projects (.PRJ); saving as an MPC 2500 project (.PRJ, .ALL, .PGM, WAVs) |
 | Controls | Knob Mode: CATCH, JUMP or SCALE for K1–K3 and the slider |
+| USB audio | Out: the full master mix (after Master FX, before the main volume) to a computer, 44.1 kHz stereo, through the device's USB audio gadget; follows the computer's clock |
 | Display / audio | 320 × 240 DRM framebuffer; 44.1 kHz |
 | Build | C; static aarch64 (musl) via `zig cc` |
 

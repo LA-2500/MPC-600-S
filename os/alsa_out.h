@@ -26,3 +26,7 @@ int alsa_out_set_input(int src);
 struct master;
 // Master Effects, run on the outputs after everything else (and after the resample point).
 void alsa_out_set_master(struct master *m);
+
+// USB Audio Out: the master mix (after Master FX, before the main volume) to a computer over USB,
+// through the USB audio gadget. On or off; with no computer it waits and tries again.
+void alsa_out_set_usb_out(int on);
