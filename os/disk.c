@@ -1141,7 +1141,7 @@ static int field_shown(const struct os *s, int f) {
     case DF_CLEAR: return m == DISK_LOAD && clear_ok(t) && !s->disk_renaming;
     case DF_TRACKS: case DF_MIX: return m == DISK_EXPORT && !is_mixdown(t);
     case DF_NAME: return (m == DISK_SAVE && t != DISK_AUTOLOAD) || m == DISK_EXPORT || s->disk_renaming;
-    case DF_FILE: return (m != DISK_SAVE || t != DISK_AUTOLOAD) && !s->disk_renaming && !s->disk_newdir;
+    case DF_FILE: return (m != DISK_SAVE || t != DISK_AUTOLOAD) && !s->disk_renaming && !s->disk_newdir && m != DISK_LOAD;
     default: return 1;
     }
 }
@@ -1273,7 +1273,7 @@ void disk_open(struct os *s, int mode, int type) {
     s->disk_mode = mode, s->disk_type = type;
     s->disk_cursor = s->disk_mode == DISK_SAVE ? DF_NAME : DF_MODE;
     s->disk_ask = 0, s->disk_renaming = 0, s->disk_pending = 0, s->disk_newdir = 0;
-    s->disk_used = 1, s->disk_clear = 0;
+    s->disk_used = 1, s->disk_clear = 0, s->disk_page = 0;
     s->disk_which = is_prog(type) ? s->program : is_seqtype(type) ? s->seq.current : 0;
     default_name(s);
     restore_folder(s); // where this type was last used; its own folder to start with
@@ -1563,6 +1563,80 @@ static void import_frame(struct os *s, struct ui *u, const struct input *in) {
     ui_wake(u, 1);
 }
 
+// LOAD's second page: the folder's items, worked as Load Files is. The wheel moves the bar, pushing
+// it (or B3) opens a folder or loads the item, B1 goes up a folder (at the top: back to the settings),
+// B2 renames, SHIFT + B2 deletes (asked first).
+static void load_item(struct os *s); // the load, through its questions
+
+static void load_item(struct os *s) {
+    if (s->disk_clear && clear_ok(s->disk_type)) s->disk_ask = 'C';          // Clear all first?
+    else if (is_prog(s->disk_type)) s->disk_ask = 'P';                       // into which program
+    else if (s->disk_type == DISK_SEQFILE && seq_in_use(s, s->disk_which)) s->disk_ask = 'O'; // replace it?
+    else s->disk_pending = 'L';
+}
+
+static void browse_frame(struct os *s, struct ui *u, const struct input *in) {
+    int n = s->disk_nfiles;
+    s->disk_file = clampi(s->disk_file + in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS), 0, n > 0 ? n - 1 : 0);
+    int on_item = n && !s->disk_isdir[s->disk_file], on_folder = n && s->disk_isdir[s->disk_file];
+    if (input_down(in, IN_B1) && !in->shift) {                    // <Back>
+        if (n && s->disk_isdir[0] == 2) open_folder(s, 0);
+        else s->disk_page = 0;
+    } else if (input_down(in, IN_B2) && in->shift && on_item) {   // SHIFT + B2: <Delete>, asked first
+        s->disk_ask = 'D';
+    } else if (input_down(in, IN_B2) && on_item) {               // <Rename>
+        snprintf(s->disk_name, sizeof s->disk_name, "%s", s->disk_files[s->disk_file]);
+        s->disk_renaming = 1, s->disk_cursor = DF_NAME, s->disk_pos = 0;
+    } else if ((in->encoder_press || input_down(in, IN_B3)) && on_folder) {
+        open_folder(s, s->disk_file);                             // <Open> (.. goes up)
+    } else if ((in->encoder_press || input_down(in, IN_B3)) && on_item) {
+        load_item(s);                                             // <Load>
+    }
+    if (s->disk_ask || s->disk_renaming || s->disk_page == 0) { // drawn as that next frame
+        ui_wake(u, 1);
+        return;
+    }
+    n = s->disk_nfiles;
+    on_item = n && !s->disk_isdir[s->disk_file], on_folder = n && s->disk_isdir[s->disk_file];
+    lcd_text(u, 0, KEY_ROW, "<Back>");
+    if (on_item) lcd_text(u, 8, KEY_ROW, in->shift ? "<Delete>" : "<Rename>");
+    if (on_folder) lcd_text(u, 20, KEY_ROW, "<Open>");
+    else if (on_item) lcd_text(u, 20, KEY_ROW, "<Load>");
+    char title[40];
+    snprintf(title, sizeof title, "Load %s", TYPES[s->disk_type]);
+    lcd_rule(u, TITLE_ROW, s->disk_pending ? "Working..." : title);
+    char dir[700], here[700], root[700], v[48];
+    type_dir(s, s->disk_type, dir, sizeof dir);
+    clean_path(dir, here, sizeof here);
+    card_root(s, root, sizeof root);
+    size_t rl = strlen(root);
+    const char *where = strncmp(here, root, rl) == 0 ? here + rl : here;
+    if (!*where) where = "/";
+    size_t len = strlen(where);
+    lcd_text(u, 0, 3, len > LCD_COLS ? where + len - LCD_COLS : where);
+    int first_row = 4, rows = s->disk_clear ? 9 : 10;
+    int items = 0;
+    for (int i = 0; i < n; i++) items += !s->disk_isdir[i] || s->disk_isdir[i] == 1;
+    if (!n) lcd_center(u, 8, "(empty)");
+    else if (!items) lcd_center(u, 9, "(nothing to load here)");
+    int top = s->disk_file - rows / 2 < 0 ? 0 : s->disk_file - rows / 2;
+    if (top > n - rows) top = n - rows < 0 ? 0 : n - rows;
+    for (int r = 0; r < rows && top + r < n; r++) {
+        int i = top + r;
+        char nm[LCD_COLS + 1];
+        if (s->disk_isdir[i] == 2) snprintf(nm, sizeof nm, "..");
+        else snprintf(nm, sizeof nm, "%.24s%s", s->disk_files[i], s->disk_isdir[i] ? "/" : "");
+        if (i == s->disk_file) {
+            snprintf(v, sizeof v, "%-*s", LCD_COLS, nm);
+            lcd_inverse(u, 0, first_row + r, v);
+        } else {
+            lcd_text(u, 0, first_row + r, nm);
+        }
+    }
+    if (s->disk_clear) lcd_inverse(u, 0, 13, " Clear all: YES ");
+    lcd_rule(u, BOTTOM_ROW, 0);
+}
+
 void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     if (export_progress(s, u)) return;
     if (s->disk_pending) { // drawn "Working..." last frame: now it happens
@@ -1627,8 +1701,12 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         return;
     }
     int m = s->disk_mode;
+    if (m == DISK_LOAD && s->disk_page == 1 && !s->disk_renaming && !s->disk_newdir) {
+        browse_frame(s, u, in);
+        return;
+    }
     // Keys.
-    int on_item = s->disk_nfiles && !s->disk_isdir[s->disk_file], on_folder = s->disk_nfiles && s->disk_isdir[s->disk_file];
+    int on_folder = s->disk_nfiles && s->disk_isdir[s->disk_file];
     if (s->disk_newdir) { // naming a new folder
         if (input_down(in, IN_B1)) { // <Cancel>
             s->disk_newdir = 0, s->disk_cursor = DF_FILE;
@@ -1636,21 +1714,10 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         }
         if (input_down(in, IN_B3)) s->disk_pending = 'N', s->disk_newdir = 0, s->disk_cursor = DF_FILE; // <OK>
     } else if (s->disk_renaming) {
-        if (input_down(in, IN_B1)) s->disk_renaming = 0, s->disk_cursor = DF_FILE; // <Cancel>
-        if (input_down(in, IN_B3)) s->disk_pending = 'R', s->disk_renaming = 0, s->disk_cursor = DF_FILE; // <OK>
+        if (input_down(in, IN_B1)) s->disk_renaming = 0, s->disk_cursor = m == DISK_LOAD ? DF_MODE : DF_FILE; // <Cancel>
+        if (input_down(in, IN_B3)) s->disk_pending = 'R', s->disk_renaming = 0, s->disk_cursor = m == DISK_LOAD ? DF_MODE : DF_FILE; // <OK>
     } else if (m == DISK_LOAD) {
-        if (input_down(in, IN_B1) && on_item && !in->shift) { // <Rename>
-            snprintf(s->disk_name, sizeof s->disk_name, "%s", s->disk_files[s->disk_file]);
-            s->disk_renaming = 1, s->disk_cursor = DF_NAME, s->disk_pos = 0;
-        } else if (input_down(in, IN_B1) && s->disk_nfiles && s->disk_isdir[0] == 2) { // <Up>: out of this folder
-            open_folder(s, 0);
-        }
-        if (input_down(in, IN_B2) && on_item && in->shift) s->disk_ask = 'D'; // SHIFT + B2: <Delete>, asked first
-        if (input_down(in, IN_B3) && on_folder) open_folder(s, s->disk_file); // <Open>
-        else if (input_down(in, IN_B3) && on_item && s->disk_clear && clear_ok(s->disk_type)) s->disk_ask = 'C'; // Clear all first?
-        else if (input_down(in, IN_B3) && on_item && is_prog(s->disk_type)) s->disk_ask = 'P'; // <Load>: asked first
-        else if (input_down(in, IN_B3) && on_item && s->disk_type == DISK_SEQFILE && seq_in_use(s, s->disk_which)) s->disk_ask = 'O';
-        else if (input_down(in, IN_B3) && on_item) s->disk_pending = 'L'; // <Load>
+        if (input_down(in, IN_B3)) s->disk_page = 1, list_files(s); // <Browse>: the files
     } else if (m != DISK_LOAD && s->disk_type != DISK_AUTOLOAD && input_down(in, IN_B1)) { // <New Dir>
         snprintf(s->disk_keep, sizeof s->disk_keep, "%s", s->disk_name);
         snprintf(s->disk_name, sizeof s->disk_name, "FOLDER");
@@ -1729,16 +1796,12 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
 
     // ---- Drawing ----
     char v[48];
-    on_item = s->disk_nfiles && !s->disk_isdir[s->disk_file], on_folder = s->disk_nfiles && s->disk_isdir[s->disk_file];
+    on_folder = s->disk_nfiles && s->disk_isdir[s->disk_file];
     if (s->disk_renaming || s->disk_newdir) {
         lcd_text(u, 0, KEY_ROW, "<Cancel>");
         lcd_text(u, 22, KEY_ROW, "<OK>");
     } else if (m == DISK_LOAD) {
-        if (on_item && in->shift) lcd_text(u, 9, KEY_ROW, "<Delete>"); // only with SHIFT: never by accident
-        else if (on_item) lcd_text(u, 0, KEY_ROW, "<Rename>");
-        else if (s->disk_nfiles && s->disk_isdir[0] == 2) lcd_text(u, 0, KEY_ROW, "<Up>");
-        if (on_folder) lcd_text(u, 20, KEY_ROW, "<Open>");
-        else if (on_item) lcd_text(u, 20, KEY_ROW, "<Load>");
+        lcd_text(u, 18, KEY_ROW, "<Browse>");
     } else if (s->disk_type != DISK_AUTOLOAD) {
         lcd_text(u, 0, KEY_ROW, "<New Dir>");
         if (s->disk_nfiles) lcd_text(u, 10, KEY_ROW, "<Open>");

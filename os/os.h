@@ -432,6 +432,7 @@ struct os {
     int disk_mode, disk_type, disk_which, disk_cursor, disk_return, disk_pos, disk_file, disk_nfiles;
     int disk_used;                // opened since power-on: it opens again on the mode and type last used
     int disk_clear;               // LOAD: Clear all first (asked, then back to NO)
+    int disk_page;                // LOAD: 0 the settings (Mode, Type, Into, Clear all), 1 the files (as Load Files)
     int disk_tracks, disk_mix;    // EXPORT: tracks 0 none, 1 mono, 2 stereo; the mix with Master FX
     int disk_ask, disk_pending, disk_renaming; // a question up, an action next frame ('S' 'L' 'E' 'D' 'R')
     char disk_name[40];

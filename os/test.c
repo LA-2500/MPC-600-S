@@ -3235,7 +3235,7 @@ static void test_multi(const char *shot_dir) {
     for (int i = 0; i < os.disk_nfiles; i++)
         if (!strcmp(os.disk_files[i], "PNO")) at_pno = i;
     CHECK(at_pno >= 0);
-    os.disk_file = at_pno, os.disk_which = 3;
+    os.disk_file = at_pno, os.disk_which = 3, os.disk_page = 1; // on the files page
     tap(IN_B3); // <Load>
     CHECK(os.disk_ask == 'P');
     frame(&idle);
@@ -5731,6 +5731,7 @@ static void test_seq_files(const char *shot_dir) {
         os.data_dir = q2;
         disk_open(&os, DISK_LOAD, DISK_MPCPRJ);
         CHECK(os.disk_nfiles == 2 && !strcmp(os.disk_files[0], "MPC BEAT") && !strcmp(os.disk_files[1], "MPC600S"));
+        os.disk_page = 1; // the files
         struct input in = blank();
         in.down = in.held = 1u << IN_B3; // <Open>
         frame(&in);
@@ -5745,9 +5746,9 @@ static void test_seq_files(const char *shot_dir) {
         in.encoder = 1;
         frame(&in);
         CHECK(os.disk_type == DISK_MPCPRJ && !strcmp(os.disk_files[os.disk_file], "Project01"));
-        os.disk_file = 0; // onto ..
+        os.disk_file = 0, os.disk_page = 1; // the files, onto ..
         in = blank();
-        in.down = in.held = 1u << IN_B1; // <Up>
+        in.down = in.held = 1u << IN_B1; // <Back>: up a folder
         frame(&in);
         CHECK(os.disk_nfiles == 2 && !strcmp(os.disk_files[0], "MPC BEAT"));
         os.disk_file = 1; // into MPC600S, then projects: MINE is not listed
@@ -6435,7 +6436,7 @@ static void test_disk_folders(const char *shot_dir) {
     seq_arp_steps_clear(&sq->arp_user[5]);
     disk_open(&os, DISK_LOAD, DISK_ARP);
     CHECK(os.disk_nfiles == 2 && os.disk_isdir[0] == 2 && os.disk_isdir[1] == 1 && strcmp(os.disk_files[1], "BEATS") == 0);
-    os.disk_file = 1;
+    os.disk_file = 1, os.disk_page = 1;
     tap(IN_B3); // <Open>
     at = strlen(os.disk_at);
     CHECK(at > 6 && strcmp(os.disk_at + at - 6, "/BEATS") == 0 && os.disk_nfiles == 2 && os.disk_isdir[0] == 2 &&
@@ -6461,7 +6462,7 @@ static void test_disk_folders(const char *shot_dir) {
         for (int i = 0; i < os.disk_nfiles; i++)
             if (strcmp(os.disk_files[i], "SINE") == 0) sine = i;
         CHECK(sine >= 0 && os.disk_nfiles == 5); // .. and the four waves
-        os.disk_file = sine, os.selected = 7;
+        os.disk_file = sine, os.selected = 7, os.disk_page = 1;
         tap(IN_B3); // <Load>
         frame(&idle);
         CHECK(os.pads[7].s && os.pads[7].s->frames == 674 && strcmp(os.pads[7].name, "SINE") == 0);
@@ -7154,17 +7155,31 @@ static void test_disk(const char *shot_dir) {
     CHECK(file_exists(p));
     // LOAD: the list, rename, delete (asked first).
     disk_open(&os, DISK_LOAD, DISK_PROJECT);
-    CHECK(os.disk_nfiles == 2 && os.disk_isdir[0] == 2 && strcmp(os.disk_files[1], "MYSONG") == 0 && os.disk_file == 1);
+    in = blank();
+    frame(&in);
     if (shot_dir) write_shot(shot_dir, "disk_load");
-    tap(IN_B1); // <Rename>
+    CHECK(os.disk_nfiles == 2 && os.disk_isdir[0] == 2 && strcmp(os.disk_files[1], "MYSONG") == 0 && os.disk_file == 1);
+    CHECK(os.disk_page == 0);
+    tap(IN_B3); // <Browse>: the files, as Load Files
+    CHECK(os.disk_page == 1);
+    {
+        struct input w = blank();
+        w.encoder = -1; // the wheel moves the bar, and back
+        frame(&w);
+        CHECK(os.disk_file == 0);
+        w.encoder = 1;
+        frame(&w);
+        CHECK(os.disk_file == 1);
+    }
+    if (shot_dir) write_shot(shot_dir, "disk_browse");
+    tap(IN_B2); // <Rename>
     CHECK(os.disk_renaming);
     snprintf(os.disk_name, sizeof os.disk_name, "TAKE2");
     tap(IN_B3); // <OK>
     in = blank();
     frame(&in);
     CHECK(os.disk_nfiles == 2 && strcmp(os.disk_files[1], "TAKE2") == 0);
-    tap(IN_B2); // B2 alone: nothing (Delete is SHIFT + B2, never by accident)
-    CHECK(os.disk_ask == 0);
+    CHECK(os.disk_page == 1 && os.disk_ask == 0); // back on the files
     {
         struct input sh = blank();
         sh.down = 1u << IN_B2, sh.held = 1u << IN_B2 | 1u << IN_SHIFT, sh.shift = 1;
