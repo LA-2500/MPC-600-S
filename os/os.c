@@ -417,10 +417,14 @@ void os_pad_swap(struct os *s, int a, int b) {
     }
 }
 
-int os_sounds(const struct os *s, struct sample **list, const char **names, int max) {
+// Every sound in memory, once each, leaving out the place of pad skip_pad of program skip_prog
+// (-1: none).
+static int sounds_except(const struct os *s, struct sample **list, const char **names, int max, int skip_prog,
+                         int skip_pad) {
     int n = 0;
     for (int p = 0; p < OS_PROGRAMS; p++)
         for (int i = 0; i < OS_PADS; i++) {
+            if (p == skip_prog && i == skip_pad) continue;
             const struct os_pad *pad = &s->programs[p].pads[i];
             int seen = !pad->s;
             for (int k = 0; k < n && !seen; k++) seen = list[k] == pad->s;
@@ -432,6 +436,10 @@ int os_sounds(const struct os *s, struct sample **list, const char **names, int 
         if (!seen && n < max) list[n] = s->memory[m].s, names[n++] = s->memory[m].name;
     }
     return n;
+}
+
+int os_sounds(const struct os *s, struct sample **list, const char **names, int max) {
+    return sounds_except(s, list, names, max, -1, -1);
 }
 
 void os_pad_assign(struct os *s, int slot, struct sample *n, const char *name) {
@@ -1457,12 +1465,17 @@ static int erase_prompt(struct os *s, const struct ui *u, const struct input *in
 void os_pad_step_sound(struct os *s, int slot, int d) {
     static struct sample *list[OS_SOUND_LIST];
     static const char *names[OS_SOUND_LIST];
-    int n = os_sounds(s, list, names, OS_SOUND_LIST), at = -1;
+    // The list leaves out this pad's own place, so its order stays the same as the pad's sound
+    // changes (in the pad's place, the sound just chosen would come first again and the next step
+    // would go back: two sounds, back and forth). A sound found only on this pad goes to the end
+    // of memory when it leaves, so it counts as last.
+    int n = sounds_except(s, list, names, OS_SOUND_LIST, s->program, slot), at = n;
     if (n == 0) return;
-    for (int i = 0; i < n && at < 0; i++)
+    for (int i = 0; i < n && at == n; i++)
         if (list[i] == s->pads[slot].s) at = i;
-    int to = at < 0 ? (d > 0 ? 0 : n - 1) : ((at + d) % n + n) % n;
-    if (list[to] != s->pads[slot].s) os_pad_assign(s, slot, list[to], names[to]);
+    int places = n + (at == n); // with this pad's own sound, when only it has it
+    int to = s->pads[slot].s ? ((at + d) % places + places) % places : d > 0 ? 0 : n - 1;
+    if (to < n && list[to] != s->pads[slot].s) os_pad_assign(s, slot, list[to], names[to]);
 }
 
 static void handle_sample_screen(struct os *s, const struct ui *u, const struct input *in) {

@@ -1516,8 +1516,11 @@ void record_frame(struct os *s, struct ui *u, const struct input *in) {
     if (waiting) {
         const struct sample *t = s->rec_result;
         long tenths = (long)t->frames * 10 / t->rate;
-        snprintf(line, sizeof line, "%ld.%lds %d.%02dk %dbit", tenths / 10, tenths % 10, t->rate / 1000,
-                 t->rate % 1000 / 10, set->bits);
+        if (s->record_page == 3) // a stem: full resolution, no bit depth of its own
+            snprintf(line, sizeof line, "%ld.%lds %d.%02dk", tenths / 10, tenths % 10, t->rate / 1000, t->rate % 1000 / 10);
+        else
+            snprintf(line, sizeof line, "%ld.%lds %d.%02dk %dbit", tenths / 10, tenths % 10, t->rate / 1000,
+                     t->rate % 1000 / 10, set->bits);
         lcd_rule(u, METER_ROW, line);
         draw_wave(u, s, t);
         lcd_inverse(u, 0, 5, " Press pad to assign, or  ");

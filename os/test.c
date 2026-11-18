@@ -1375,6 +1375,31 @@ static float at(int pad, int i) {
     return os.pads[pad].s->data[i];
 }
 
+// Stepping a pad's Sample: field goes through every sound in memory in turn, not back and forth
+// between two: the pad's own sound changing must not reorder the list it steps through.
+static void test_step_sound(void) {
+    engine_init(&e);
+    os_init(&os, &e);
+    struct sample *a = constant(100), *b = constant(101), *c = constant(102), *d = constant(103);
+    os_pad_load(&os, 0, a, "A");
+    os_pad_load(&os, 1, b, "B");
+    os_pad_load(&os, 2, c, "C");
+    os_memory_add(&os, d, "D");
+    const struct sample *seen[8];
+    for (int i = 0; i < 8; i++) os_pad_step_sound(&os, 0, 1), seen[i] = os.pads[0].s;
+    int hits[4] = {0};
+    for (int i = 0; i < 8; i++) hits[seen[i] == a ? 0 : seen[i] == b ? 1 : seen[i] == c ? 2 : 3]++;
+    CHECK(hits[0] == 2 && hits[1] == 2 && hits[2] == 2 && hits[3] == 2); // each twice: a full cycle, twice
+    for (int i = 0; i < 4; i++) CHECK(seen[i] != seen[(i + 1) % 4] && seen[i] == seen[i + 4]);
+    // and back the other way, the same cycle reversed
+    const struct sample *back[4];
+    for (int i = 0; i < 4; i++) os_pad_step_sound(&os, 0, -1), back[i] = os.pads[0].s;
+    for (int i = 0; i < 4; i++) CHECK(back[i] == seen[(6 - i) % 4]);
+    // a pad later in the bank cycles the same way
+    for (int i = 0; i < 4; i++) os_pad_step_sound(&os, 2, 1), seen[i] = os.pads[2].s;
+    CHECK(seen[0] != seen[1] && seen[1] != seen[2] && seen[2] != seen[3] && seen[0] != seen[2] && seen[1] != seen[3]);
+}
+
 static void test_zone_ops(const char *shot_dir) {
     engine_init(&e);
     os_init(&os, &e);
@@ -7755,6 +7780,7 @@ int main(int argc, char **argv) {
     test_midi_settings(argc > 1 ? argv[1] : 0);
     test_note_repeat();
     test_onsets();
+    test_step_sound();
     test_audio_poll();
     test_shutdown(argc > 1 ? argv[1] : 0);
     printf("%d checks, %d failed\n", checks, failures);
