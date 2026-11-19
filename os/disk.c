@@ -1214,6 +1214,35 @@ static void list_files(struct os *s) {
     if (s->disk_file == 0 && top == 1 && s->disk_nfiles > 1) s->disk_file = 1; // the first thing here, not ..
 }
 
+// Each folder keeps its place in the list for the session, as Load Files does.
+#define DISK_KEEP 32
+static struct { char path[700]; int file; } disk_kept[DISK_KEEP];
+static int disk_keep_next;
+
+static void disk_keep(const char *here, int file) {
+    int slot = -1;
+    for (int i = 0; i < DISK_KEEP && slot < 0; i++)
+        if (strcmp(disk_kept[i].path, here) == 0) slot = i;
+    if (slot < 0) slot = disk_keep_next, disk_keep_next = (disk_keep_next + 1) % DISK_KEEP;
+    snprintf(disk_kept[slot].path, sizeof disk_kept[0].path, "%s", here);
+    disk_kept[slot].file = file;
+}
+
+static int disk_kept_file(const char *here) {
+    for (int i = 0; i < DISK_KEEP; i++)
+        if (disk_kept[i].path[0] && strcmp(disk_kept[i].path, here) == 0) return disk_kept[i].file;
+    return -1;
+}
+
+// The bar's place in this folder, kept as it moves (not on ..).
+static void disk_keep_bar(const struct os *s) {
+    if (s->disk_file >= s->disk_nfiles || s->disk_isdir[s->disk_file] == 2) return;
+    char dir[700], here[700];
+    type_dir(s, s->disk_type, dir, sizeof dir);
+    clean_path(dir, here, sizeof here);
+    disk_keep(here, s->disk_file);
+}
+
 // Into a folder of the list, or ".." back up.
 static void open_folder(struct os *s, int i) {
     if (i < 0 || i >= s->disk_nfiles || !s->disk_isdir[i]) return;
@@ -1221,9 +1250,12 @@ static void open_folder(struct os *s, int i) {
     type_dir(s, s->disk_type, dir, sizeof dir);
     clean_path(dir, here, sizeof here);
     card_root(s, root, sizeof root);
+    char left[sizeof s->disk_files[0]] = "";
+    disk_keep_bar(s);
     if (s->disk_isdir[i] == 2) { // up, but not past the card
         if (strcmp(here, root) == 0) return;
         char *slash = strrchr(here, '/');
+        if (slash) snprintf(left, sizeof left, "%s", slash + 1);
         if (slash && slash != here) *slash = 0;
         snprintf(s->disk_at, sizeof s->disk_at, "%s", here);
     } else {
@@ -1232,6 +1264,13 @@ static void open_folder(struct os *s, int i) {
     s->disk_file = 0;
     snprintf(s->disk_last[s->disk_type], sizeof s->disk_last[0], "%s", s->disk_at); // kept for next time
     list_files(s);
+    char now[700];
+    type_dir(s, s->disk_type, dir, sizeof dir);
+    clean_path(dir, now, sizeof now);
+    int kept = disk_kept_file(now);
+    if (kept >= 0 && kept < s->disk_nfiles) s->disk_file = kept; // where the list was
+    for (int j = 0; left[0] && j < s->disk_nfiles; j++) // back up: on the folder just left
+        if (s->disk_isdir[j] == 1 && strcmp(s->disk_files[j], left) == 0) s->disk_file = j;
 }
 
 // The type's folder as last used (if it is still there), and the item last loaded or saved in it.
@@ -1577,7 +1616,9 @@ static void load_item(struct os *s) {
 
 static void browse_frame(struct os *s, struct ui *u, const struct input *in) {
     int n = s->disk_nfiles;
+    int was = s->disk_file;
     s->disk_file = clampi(s->disk_file + in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS), 0, n > 0 ? n - 1 : 0);
+    if (s->disk_file != was) disk_keep_bar(s);
     int on_item = n && !s->disk_isdir[s->disk_file], on_folder = n && s->disk_isdir[s->disk_file];
     if (input_down(in, IN_B1) && !in->shift) {                    // <Back>
         if (n && s->disk_isdir[0] == 2) open_folder(s, 0);
@@ -1779,7 +1820,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         case DF_CLEAR: s->disk_clear = d > 0; break;
         case DF_TRACKS: s->disk_tracks = clampi(s->disk_tracks + d, 0, 2); break;
         case DF_MIX: s->disk_mix = d > 0; break;
-        case DF_FILE: s->disk_file = clampi(s->disk_file + d, 0, s->disk_nfiles > 0 ? s->disk_nfiles - 1 : 0); break;
+        case DF_FILE: s->disk_file = clampi(s->disk_file + d, 0, s->disk_nfiles > 0 ? s->disk_nfiles - 1 : 0), disk_keep_bar(s); break;
         case DF_NAME: { // the wheel the character, - and + the place in the name
             s->disk_pos = clampi(s->disk_pos + pm, 0, NAME_MAX_LEN - 1);
             int len = (int)strlen(s->disk_name);

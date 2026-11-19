@@ -89,7 +89,8 @@ static long mem_available(void) {
     return kb * 1024;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc == 3 && strcmp(argv[1], "--codec-volume") == 0) return alsa_out_codec_volume(atoi(argv[2])) == 0 ? 0 : 1;
     mlockall(MCL_CURRENT | MCL_FUTURE); // a page fault would be an audible dropout
     engine_init(&engine);
     os_init(&os, &engine);

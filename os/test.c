@@ -693,13 +693,22 @@ static void test_browser(const char *shot_dir) {
     tap(IN_B1);
     CHECK(strstr(os.browser.cwd, "Drums") == 0); // Back goes up one folder
     CHECK(os.screen == OS_BROWSER);
-    in = blank();
-    in.encoder = drums;
-    frame(&in);
+    CHECK(os.browser.cursor == drums); // on the folder just left, not the top
     tap(IN_B3);
+    CHECK(os.browser.cursor == snare); // and the folder keeps its place
     in = blank();
-    in.encoder = snare;
-    frame(&in);
+    in.encoder = -snare;
+    frame(&in); // up the list to ..
+    tap(IN_B3); // .. goes up, on Drums
+    CHECK(strstr(os.browser.cwd, "Drums") == 0 && os.browser.cursor == drums);
+    tap(IN_B3);
+    CHECK(os.browser.cursor == snare); // the file last on, not ..
+    tap(IN_B1);
+    tap(IN_B1); // the storage list, on the card just left
+    CHECK(os.browser.cwd[0] == 0 && os.browser.entries[os.browser.cursor].place);
+    tap(IN_B3);
+    CHECK(os.browser.cursor == drums);
+    tap(IN_B3);
     tap(IN_B3);
     CHECK(os.screen == OS_SAMPLE);
     CHECK(os.pads[0].s && os.pads[0].s->frames == 4);
@@ -6553,7 +6562,10 @@ static void test_disk_folders(const char *shot_dir) {
     CHECK(memcmp(&sq->arp_user[5], &sq->arp_user[2], sizeof sq->arp_user[2]) == 0);
     os.disk_file = 0;
     tap(IN_B3); // .. : back up, to arp
-    CHECK(strcmp(os.disk_files[1], "BEATS") == 0);
+    CHECK(strcmp(os.disk_files[1], "BEATS") == 0 && os.disk_file == 1); // on the folder just left
+    tap(IN_B3); // into BEATS again: on LINE1, where the list was
+    CHECK(strcmp(os.disk_files[os.disk_file], "LINE1") == 0);
+    tap(IN_B1); // <Back> up again
     for (int up = 0; up < 2; up++) os.disk_file = 0, tap(IN_B3); // up to MPC600S, then the card: no .. there
     char root[700];
     snprintf(root, sizeof root, "%s/..", dir);

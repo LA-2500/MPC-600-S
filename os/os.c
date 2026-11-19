@@ -2118,9 +2118,47 @@ static void update_lights(struct ui *u, struct os *s) {
 #define PREVIEW_DELAY_MS 180 // scrolling past a file does not load it
 #define PREVIEW_MAX_BYTES (4u * 1024u * 1024u)
 
+// Each folder keeps its place in the list for the session: going in and back out again lands
+// where the list was, not at the top. The oldest folder is forgotten first.
+#define BROWSE_KEEP 32
+static struct { char path[FILES_PATH]; int cursor; } browse_kept[BROWSE_KEEP];
+static int browse_next;
+
+static void browser_keep(const struct files *fb) {
+    if (!fb->cwd[0]) return; // the storage list is short; it is not kept
+    if (fb->count > 0 && fb->entries[fb->cursor].up) return; // on ..: going up by it, so the place stays as it was
+    int slot = -1;
+    for (int i = 0; i < BROWSE_KEEP && slot < 0; i++)
+        if (strcmp(browse_kept[i].path, fb->cwd) == 0) slot = i;
+    if (slot < 0) slot = browse_next, browse_next = (browse_next + 1) % BROWSE_KEEP;
+    snprintf(browse_kept[slot].path, FILES_PATH, "%s", fb->cwd);
+    browse_kept[slot].cursor = fb->cursor;
+}
+
+static void browser_restore(struct files *fb) {
+    if (!fb->cwd[0]) return;
+    for (int i = 0; i < BROWSE_KEEP; i++)
+        if (strcmp(browse_kept[i].path, fb->cwd) == 0) {
+            int c = browse_kept[i].cursor;
+            fb->cursor = c < 0 ? 0 : c >= fb->count ? (fb->count > 0 ? fb->count - 1 : 0) : c;
+            return;
+        }
+}
+
 static int browser_enter(struct os *s, const struct ui *u, const char *path) {
-    if (files_open(&s->browser, path) == 0) return 0;
+    browser_keep(&s->browser);
+    if (files_open(&s->browser, path) == 0) {
+        browser_restore(&s->browser);
+        return 0;
+    }
     toast(s, u, "Could not open folder");
+    return -1;
+}
+
+// The entry with this name in the open folder, or -1.
+static int browser_find(const struct files *fb, const char *name) {
+    for (int i = 0; i < fb->count; i++)
+        if (!fb->entries[i].up && strcmp(fb->entries[i].name, name) == 0) return i;
     return -1;
 }
 
@@ -2145,15 +2183,20 @@ static void browser_back(struct os *s, const struct ui *u) {
         sound_screen(s);
         return;
     }
-    if (files_place_of(fb, fb->cwd) >= 0) { // the top of a card or drive: back to the places
-        browser_enter(s, u, "");
+    int place = files_place_of(fb, fb->cwd);
+    if (place >= 0) { // the top of a card or drive: back to the places, on that one
+        if (browser_enter(s, u, "") == 0 && place < fb->count) fb->cursor = place;
         return;
     }
-    char parent[FILES_PATH];
+    char parent[FILES_PATH], left[FILES_NAME];
     snprintf(parent, sizeof parent, "%s", fb->cwd);
     char *slash = strrchr(parent, '/');
+    snprintf(left, sizeof left, "%s", slash ? slash + 1 : "");
     if (slash && slash != parent) *slash = 0;
-    browser_enter(s, u, parent);
+    if (browser_enter(s, u, parent) == 0) { // on the folder just left
+        int at = browser_find(fb, left);
+        if (at >= 0) fb->cursor = at;
+    }
 }
 
 static void browser_load(struct os *s, const struct ui *u, const char *path, const char *file) {
@@ -2274,8 +2317,7 @@ static void handle_browser(struct os *s, struct ui *u, const struct input *in) {
     else if (input_down(in, IN_B1)) browser_back(s, u);
     else if (in->encoder_press || input_down(in, IN_B3)) browser_open(s, u);
     else if (input_down(in, IN_B2)) s->preview_on = !s->preview_on;
-    else navigated = fb->cursor != before;
-
+    else if ((navigated = fb->cursor != before)) browser_keep(fb); // the bar's place in this folder, as it moves
     if (fb->cwd[0]) {
         snprintf(s->browser_dir, sizeof s->browser_dir, "%s", fb->cwd);
         s->browser_cursor = fb->cursor;

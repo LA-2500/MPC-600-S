@@ -20,6 +20,10 @@
 #define MAX_PERIOD 1024
 #define MAX_CHANNELS 4
 #define RT_PRIORITY 80
+// Start-up, without a pop: silence while the codec settles, the speaker amp switched on only
+// after that, then the sound faded in.
+#define START_HOLD (RATE * 6 / 10)  // 0.6 s of silence
+#define START_FADE (RATE * 8 / 10)  // then 0.8 s to full level
 
 static struct {
     int fd, channels, period;
@@ -31,6 +35,7 @@ static struct {
     pthread_t thread;
     atomic_int stop;
     atomic_uint xruns;
+    atomic_int settled; // START_HOLD of silence has been played: the speaker amp may go on
 } out = {.fd = -1, .in_fd = -1};
 
 // Whether the built-in speaker is playing, and whether the built-in mic is the input. Input
@@ -458,6 +463,7 @@ static void *audio_thread(void *arg) {
     float mix[MAX_PERIOD * 2], in[MAX_PERIOD * 2];
     int32_t pcm[MAX_PERIOD * MAX_CHANNELS], raw[MAX_PERIOD * MAX_CHANNELS];
     float gain = atomic_load(out.main_gain);
+    long started = 0; // frames played since the start, up to the end of the fade-in
     while (!atomic_load_explicit(&out.stop, memory_order_relaxed)) {
         int have_input = 0, resample = out.rec && atomic_load_explicit(&out.rec->source, memory_order_relaxed);
         long long clock = atomic_load(&out.engine->clock);
@@ -510,6 +516,12 @@ static void *audio_thread(void *arg) {
         for (int i = 0; i < out.period; i++) {
             gain += step;
             float l = mix[i * 2], r = mix[i * 2 + 1];
+            if (started < START_HOLD + START_FADE) { // the start-up hold and fade-in, on every output
+                float k = started < START_HOLD ? 0.0f : (float)(started - START_HOLD) / START_FADE;
+                k *= k; // slow at first
+                l *= k, r *= k;
+                if (++started == START_HOLD) atomic_store(&out.settled, 1);
+            }
             int32_t *f = pcm + i * out.channels;
             f[0] = to_s32(l * gain);
             f[1] = to_s32(r * gain);
@@ -545,8 +557,8 @@ static void start_thread(void) {
 // at startup, so a program that replaces the stock app has to do it as well.
 static struct {
     int fd, speaker;
-    int have_speaker, have_headphones, have_line, have_mic, have_trs;
-    struct snd_ctl_elem_id speaker_id, headphones_id, line_id, mic_id, trs_id;
+    int have_speaker, have_headphones, have_line, have_mic, have_trs, have_volume, volume_up;
+    struct snd_ctl_elem_id speaker_id, headphones_id, line_id, mic_id, trs_id, volume_id;
 } mixer = {.fd = -1, .speaker = -1};
 
 static void mixer_open(int card) {
@@ -569,6 +581,7 @@ static void mixer_open(int card) {
             if (strcmp(name, "Line Out Jack") == 0) mixer.line_id = ids[i], mixer.have_line = 1;
             if (strcmp(name, "Builtin Microphone Switch") == 0) mixer.mic_id = ids[i], mixer.have_mic = 1;
             if (strcmp(name, "TRS Switch") == 0) mixer.trs_id = ids[i], mixer.have_trs = 1;
+            if (strcmp(name, "Playback Volume") == 0) mixer.volume_id = ids[i], mixer.have_volume = 1;
         }
     }
     free(ids);
@@ -591,6 +604,28 @@ static void mixer_write_speaker(int on) {
         mixer.speaker = on;
         atomic_store(&speaker_live, on);
     }
+}
+
+// The codec's own output level (0-255, both sides). It glides to a new level by itself, so
+// changing it does not click.
+static void mixer_write_volume(int level) {
+    if (mixer.fd < 0 || !mixer.have_volume) return;
+    struct snd_ctl_elem_value v;
+    memset(&v, 0, sizeof v);
+    v.id = mixer.volume_id;
+    v.value.integer.value[0] = v.value.integer.value[1] = level;
+    ioctl(mixer.fd, SNDRV_CTL_IOCTL_ELEM_WRITE, &v);
+}
+
+int alsa_out_codec_volume(int level) {
+    int card = find_card();
+    if (card < 0) return -1;
+    mixer_open(card);
+    int ok = mixer.fd >= 0 && mixer.have_volume;
+    mixer_write_volume(level);
+    if (mixer.fd >= 0) close(mixer.fd);
+    mixer.fd = -1;
+    return ok ? 0 : -1;
 }
 
 static void mixer_write(const struct snd_ctl_elem_id *id, int on) {
@@ -624,6 +659,8 @@ int alsa_out_set_input(int src) {
 
 void alsa_out_speaker_update(void) {
     if (mixer.fd < 0 || !mixer.have_speaker) return;
+    if (!atomic_load(&out.settled)) return; // start-up: the amp is left as it is until the codec has played silence
+    if (!mixer.volume_up) mixer_write_volume(255), mixer.volume_up = 1; // the start script turned the codec down
     int plugged = (mixer.have_headphones && mixer_read(&mixer.headphones_id))
                || (mixer.have_line && mixer_read(&mixer.line_id));
     if (mixer.speaker != !plugged) mixer_write_speaker(!plugged);
@@ -664,7 +701,8 @@ int alsa_out_start(struct engine *e, _Atomic float *main_gain, struct recorder *
         return -1;
     }
     mixer_open(card);
-    alsa_out_speaker_update();
+    // The amp as the stock app left it: switching it off and on again would click.
+    if (mixer.fd >= 0 && mixer.have_speaker) mixer.speaker = mixer_read(&mixer.speaker_id), atomic_store(&speaker_live, mixer.speaker);
     // The input, at the output's rate and period. Two channels if it allows, else four.
     out.rec = rec;
     if (rec) {
@@ -689,6 +727,7 @@ int alsa_out_start(struct engine *e, _Atomic float *main_gain, struct recorder *
              !mixer.have_speaker ? "switch missing" : mixer.speaker < 0 ? "failed" : mixer.speaker ? "on" : "off");
     out.engine = e;
     out.main_gain = main_gain;
+    atomic_store(&out.settled, 0);
     atomic_store(&out.stop, 0);
     start_thread();
     return 0;

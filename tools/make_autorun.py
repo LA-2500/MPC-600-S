@@ -61,6 +61,8 @@ if [ -z "$menu" ] && [ ! -f /run/mpc-boot-thingy.pid ] && has_systemd; then
     tries=0
     while [ "$tries" -lt 45 ]; do # up to 45 s for the stock app to come up, then stop it
         if systemctl is-active --quiet ac50.service; then
+            "/run/$prog" --codec-volume 0 || true # the codec glides down first: no click as the stock app stops
+            sleep 1
             systemctl stop ac50.service || true
             break
         fi
@@ -70,6 +72,7 @@ if [ -z "$menu" ] && [ ! -f /run/mpc-boot-thingy.pid ] && has_systemd; then
 fi
 code=0
 "/run/$prog" || code=$?
+"/run/$prog" --codec-volume 255 || true # back up, whatever happened, for the stock app
 if [ ! -f /run/mpc-boot-thingy.pid ] && has_systemd; then
     systemctl start ac50.service || true
 fi
