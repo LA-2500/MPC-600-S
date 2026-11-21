@@ -6,6 +6,7 @@
 #include "panel.h"
 #include "recorder.h"
 #include "seq.h"
+#include "usbmode.h"
 #include <stdatomic.h>
 #include <stdint.h>
 
@@ -17,13 +18,14 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM };
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_VERSION "LA Version 1.6D (11/19/26)" // 26 columns: a four-digit year will not fit
+#define OS_NUMBER "1.7"
+#define OS_VERSION "LA Version " OS_NUMBER " (11/20/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
 #define OS_POWER_FORCE_MS 15000 // if an orderly shutdown has not finished by then, cut the power
 
-enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI, OS_INSERT };
-enum { DISK_SAVE, DISK_LOAD, DISK_EXPORT, DISK_MODES };
+enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI, OS_INSERT, OS_USBMODE };
+enum { DISK_SAVE, DISK_LOAD, DISK_EXPORT, DISK_USB, DISK_MODES }; // DISK_USB: USB DATA MODE
 enum { DISK_PROJECT, DISK_PROGRAM, DISK_SAMPLE, DISK_SETTINGS, DISK_AUTOLOAD, DISK_FX, DISK_ARP, DISK_TRACKFX, DISK_WAVE,
        DISK_SEQFILE, DISK_MIDI, DISK_MPC, DISK_MPCPGM, DISK_MPCPRJ, // a sequence on its own; LOAD only: a MIDI file,
                                                        // an MPC .ALL/.SEQ, an MPC .PGM, an MPC .PRJ
@@ -104,7 +106,7 @@ enum {
 enum { PAGE_TRIM, PAGE_MIX, PAGE_TUNE, PAGE_PLAY, PAGE_AMP, PAGE_VEL, PAGE_FILTER, PAGE_FLT_ENV, PAGE_COUNT };
 
 #define OS_ZOOM_MAX 12
-#define OS_MEMORY 64 // sounds kept in memory without a pad
+#define OS_MEMORY 512 // sounds kept in memory without a pad
 
 // A pad's S600 settings, used when an S600 track plays it. Volume, tuning, trim and loop
 // are the pad's own (shared with DRUM tracks); everything here is the S600's alone, so
@@ -366,6 +368,8 @@ struct os {
     int erase_this;    // whether that value itself has recorded moves (else only <All> is offered)
     int pgm_ask;       // the Program screen's delete prompt is open
     int pgm_mode;      // PGM_*: a pad command waiting for its other pad, or a pad delete to confirm
+    int pgm_target;    // Copy and Swap: the program the other pad is in (the wheel picks it)
+    int toast_unused;  // Snd: SHIFT + wheel found no unused sound: said on the next frame
     // Extract's new sound, waiting for a pad to be hit (assign) or ENTER (keep in memory).
     struct sample *extract;
     char extract_name[40];
@@ -420,6 +424,8 @@ struct os {
     struct warp_job *warp_job;
     struct sample *warp_result;   // the one warped sound, until <To Pad>
     int64_t frame_ms;             // the time this frame started
+    int64_t start_ms;             // the first frame's time
+    int layout; // Additional Settings Layout: LAYOUT_* (lcd.h)
     int button_lights, pad_lights, screen_scheme, cursor_prefs; // Additional Settings: BUTTON_*, PAD_LIGHT_*, SCREEN_*
     int start_bpm10, start_bars, start_tc, start_swing; // Additional Settings: the tempo, length, TC and swing at power-on
     // Additional Settings, page 2: what every recording page starts with (Sample New Sound,
@@ -433,7 +439,7 @@ struct os {
     const char *data_dir;         // MPC600S on the card, or NULL (tests point it at a folder)
     int disk_mode, disk_type, disk_which, disk_cursor, disk_return, disk_pos, disk_file, disk_nfiles;
     int disk_used;                // opened since power-on: it opens again on the mode and type last used
-    int disk_clear;               // LOAD: Clear all first (asked, then back to NO)
+    int disk_clear;               // LOAD: Clear all first (asked each time; stays set until changed back)
     int disk_page;                // LOAD: 0 the settings (Mode, Type, Into, Clear all), 1 the files (as Load Files)
     int disk_tracks, disk_mix;    // EXPORT: tracks 0 none, 1 mono, 2 stereo; the mix with Master FX
     int disk_ask, disk_pending, disk_renaming; // a question up, an action next frame ('S' 'L' 'E' 'D' 'R')
@@ -451,6 +457,8 @@ struct os {
     struct { int id, key, channel, note; int64_t until; } aud[16]; // Step Edit's auditions, to be released
     int led_style; // which colours of the two-colour button LEDs light: 0 both, 1 A, 2 B
     void (*set_led_style)(int style);
+    const struct usbmode_hooks *usbmode; // USB DATA MODE, or NULL where there is none
+    int usbm_op, usbm_ask, usbm_watch;   // the step last started; the "Exit anyway?" question; left while starting
 };
 
 void os_toast(struct os *s, const struct ui *u, const char *text);
@@ -471,13 +479,17 @@ int os_program_sounds(const struct os *s, int program); // pads with a sound
 void os_pad_clear(struct os *s, int slot);
 void os_pad_copy(struct os *s, int from, int to); // the sound is shared, the settings copied
 void os_pad_swap(struct os *s, int a, int b);
+// The same with pad `to` of another program (its own program: as above).
+void os_pad_copy_to(struct os *s, int from, int program, int to);
+void os_pad_swap_with(struct os *s, int a, int program, int b);
 // Every sound in memory, once each: on any pad of any program, or kept without one.
-#define OS_SOUND_LIST 512
+#define OS_SOUND_LIST 4096 // every sound: every pad of every program, and memory
 int os_sounds(const struct os *s, struct sample **list, const char **names, int max);
 // Gives a pad another sound. A pad that had one keeps its settings, with the trim reset to the
 // new sound; an empty one starts from the defaults.
 void os_pad_assign(struct os *s, int slot, struct sample *n, const char *name);
 void os_pad_step_sound(struct os *s, int slot, int d); // d places on through os_sounds
+int os_pad_step_free(struct os *s, int slot, int d); // the same through the sounds no pad plays; 0: none
 
 // Reads the settings file at s->settings_path, if there is one.
 void os_load_settings(struct os *s);
@@ -487,6 +499,7 @@ int os_frame(struct ui *u, const struct input *in, void *state);
 
 // Puts a sample on a pad and resets the pad's settings. The pad owns `n`.
 void os_pad_load(struct os *s, int slot, struct sample *n, const char *name);
+void os_pad_load_over(struct os *s, int slot, struct sample *n, const char *name); // the same, the old sound kept in memory
 // Sends a pad of the current program, both its DRUM and S600 settings, to the engine.
 void os_pad_push(struct os *s, int slot);
 int os_track_type(struct os *s); // the active track's TRACK_*
@@ -538,6 +551,7 @@ void os_undo_save(struct os *s, const char *label);
 void arpedit_open(struct os *s, int slot);
 void arpedit_frame(struct os *s, struct ui *u, const struct input *in);
 int arpedit_pad(struct os *s, int i); // the semitones to sound the selected pad at, or ARPEDIT_SILENT
+int arpedit_key(struct os *s, int key); // a MIDI key: its note at the step; as arpedit_pad
 void arpedit_leave(struct os *s);     // the preview stops
 void os_undo(struct os *s, struct ui *u);
 void os_undo_clear(struct os *s); // every step let go
@@ -574,6 +588,8 @@ void os_audition(struct os *s, int note, int tune, int vel);
 
 // Save/Load, in disk.c.
 void disk_open(struct os *s, int mode, int type);
+void usbmode_open(struct os *s, struct ui *u); // USB DATA MODE (usbmode.c)
+void usbmode_frame(struct ui *u, struct os *s, const struct input *in);
 void disk_frame(struct os *s, struct ui *u, const struct input *in);
 void disk_autoload(struct os *s); // power-on: the autoload project, if one was saved
 void disk_install_waves(struct os *s); // power-on: the S600 waveforms into MPC600S/s600, any missing

@@ -336,7 +336,7 @@ int record_pad(struct os *s, struct ui *u, int slot) {
     const struct sample *t = s->rec_result;
     long frames = t->frames, rate = t->rate;
     os_undo_save(s, s->rec_sync ? "Audio Track" : "Assign");
-    os_pad_load(s, slot, s->rec_result, s->rec_result_name);
+    os_pad_load_over(s, slot, s->rec_result, s->rec_result_name);
     s->pads[slot].p.semi = -s->rec_result_pitch; // a pitched-up sound plays at its own pitch
     os_pad_push(s, slot);
     if (!s->rec_sync) os_auto_root(s, slot);

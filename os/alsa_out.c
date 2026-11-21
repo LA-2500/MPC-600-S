@@ -333,7 +333,7 @@ static void usb_take(float *in, int frames) {
 // runs on and nothing waits. The audio thread never touches the gadget.
 
 static struct {
-    atomic_int on, run;
+    atomic_int on, run, held, open; // held: USB mode has the port, so stay off it
     int fd, bytes;
     pthread_t thread;
     int started;
@@ -381,6 +381,7 @@ static void usbo_close_fd(void) {
     ioctl(usbo.fd, SNDRV_PCM_IOCTL_DROP);
     close(usbo.fd);
     usbo.fd = -1;
+    atomic_store(&usbo.open, 0);
 }
 
 // A period from the ring, steering its fill to USB_FILL (the reader here is the computer).
@@ -411,12 +412,18 @@ static void *usbo_thread(void *arg) {
     float f[256 * 2];
     unsigned char raw[256 * 2 * 4];
     while (atomic_load(&usbo.run)) {
-        if (!atomic_load(&usbo.on)) { // switched off: let the gadget go
+        if (!atomic_load(&usbo.on) || atomic_load(&usbo.held)) { // switched off, or USB mode: let the gadget go
             usbo_close_fd();
             nap_ms(200);
             continue;
         }
-        if (usbo.fd < 0 && usbo_open() != 0) { // no computer, or the gadget away (USB card mode): later
+        if (usbo.fd < 0) atomic_store(&usbo.open, 1); // before trying, so USB mode waits for it either way
+        if (usbo.fd < 0 && atomic_load(&usbo.held)) { // USB mode came in between
+            atomic_store(&usbo.open, 0);
+            continue;
+        }
+        if (usbo.fd < 0 && usbo_open() != 0) { // no computer, or the gadget away (USB mode): later
+            atomic_store(&usbo.open, 0);
             nap_ms(1000);
             continue;
         }
@@ -535,6 +542,19 @@ static void *audio_thread(void *arg) {
         if (write_frames(pcm, out.period) != 0) break;
     }
     return 0;
+}
+
+// USB mode: the USB audio streams closed, in and out, so the port can become a USB drive.
+void alsa_out_usb_release(void) {
+    atomic_store(&usbo.held, 1);
+    usb_close();
+    for (int i = 0; i < 100 && atomic_load(&usbo.open); i++) nap_ms(10); // its thread closes it within 200 ms
+}
+
+// And back: the input as chosen, and USB Audio Out as it was.
+void alsa_out_usb_restore(int input_src) {
+    atomic_store(&usbo.held, 0);
+    alsa_out_set_input(input_src);
 }
 
 void alsa_out_set_master(struct master *m) {

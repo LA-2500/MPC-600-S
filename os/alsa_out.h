@@ -11,6 +11,8 @@
 // `rec` gets the audio input, when there is one (its `present` says so); NULL leaves it closed.
 int alsa_out_start(struct engine *e, _Atomic float *main_gain, struct recorder *rec, char *status, size_t status_len);
 void alsa_out_stop(void);
+void alsa_out_usb_release(void);         // USB mode: USB audio in and out closed
+void alsa_out_usb_restore(int input_src); // and opened again as set
 // The codec's output level, 0-255, for the start script: down before the stock app stops, so it
 // does not click as it closes. 0, or -1 when there is no such control.
 int alsa_out_codec_volume(int level);

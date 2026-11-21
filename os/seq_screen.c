@@ -31,6 +31,7 @@ struct label {
 static const struct field MAIN_FIELDS[] = {
     {F_SEQ, 3, 4}, {F_BPM, 4, 4}, {F_BARS, 4, 21}, {F_SIG_NUM, 5, 4}, {F_SIG_DEN, 5, 7}, {F_LOOP, 5, 15},
     {F_TRK, 7, 4}, {F_TYPE, 8, 5}, {F_ON, 8, 15}, {F_CHN, 9, 4}, {F_VEL, 9, 13}, {F_PGM, 9, 21},
+    {F_TC_NOTE, -1, 0}, {F_CIN, -1, 0}, // Timing: and Count: on the MPC2000XL layout's main screen
 };
 #define MAIN_TRACK_FIELD 6
 #define MAIN_PGM_FIELD 11
@@ -110,7 +111,7 @@ static int swing_shown(const struct os *s) {
 }
 
 static int field_shown(const struct os *s, int id) {
-    (void)s;
+    if (s->screen == OS_MAIN && (id == F_TC_NOTE || id == F_CIN)) return lcd_layout == LAYOUT_2000XL;
     return id != F_TC_SWING || swing_shown(s);
 }
 
@@ -316,8 +317,12 @@ static void change(struct os *s, int id, int d, int fine) {
             s->prog_refresh = k->kit + 1;
         }
         break;
-    case F_PSND: // the lock is held here, and assigning takes none of it
-        os_pad_step_sound(s, s->selected, d);
+    case F_PSND: // the lock is held here, and assigning takes none of it. SHIFT: only the sounds no pad plays
+        if (fine) {
+            if (!os_pad_step_free(s, s->selected, d)) s->toast_unused = 1;
+        } else {
+            os_pad_step_sound(s, s->selected, d);
+        }
         break;
     case F_TC_NOTE: sq->tc = clampi(sq->tc + d, 0, TC_COUNT - 1); break;
     case F_TC_SWING: sq->swing = seq_swing_step(sq, sq->swing, d); break;
@@ -396,7 +401,7 @@ static void change(struct os *s, int id, int d, int fine) {
 
 static void draw_fields(struct os *s, struct ui *u, const struct field *f, int n, int cursor) {
     for (int i = 0; i < n; i++) {
-        if (!field_shown(s, f[i].id)) continue;
+        if (!field_shown(s, f[i].id) || f[i].row < 0) continue;
         char b[LCD_COLS + 1];
         value(s, f[i].id, b, sizeof b);
         if (i == cursor) lcd_inverse(u, f[i].col, f[i].row, b);
@@ -454,6 +459,86 @@ static void draw_now(struct os *s, struct ui *u) {
     lcd_text(u, 0, 13, "<Track>");
     lcd_text(u, 9, 13, "<BPM>");
     lcd_text(u, 18, 13, "<Pgm>");
+}
+
+// The main screen in the MPC2000XL layout: its fields as the XL lays them out, the same keys and
+// knobs. Each field: row, column and the most characters shown (MAIN_FIELDS order), and the
+// order the wheel's push goes through them, reading order.
+static const struct field MAIN_XL[COUNT(MAIN_FIELDS)] = {
+    {F_SEQ, 2, 3}, {F_BPM, 5, 3}, {F_BARS, 7, 20}, {F_SIG_NUM, 5, 19}, {F_SIG_DEN, 5, 22}, {F_LOOP, 7, 7},
+    {F_TRK, 9, 3}, {F_TYPE, 11, 3}, {F_ON, 10, 4}, {F_CHN, 11, 8}, {F_VEL, 12, 20}, {F_PGM, 10, 18},
+    {F_TC_NOTE, 6, 8}, {F_CIN, 6, 20},
+};
+static const int MAIN_XL_ORDER[] = {0, 1, 3, 4, 12, 13, 5, 2, 6, 8, 11, 7, 9, 10};
+static const struct label MAIN_XL_LABELS[] = {
+    {2, 0, "Sq:"}, {5, 1, "\x01:"}, {5, 8, "(SEQ)"}, {5, 14, "Tsig:"}, {5, 21, "/"}, {6, 1, "Timing:"},
+    {6, 14, "Count:"}, {7, 1, "Loop:"}, {7, 14, "Bars:"}, {9, 0, "Tr:"}, {10, 1, "ON:"}, {10, 14, "Pgm:"},
+    {11, 1, "S:"}, {11, 7, ":"}, {12, 14, "Velo%:"},
+};
+
+// The push of the wheel on the XL main screen: the next field in reading order.
+static void main_xl_push(struct os *s, int dir) {
+    int n = COUNT(MAIN_XL_ORDER), at = 0;
+    while (at < n && MAIN_XL_ORDER[at] != s->cursor_play) at++;
+    for (int i = 0; i < n; i++) {
+        at = (at + dir + n) % n;
+        if (field_shown(s, MAIN_FIELDS[MAIN_XL_ORDER[at]].id)) break;
+    }
+    s->cursor_play = MAIN_XL_ORDER[at];
+}
+
+static void draw_main_xl(struct os *s, struct ui *u, int shifted) {
+    const struct seq_sequence *q = current(s);
+    const struct seq_track *k = &q->track[s->seq.track];
+    lcd_tab(u, 0, 8, "TrMUTE", 1);
+    lcd_text(u, 9, KEY_ROW, "<Tr ->");
+    lcd_text(u, 18, KEY_ROW, shifted ? "<Copy>" : "<Tr +>");
+    int bar, beat, tick;
+    split(q, (long)s->seq.pos, &bar, &beat, &tick);
+    char b[40];
+    snprintf(b, sizeof b, "Now:%03d.%02d.%02d", bar, beat, tick);
+    lcd_text(u, 0, 3, b);
+    if (s->seq.next >= 0) { // a sequence change waiting: which one, beside the counter, only then
+        const struct seq_sequence *n = &s->seq.sequence[s->seq.next];
+        if (seq_used(n)) snprintf(b, sizeof b, "Next:%02d-%.4s", s->seq.next + 1, n->name);
+        else snprintf(b, sizeof b, "Next:%02d", s->seq.next + 1);
+        lcd_text(u, 14, 3, b);
+    }
+    // One box: the sequence above a dotted line, the track under it.
+    lcd_box(u, 0, 4 * CELL_H + 6, UI_W, 9 * CELL_H);
+    lcd_dotted(u, 4, 8 * CELL_H + 7, UI_W - 8);
+    for (int i = 0; i < COUNT(MAIN_XL_LABELS); i++) lcd_text(u, MAIN_XL_LABELS[i].col, MAIN_XL_LABELS[i].row, MAIN_XL_LABELS[i].text);
+    if (k->type != TRACK_MIDI) { // the drum track's program, by name, as the XL shows it after S:
+        snprintf(b, sizeof b, "%.12s", s->programs[k->kit].name);
+        lcd_text(u, 1, 12, b);
+    }
+    for (int i = 0; i < COUNT(MAIN_FIELDS); i++) {
+        if (!field_shown(s, MAIN_XL[i].id)) continue;
+        char v[LCD_COLS + 8];
+        value(s, MAIN_XL[i].id, v, sizeof v);
+        if (MAIN_XL[i].id == F_LOOP) { // ON loops the whole sequence; TO n from bar n
+            int to = q->loop_bar;
+            if (to == 1) snprintf(v, sizeof v, "ON");
+            else if (to > 1) snprintf(v, sizeof v, "TO %d", to);
+        }
+        if (MAIN_XL[i].id == F_TC_NOTE) { // 1/16, 1/16T: the XL's way
+            static const char *const XL_TC[TC_COUNT] = {"1/4", "1/4T", "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T", "1/64",
+                                                        "1/64T", "OFF"};
+            snprintf(v, sizeof v, "%s", XL_TC[s->seq.tc]);
+        }
+        if (MAIN_XL[i].id == F_SEQ) { // 01-Sequence01, as the XL writes it
+            snprintf(v, sizeof v, "%02d-%.16s", s->seq.current + 1, seq_used(q) ? q->name : "(unused)");
+        }
+        if (MAIN_XL[i].id == F_TRK) {
+            snprintf(v, sizeof v, "%02d-%.16s", s->seq.track + 1, seq_track_used(k) ? k->name : "(unused)");
+        }
+        if (i == s->cursor_play) lcd_inverse(u, MAIN_XL[i].col, MAIN_XL[i].row, v);
+        else lcd_text(u, MAIN_XL[i].col, MAIN_XL[i].row, v);
+    }
+    // What the knobs do, along the bottom under the box.
+    lcd_text(u, 0, 14, "K1:Track");
+    lcd_text(u, 9, 14, "K2:BPM");
+    lcd_text(u, 18, 14, "K3:Pgm");
 }
 
 // Where a knob sits for a value, and the value for where it sits.
@@ -706,6 +791,12 @@ void seq_screen_frame(struct os *s, struct ui *u, const struct input *in) {
     if (input_down(in, IN_B1)) k->on = !k->on;
     if (input_down(in, IN_B2)) sq->track = clampi(sq->track - 1, 0, SEQ_TRACKS - 1);
     if (input_down(in, IN_B3)) sq->track = clampi(sq->track + 1, 0, SEQ_TRACKS - 1);
+    if (lcd_layout == LAYOUT_2000XL && in->encoder_press) { // reading order on the XL's layout
+        main_xl_push(s, in->shift ? -1 : 1);
+        quiet = *in;
+        quiet.encoder_press = 0;
+        in = &quiet;
+    }
     edit_fields(s, in, MAIN_FIELDS, COUNT(MAIN_FIELDS), &s->cursor_play);
     main_knobs(s, in);
     if (in->fader_moved) { // the fader sets BPM, Chn or Pgm when the cursor is on it, else the track
@@ -722,14 +813,18 @@ void seq_screen_frame(struct os *s, struct ui *u, const struct input *in) {
         }
     }
 
-    lcd_text(u, 0, KEY_ROW, "<Tk on/off>");
-    lcd_text(u, 12, KEY_ROW, "<Trk->");
-    lcd_text(u, 20, KEY_ROW, in->shift && !asking ? "<Copy>" : "<Trk+>");
-    lcd_rule(u, TITLE_ROW, "Play/Record");
-    lcd_rule(u, 6, "Track Data");
-    draw_labels(u, MAIN_LABELS, COUNT(MAIN_LABELS));
-    draw_fields(s, u, MAIN_FIELDS, COUNT(MAIN_FIELDS), s->cursor_play);
-    draw_now(s, u);
+    if (lcd_layout == LAYOUT_2000XL) {
+        draw_main_xl(s, u, in->shift && !asking);
+    } else {
+        lcd_text(u, 0, KEY_ROW, "<Tk on/off>");
+        lcd_text(u, 12, KEY_ROW, "<Trk->");
+        lcd_text(u, 20, KEY_ROW, in->shift && !asking ? "<Copy>" : "<Trk+>");
+        lcd_rule(u, TITLE_ROW, "Play/Record");
+        lcd_rule(u, 6, "Track Data");
+        draw_labels(u, MAIN_LABELS, COUNT(MAIN_LABELS));
+        draw_fields(s, u, MAIN_FIELDS, COUNT(MAIN_FIELDS), s->cursor_play);
+        draw_now(s, u);
+    }
     if (sq->mode != SEQ_STOPPED) ui_wake(u, 50);
     pthread_mutex_unlock(&sq->lock);
     // Asked before this frame: it takes this frame's keys. Asked just now (Bars:): drawn only.
@@ -819,19 +914,25 @@ int seq_program_pad(struct os *s, struct ui *u, int slot) {
     char a[8], b[8], msg[32];
     pad_name(s->selected, a, sizeof a);
     pad_name(slot, b, sizeof b);
-    if (slot == s->selected) {
+    int other = s->pgm_target != s->program; // a pad of another program
+    if (slot == s->selected && !other) {
         os_toast(s, u, "Pick another pad");
         return 1;
     }
+    if (other) { // P02 A05
+        char t[8];
+        snprintf(t, sizeof t, "%s", b);
+        snprintf(b, sizeof b, "P%02d %.3s", s->pgm_target + 1, t);
+    }
     os_undo_save(s, s->pgm_mode == PGM_COPY ? "Copy Pad" : "Swap Pads");
     if (s->pgm_mode == PGM_COPY) {
-        os_pad_copy(s, s->selected, slot);
+        os_pad_copy_to(s, s->selected, s->pgm_target, slot);
         snprintf(msg, sizeof msg, "Copied %s to %s", a, b);
     } else {
-        os_pad_swap(s, s->selected, slot);
+        os_pad_swap_with(s, s->selected, s->pgm_target, slot);
         snprintf(msg, sizeof msg, "Swapped %s and %s", a, b);
     }
-    s->selected = slot;
+    if (!other) s->selected = slot;
     s->pgm_mode = PGM_NONE;
     os_toast(s, u, msg);
     return 1;
@@ -862,8 +963,9 @@ void seq_program_frame(struct os *s, struct ui *u, const struct input *in) {
             os_toast(s, u, line);
             s->pgm_mode = PGM_NONE;
         }
-    } else if (s->pgm_mode != PGM_NONE) { // Copy or Swap, waiting for the other pad
+    } else if (s->pgm_mode != PGM_NONE) { // Copy or Swap, waiting for the other pad (the wheel: its program)
         if (input_down(in, IN_B1)) s->pgm_mode = PGM_NONE;
+        if (in->encoder) s->pgm_target = clampi(s->pgm_target + in->encoder, 0, OS_PROGRAMS - 1);
     } else if (in->shift && input_down(in, IN_B3)) {
         if (os_program_sounds(s, s->program)) s->pgm_ask = 1;
     } else if (in->shift && input_down(in, IN_B1)) { // the whole program into the first empty one
@@ -883,6 +985,7 @@ void seq_program_frame(struct os *s, struct ui *u, const struct input *in) {
             os_toast(s, u, line);
         }
     } else if (input_down(in, IN_B1) || input_down(in, IN_B2)) {
+        s->pgm_target = s->program; // this program's pads to start; the wheel picks another
         if (has) s->pgm_mode = input_down(in, IN_B1) ? PGM_COPY : PGM_SWAP;
         else if (input_down(in, IN_B2)) s->pgm_mode = PGM_SWAP; // an empty pad can swap with a full one
         else os_toast(s, u, "Pad is empty");
@@ -893,6 +996,10 @@ void seq_program_frame(struct os *s, struct ui *u, const struct input *in) {
     pthread_mutex_lock(&sq->lock);
     int asking = s->pgm_ask || s->pgm_mode != PGM_NONE;
     if (!asking) edit_fields(s, in, PROGRAM_FIELDS, COUNT(PROGRAM_FIELDS), &s->cursor_program);
+    if (s->toast_unused) {
+        s->toast_unused = 0;
+        os_toast(s, u, "No unused sounds in memory");
+    }
     int kit = sq->sequence[sq->current].track[sq->track].kit;
     if (s->prog_refresh) { // Type or Inst changed: the instrument's keygroups (the lock let go: they take none)
         int g = s->prog_refresh - 1, inst = s->prog_inst - 2;
@@ -944,7 +1051,11 @@ void seq_program_frame(struct os *s, struct ui *u, const struct input *in) {
             snprintf(l2, sizeof l2, " pad %s?", name);
         } else {
             q1 = s->pgm_mode == PGM_COPY ? " Press the pad to copy" : " Press the pad to swap";
-            snprintf(l2, sizeof l2, " %s %s", name, s->pgm_mode == PGM_COPY ? "to" : "with");
+            if (s->pgm_target == s->program)
+                snprintf(l2, sizeof l2, " %s %s (wheel: Pgm)", name, s->pgm_mode == PGM_COPY ? "to" : "with");
+            else
+                snprintf(l2, sizeof l2, " %s %s Pgm %02d %.6s", name, s->pgm_mode == PGM_COPY ? "to" : "with",
+                         s->pgm_target + 1, s->programs[s->pgm_target].name);
         }
         q2 = l2;
         snprintf(line, sizeof line, "%-*s", LCD_COLS, q1);
@@ -1046,7 +1157,7 @@ static void draw_knob(struct ui *u, int cx, int cy, int r, double turn, int fill
 // a triangle under it when selected, the name written downwards (A, 0, 1), its fader beside
 // the name (dotted when muted), and a line between strips. In LCD dots, 10 wide.
 #define STRIP 10
-#define STRIP_TOP 50 // dots down: the track's settings and its EQ above
+#define STRIP_TOP (50 + XL_DROP / 2) // dots down: the track's settings and its EQ above (lower on the 2000XL layout)
 static void draw_strip(struct ui *u, int i, int track, const struct seq_track *k, int selected) {
     int x0 = (i * STRIP) * 2, y0 = STRIP_TOP * 2;
 #define DOT(x, y) lcd_dot(u, x0 + (x) * 2, y0 + (y) * 2, LCD_FG)
@@ -1175,27 +1286,29 @@ void seq_mixer_frame(struct os *s, struct ui *u, const struct input *in) {
         else lcd_text(u, 9, KEY_ROW, "<Solo>");
         lcd_text(u, 20, KEY_ROW, "<EQ>");
     }
+    // On the 2000XL layout everything under the tabs sits XL_DROP lower; DEFAULT as it was.
+    int dy = XL_DROP;
     snprintf(line, sizeof line, "Trk:%c%02d %-.11s", 'A' + t / 16, t + 1, k->name);
-    lcd_text(u, 0, 1, line);
+    lcd_text_y(u, 0, CELL_H + dy, line);
     if (k->type == TRACK_MIDI) snprintf(line, sizeof line, "Pgm:%d", k->program);
     else snprintf(line, sizeof line, "Pgm:%02d", k->kit + 1);
-    lcd_text(u, 19, 1, line);
+    lcd_text_y(u, 19, CELL_H + dy, line);
     // The EQ: a knob for each band, its pointer at the gain, the frequency under it.
     int hz[3] = {q.lf, q.mf, q.type == EQ_1073 ? 12000 : q.hf}, gain[3] = {q.lg, q.mg, q.hg}, max = eq_gain_max(q.type);
     for (int b = 0; b < 3; b++) {
         int cx = 22 + b * 56;
-        draw_knob(u, cx, 24, 5, q.on ? (double)gain[b] / max : 0, 0);
+        draw_knob(u, cx, 24 + dy / 2, 5, q.on ? (double)gain[b] / max : 0, 0);
         eq_freq_text(hz[b], f, sizeof f);
         int len = (int)strlen(f), col = (cx * 2 - LCD_X) / CELL_W - len / 2;
-        lcd_text(u, col < 0 ? 0 : col, 4, f);
+        lcd_text_y(u, col < 0 ? 0 : col, 4 * CELL_H + dy, f);
     }
-    if (!q.on) lcd_text(u, 22, 2, "OFF");
+    if (!q.on) lcd_text_y(u, 22, 2 * CELL_H + dy, "OFF");
     pan_text(k->pan, pan, sizeof pan);
     char chn[8];
     if (k->channel > 0) snprintf(chn, sizeof chn, "%d", k->channel);
     else snprintf(chn, sizeof chn, "OFF");
     snprintf(line, sizeof line, "Level:%3d Pan:%-3s Chn:%s", k->level, pan, chn);
-    lcd_text(u, 0, 5, line);
+    lcd_text_y(u, 0, 5 * CELL_H + dy, line);
     for (int i = 0; i < 16; i++) {
         int track = s->bank * 16 + i;
         if (track >= SEQ_TRACKS) break;
@@ -1283,6 +1396,7 @@ void seq_metro_frame(struct os *s, struct ui *u, const struct input *in) {
     edit_fields(s, in, METRO_FIELDS, COUNT(METRO_FIELDS), &s->cursor_metro);
     lcd_text(u, 0, KEY_ROW, "<Back>");
     lcd_rule(u, TITLE_ROW, "Metronome");
+    if (lcd_layout == LAYOUT_2000XL) lcd_art(u, 268, 50, LCD_ART_METRO, 21); // the XL's metronome, in the free space
     lcd_rule(u, 9, "Count-in");
     draw_labels(u, METRO_LABELS, COUNT(METRO_LABELS));
     draw_fields(s, u, METRO_FIELDS, COUNT(METRO_FIELDS), s->cursor_metro);

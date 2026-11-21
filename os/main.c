@@ -4,6 +4,7 @@
 #include "midi_out.h"
 #include "power_key.h"
 #include "wav.h"
+#include "usbmode.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@ static char audio_status[96];
 static void log_line(const char *text) {
     const char *dir = getenv("MPC_APP_DIR");
     char path[512];
+    if (usbmode_card_away()) return; // USB DATA MODE: the card is the computer's
     snprintf(path, sizeof path, "%s/mpc-os.log", dir ? dir : "/tmp");
     FILE *f = fopen(path, "a");
     if (!f) return;
@@ -33,6 +35,8 @@ static void log_line(const char *text) {
 // power-on, so a cut-out can be traced afterwards. At most a line a second.
 static void audio_poll(void) {
     alsa_out_speaker_update();
+    char note[400];
+    if (panel_take_note(note, sizeof note)) log_line(note);
     static unsigned xr, gt, pb, rj;
     static int spk = -2;
     static time_t logged;
@@ -90,7 +94,11 @@ static long mem_available(void) {
 }
 
 int main(int argc, char **argv) {
-    if (argc == 3 && strcmp(argv[1], "--codec-volume") == 0) return alsa_out_codec_volume(atoi(argv[2])) == 0 ? 0 : 1;
+    if (argc == 3 && strcmp(argv[1], "--codec-volume") == 0) {
+        int ok = alsa_out_codec_volume(atoi(argv[2])) == 0;
+        if (ok && atoi(argv[2]) == 0) usleep(150 * 1000); // the codec's own glide down (4080 samples) is over
+        return ok ? 0 : 1;
+    }
     mlockall(MCL_CURRENT | MCL_FUTURE); // a page fault would be an audible dropout
     engine_init(&engine);
     os_init(&os, &engine);
@@ -136,6 +144,7 @@ int main(int argc, char **argv) {
         os.midi_ports = midi_ports_enable;
     }
     os.set_led_style = panel_set_bicolour_style;
+    os.usbmode = usbmode_hw(&os.input_src); // USB DATA MODE
     os.set_pad_threshold = panel_set_pad_threshold;
     panel_set_pad_threshold(os.pad_threshold);
     if (!failed) os.set_usb_out = alsa_out_set_usb_out, alsa_out_set_usb_out(os.usb_out); // the mix to a computer

@@ -193,7 +193,7 @@ static void assign(struct os *s, struct ui *u) {
     for (int i = 0; i < n; i++) {
         int slot = first + i;
         snprintf(name, sizeof name, "%.30s-%02d", base, i + 1);
-        os_pad_load(s, slot, sm, name);
+        os_pad_load_over(s, slot, sm, name);
         struct pad_params *p = &s->pads[slot].p;
         p->start = s->zone_start[i];
         p->end = i + 1 < s->zone_count ? s->zone_start[i + 1] : sm->frames;

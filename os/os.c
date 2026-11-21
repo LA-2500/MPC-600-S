@@ -301,6 +301,31 @@ static void clear_temp(struct os *s) {
     s->temp_pad = -1;
 }
 
+static int on_a_pad(const struct os *s, const struct sample *sm, int skip_prog, int skip_pad) {
+    for (int p = 0; p < OS_PROGRAMS; p++)
+        for (int i = 0; i < OS_PADS; i++)
+            if (!(p == skip_prog && i == skip_pad) && s->programs[p].pads[i].s == sm) return 1;
+    return 0;
+}
+
+// A pad is about to let go of its sound: kept in memory when no other pad plays it and memory
+// does not have it yet. (The undo history holds sounds too, so how many hold one says nothing
+// of whether it would be lost: a sound held only by undo went when the undo did.)
+static void keep_if_last(struct os *s, struct sample *sm, const char *name, int prog, int slot) {
+    if (!sm || on_a_pad(s, sm, prog, slot)) return;
+    for (int m = 0; m < s->nmemory; m++)
+        if (s->memory[m].s == sm) return;
+    os_memory_add(s, sm, name);
+}
+
+// A sound loaded, recorded, extracted or zoned onto a pad over another: the old one, if no
+// other pad has it, stays in memory (Sample: and Snd: still find it), as on the MPC2000XL.
+void os_pad_load_over(struct os *s, int slot, struct sample *n, const char *name) {
+    struct os_pad *pad = &s->pads[slot];
+    if (pad->s != n) keep_if_last(s, pad->s, pad->name, s->program, slot);
+    os_pad_load(s, slot, n, name);
+}
+
 void os_pad_load(struct os *s, int slot, struct sample *n, const char *name) {
     if (slot == s->temp_pad) clear_temp(s);
     struct os_pad *pad = &s->pads[slot];
@@ -336,6 +361,7 @@ void os_init(struct os *s, struct engine *e) {
     s->map_zones = 1; // AUTO MAP: one zone a keygroup, NAME+PITCH, MIDWAY, EXTEND
     s->auto_root = 1;
     s->button_lights = BUTTON_RED, s->pad_lights = PAD_LIGHT_OFF, s->screen_scheme = SCREEN_MPC3000;
+    s->pads_lit = 1; // whatever the stock app left lit goes dark on the first frame
     s->start_bpm10 = 1200, s->start_bars = 2, s->start_tc = TC_16, s->start_swing = 50;
     s->inst_gain = 12, s->inst_bright = 50, s->pad_threshold = 12, s->usb_out = 0;
     s->padtpl_oct = 2; // pad note templates from C2
@@ -399,6 +425,62 @@ void os_pad_copy(struct os *s, int from, int to) {
     push_layer_users(s, s->program, to);
 }
 
+// Copy and Swap with a pad of another program (Program Config: the wheel picks the program).
+static void clear_in(struct os *s, int program, int slot) {
+    if (program == s->program) {
+        os_pad_clear(s, slot);
+        return;
+    }
+    struct os_pad *pad = &s->programs[program].pads[slot];
+    if (!pad->s) return;
+    engine_set_pad(s->engine, program * OS_PADS + slot, NULL, NULL);
+    engine_set_pad(s->engine, ENGINE_S600 + program * OS_PADS + slot, NULL, NULL);
+    release_sample(s, pad->s);
+    free(pad->onsets);
+    memset(pad, 0, sizeof *pad);
+    push_layer_users(s, program, slot);
+}
+
+void os_pad_copy_to(struct os *s, int from, int program, int to) {
+    if (program == s->program) {
+        os_pad_copy(s, from, to);
+        return;
+    }
+    if (!s->pads[from].s) return;
+    clear_in(s, program, to);
+    const struct os_pad *a = &s->pads[from];
+    struct os_pad *b = &s->programs[program].pads[to];
+    *b = *a;
+    b->s->refs++;
+    b->onsets = malloc((size_t)(a->nonsets > 0 ? a->nonsets : 1) * sizeof *b->onsets);
+    if (b->onsets) memcpy(b->onsets, a->onsets, (size_t)a->nonsets * sizeof *b->onsets);
+    else b->nonsets = 0;
+    push_slot(s, program, to, 1);
+    push_layer_users(s, program, to);
+}
+
+void os_pad_swap_with(struct os *s, int a, int program, int b) {
+    if (program == s->program) {
+        os_pad_swap(s, a, b);
+        return;
+    }
+    if (s->temp_pad == a) clear_temp(s);
+    struct os_pad *pa = &s->pads[a], *pb = &s->programs[program].pads[b];
+    struct os_pad t = *pa;
+    *pa = *pb;
+    *pb = t;
+    for (int i = 0; i < 2; i++) {
+        int prog = i ? program : s->program, slot = i ? b : a;
+        if (s->programs[prog].pads[slot].s) {
+            push_slot(s, prog, slot, 1);
+        } else {
+            engine_set_pad(s->engine, prog * OS_PADS + slot, NULL, NULL);
+            engine_set_pad(s->engine, ENGINE_S600 + prog * OS_PADS + slot, NULL, NULL);
+        }
+        push_layer_users(s, prog, slot);
+    }
+}
+
 void os_pad_swap(struct os *s, int a, int b) {
     if (a == b) return;
     if (s->temp_pad == a || s->temp_pad == b) clear_temp(s);
@@ -452,7 +534,7 @@ void os_pad_assign(struct os *s, int slot, struct sample *n, const char *name) {
         return;
     }
     if (slot == s->temp_pad) clear_temp(s);
-    if (pad->s->refs == 1) os_memory_add(s, pad->s, pad->name); // its last place: kept, not lost
+    keep_if_last(s, pad->s, pad->name, s->program, slot); // its last place: kept, not lost
     replace_sample(s, pad, n);
     pad->p.start = 0, pad->p.end = n->frames, pad->p.loop = 0;
     snprintf(pad->name, sizeof pad->name, "%s", keep);
@@ -1060,6 +1142,15 @@ static void midi_in(struct os *s, struct ui *u, const unsigned char *m, int from
     s->midi_held[key] = 0;
     s->midi_rec[key] = -1;
     if (!vel) return;
+    if (s->screen == OS_ARPEDIT) { // Pattern Edit: the key enters its note at the step, as a pad does
+        int tune = arpedit_key(s, key);
+        if (tune != ARPEDIT_SILENT) {
+            int id = play_sound(s, s->selected, tune, 100, os_track_type(s));
+            if (id >= 0) s->midi_held[key] = id + 1;
+            s->midi_key[key] = tune;
+        }
+        return;
+    }
     seq_wait_start(&s->seq);
     multi_note_in(s, key); // on the MULTI screen: the keygroup it falls in
     record_note_in(s, key); // the Auto Sampler asking a sample's note
@@ -1138,7 +1229,7 @@ static void pad_down(struct os *s, struct ui *u, const struct input *in, int i) 
     if (s->extract && s->screen == OS_SAMPLE) { // Extract's prompt: the pad pressed gets the new sound
         int to = s->bank * 16 + i;
         os_undo_save(s, "Extract");
-        os_pad_load(s, to, s->extract, s->extract_name);
+        os_pad_load_over(s, to, s->extract, s->extract_name);
         s->extract = 0;
         select_pad(s, to);
         char msg[32];
@@ -1478,6 +1569,28 @@ void os_pad_step_sound(struct os *s, int slot, int d) {
     if (to < n && list[to] != s->pads[slot].s) os_pad_assign(s, slot, list[to], names[to]);
 }
 
+// SHIFT + the wheel on Snd: (Program Config) and Sample: (the sound's page): only the sounds in
+// memory that no pad of any program plays, in the order they came into memory, with this pad's
+// own sound among them when it is one. The pad's sound it lets go of stays in memory, so it is
+// one of them next time.
+
+int os_pad_step_free(struct os *s, int slot, int d) {
+    int list[OS_MEMORY], n = 0, at = -1;
+    for (int m = 0; m < s->nmemory; m++) {
+        if (on_a_pad(s, s->memory[m].s, s->program, slot)) continue;
+        int dup = 0;
+        for (int k = 0; k < n && !dup; k++) dup = s->memory[list[k]].s == s->memory[m].s;
+        if (dup) continue;
+        if (s->memory[m].s == s->pads[slot].s) at = n;
+        list[n++] = m;
+    }
+    if (n == 0 || (n == 1 && at == 0)) return 0;
+    int to = at < 0 ? (d > 0 ? 0 : n - 1) : ((at + d) % n + n) % n;
+    if (to == at) return 1;
+    os_pad_assign(s, slot, s->memory[list[to]].s, s->memory[list[to]].name);
+    return 1;
+}
+
 static void handle_sample_screen(struct os *s, const struct ui *u, const struct input *in) {
     if (erase_prompt(s, u, in)) return;
     if (s->extract) { // the Extract prompt takes the keys until it is answered
@@ -1543,7 +1656,11 @@ static void handle_sample_screen(struct os *s, const struct ui *u, const struct 
         move_frame(s, in->shift ? -1 : 1);
     } else if (s->frame_slot < 0) { // Sample: the wheel, - and + step the pad through the sounds in memory
         int d = in->encoder + (in->shift ? 0 : input_down(in, IN_PLUS) - input_down(in, IN_MINUS));
-        if (d) os_pad_step_sound(s, s->selected, d);
+        if (d && in->shift && in->encoder) { // only the sounds no pad plays
+            if (!os_pad_step_free(s, s->selected, in->encoder)) toast(s, u, "No unused sounds in memory");
+        } else if (d) {
+            os_pad_step_sound(s, s->selected, d);
+        }
     }
     const struct param *framed = s->frame_slot >= 0 ? &PAGES[s->page][s->frame_slot] : &PAGES[s->page][0];
     if (s->frame_slot >= 0 && framed->name && in->encoder && !in->encoder_press) param_nudge(s, framed, in->encoder, in->shift);
@@ -1684,8 +1801,28 @@ static void draw_wave(struct ui *u, const struct os *s, const struct os_pad *pad
 }
 
 // One row per knob. `slot` is the framed one; do_name is what a Do field shows.
+// The amp envelope's shape, as the XL draws it beside its envelope: up over the attack, level,
+// then down over the decay (from the end of the attack, or timed to the end of the sound).
+static void draw_envelope(struct ui *u, const struct os_pad *pad) {
+    int x0 = 232, x1 = 314, top = PARAM_ROW * CELL_H + 2, bottom = (PARAM_ROW + 3) * CELL_H - 4;
+    lcd_fill(u, x0, top, 2, bottom - top + 2, LCD_FG); // the frame's left side and floor, as on the XL
+    lcd_fill(u, x0, bottom, x1 - x0, 2, LCD_FG);
+    const struct pad_params *p = &pad->p;
+    int a = x0 + 2 + p->attack_ms * 24 / 2000, d = p->decay_ms > 0 ? 8 + p->decay_ms * 40 / 5000 : 0;
+    int fall = d ? (p->decay_end && !p->gate ? x1 - d : a) : x1; // where the level starts down
+    if (fall < a) fall = a;
+    int end = d ? fall + d : x1;
+    if (end > x1) end = x1;
+    lcd_line(u, x0 + 2, bottom, a, top + 2);
+    lcd_line(u, a, top + 2, fall, top + 2);
+    if (d) lcd_line(u, fall, top + 2, end, bottom);
+}
+
 static void draw_params(struct ui *u, const struct param *params, int slot, const char *do_name,
                         const struct os_pad *pad) {
+    // The 2000XL layout's envelope page: the values just after their names, the shape beside them.
+    int env = lcd_layout == LAYOUT_2000XL && params == PAGES[PAGE_AMP];
+    if (env && pad->s) draw_envelope(u, pad);
     for (int i = 0; i < 3; i++) {
         const struct param *d = &params[i];
         int row = PARAM_ROW + i;
@@ -1714,8 +1851,9 @@ static void draw_params(struct ui *u, const struct param *params, int slot, cons
                          sizeof value);
         char field[LCD_COLS + 1];
         snprintf(field, sizeof field, " %s ", value);
-        if (i == slot) lcd_inverse(u, VALUE_COL, row, field);
-        else lcd_text(u, VALUE_COL, row, field);
+        int col = env ? 3 + (int)strlen(label) : VALUE_COL;
+        if (i == slot) lcd_inverse(u, col, row, field);
+        else lcd_text(u, col, row, field);
     }
 }
 
@@ -2211,7 +2349,7 @@ static void browser_load(struct os *s, const struct ui *u, const char *path, con
     char *dot = strrchr(name, '.');
     if (dot) *dot = 0;
     os_undo_save(s, "Load");
-    os_pad_load(s, s->selected, n, name);
+    os_pad_load_over(s, s->selected, n, name);
     os_auto_root(s, s->selected);
     reset_knobs(s);
 }
@@ -2373,6 +2511,147 @@ static void shutdown_prompt(struct os *s) {
     engine_kill_all(s->engine);
 }
 
+// ---- USB DATA MODE: the card as a USB drive on a computer (usbmode.h) ----
+// The MPC is locked on this page until it is over: only its keys and the power key work.
+
+#define USBM_SLOW_MS 90000 // a step taking longer than this gets <Leave>, so the page never holds you
+
+void usbmode_open(struct os *s, struct ui *u) {
+    if (!s->usbmode) {
+        toast(s, u, "Not on this device");
+        return;
+    }
+    preview_stop(s);
+    seq_stop(&s->seq, 0);
+    for (int i = 0; i < 16; i++) pad_up(s, i);
+    engine_kill_all(s->engine);
+    if (s->usbmode->begin(USBM_CONNECT) != 0) {
+        toast(s, u, "Still busy: try again");
+        return;
+    }
+    s->usbm_op = USBM_CONNECT, s->usbm_ask = 0;
+    s->screen = OS_USBMODE;
+    ui_wake(u, 1);
+}
+
+static void usbmode_leave(struct os *s, struct ui *u) {
+    s->usbm_ask = 0;
+    s->usbm_watch = 1; // a step left running: if it ends connected, the page comes back
+    disk_open(s, DISK_USB, s->disk_type); // Save/Load again, its lists read afresh
+    ui_wake(u, 1);
+}
+
+static void usbmode_lines(struct ui *u, int row, const char *const *lines, int n) {
+    for (int i = 0; i < n; i++) lcd_text(u, 0, row + i, lines[i]);
+}
+
+void usbmode_frame(struct ui *u, struct os *s, const struct input *in) {
+    int flags = 0;
+    char msg[96];
+    int st = s->usbmode ? s->usbmode->state(&flags, msg, sizeof msg) : USBM_IDLE;
+    ui_clear(u, LCD_BG);
+    lcd_rule(u, TITLE_ROW, "USB Data Mode");
+    switch (st) {
+    case USBM_WORKING: {
+        lcd_center(u, 5, s->usbm_op == USBM_CONNECT ? "Starting USB Data Mode" : s->usbm_op == USBM_REPAIR ? "Repairing the card" : "Taking the card back");
+        lcd_center(u, 7, s->usbm_op == USBM_EXIT ? "and checking it" : "");
+        lcd_center(u, 9, "Please wait...");
+        if (s->usbmode->elapsed_ms() > USBM_SLOW_MS) { // never stuck here
+            lcd_center(u, 11, "This is taking too long.");
+            lcd_center(u, 12, "<Leave>: turn off and on");
+            lcd_center(u, 13, "if the card is missing");
+            lcd_text(u, 19, KEY_ROW, "<Leave>");
+            if (input_down(in, IN_B3)) usbmode_leave(s, u);
+        }
+        ui_wake(u, 200);
+        break;
+    }
+    case USBM_CONNECTED: {
+        if (s->usbm_ask) { // the computer still has the drive
+            lcd_text(u, 0, KEY_ROW, "<No>");
+            lcd_text(u, 20, KEY_ROW, "<Yes>");
+            static const char *const ASK[] = {
+                "The computer has not",
+                "ejected the drive.",
+                "",
+                "Exit anyway? Files being",
+                "copied now may be",
+                "damaged.",
+            };
+            usbmode_lines(u, 4, ASK, 6);
+            if (input_down(in, IN_B1)) s->usbm_ask = 0;
+            else if (input_down(in, IN_B3) && s->usbmode->begin(USBM_EXIT) == 0) s->usbm_op = USBM_EXIT, s->usbm_ask = 0;
+            ui_wake(u, 300);
+            break;
+        }
+        const char *now = flags & USBM_CARD_OUT ? "! The card was taken out"
+                        : flags & USBM_EJECTED  ? "Ejected: safe to exit"
+                        : flags & USBM_HOST     ? "On the computer"
+                        : flags & USBM_CABLE    ? "Waiting for the computer"
+                                                : "Connect the USB cable";
+        lcd_inverse(u, 0, 3, " ");
+        lcd_inverse(u, 1, 3, now);
+        static const char *const STEPS[] = {
+            "1 Copy files on computer",
+            "2 Eject the drive there",
+            "3 Press <Exit> here",
+        };
+        usbmode_lines(u, 5, STEPS, 3);
+        if (!(flags & USBM_HOST) && msg[0]) lcd_text(u, 0, 8, msg); // the port's own state, to tell a cable from a port
+        static const char *const WARN[] = {
+            "! Do not turn the MPC off",
+            "  or pull the cable while",
+            "  files copy. Turning off",
+            "  loses unsaved work.",
+        };
+        usbmode_lines(u, 9, WARN, 4);
+        lcd_text(u, 20, KEY_ROW, "<Exit>");
+        if (input_down(in, IN_B3)) {
+            int safe = flags & (USBM_EJECTED | USBM_CARD_OUT) || !(flags & USBM_CABLE);
+            if (!safe) s->usbm_ask = 1;
+            else if (s->usbmode->begin(USBM_EXIT) == 0) s->usbm_op = USBM_EXIT;
+        }
+        ui_wake(u, 300); // follows the computer
+        break;
+    }
+    case USBM_ERRORS: {
+        lcd_center(u, 4, msg[0] ? msg : "The card has errors");
+        static const char *const RO[] = {
+            "It is read-only for now:",
+            "nothing can be saved to",
+            "it. <Repair> fixes it, or",
+            "check it on a computer.",
+        };
+        usbmode_lines(u, 6, RO, 4);
+        lcd_text(u, 0, KEY_ROW, "<Repair>");
+        lcd_text(u, 22, KEY_ROW, "<OK>");
+        if (input_down(in, IN_B1) && s->usbmode->begin(USBM_REPAIR) == 0) s->usbm_op = USBM_REPAIR;
+        else if (input_down(in, IN_B3)) usbmode_leave(s, u);
+        break;
+    }
+    case USBM_FAILED:
+    case USBM_DONE:
+    case USBM_NO_CARD:
+    default: {
+        const char *head = st == USBM_FAILED ? (msg[0] ? msg : "Could not start")
+                         : st == USBM_NO_CARD ? "The card was taken out"
+                         : st == USBM_DONE ? "The card is back" : "";
+        char first[96];
+        const char *nl = strchr(head, '\n'); // a second line: the step that failed, and why
+        snprintf(first, sizeof first, "%.*s", nl ? (int)(nl - head) : (int)strlen(head), head);
+        lcd_center(u, 5, first);
+        if (nl) lcd_center(u, 9, nl + 1);
+        if (st == USBM_FAILED) lcd_center(u, 7, "Nothing was changed.");
+        if (st == USBM_DONE && msg[0]) lcd_center(u, 7, msg);
+        if (st == USBM_NO_CARD) lcd_center(u, 7, "Put it back to use it.");
+        lcd_text(u, 22, KEY_ROW, "<OK>");
+        if (input_down(in, IN_B3) || st == USBM_IDLE) usbmode_leave(s, u);
+        break;
+    }
+    }
+    lcd_rule(u, BOTTOM_ROW, 0);
+}
+
 static void shutdown_frame(struct ui *u, struct os *s, const struct input *in) {
     int64_t now = now_ms(u);
     ui_clear(u, LCD_BG);
@@ -2406,6 +2685,10 @@ static void shutdown_frame(struct ui *u, struct os *s, const struct input *in) {
     lcd_text(u, 18, KEY_ROW, "<Yes>");
     lcd_rule(u, TITLE_ROW, "Power Off");
     lcd_center(u, 7, "Do you want to power off?");
+    if (s->return_screen == OS_USBMODE) { // the card is on the computer
+        lcd_center(u, 9, "Eject the drive on the");
+        lcd_center(u, 10, "computer first.");
+    }
     lcd_rule(u, BOTTOM_ROW, 0);
 }
 
@@ -2422,6 +2705,12 @@ static int title_frame(struct ui *u, struct os *s, const struct input *in) {
         return 0;
     }
     ui_clear(u, LCD_BG);
+    if (lcd_layout == LAYOUT_2000XL) { // the XL's way: the name and version, alone in the middle
+        lcd_center(u, 7, OS_NAME " Version " OS_NUMBER);
+        update_lights(u, s);
+        ui_wake(u, (int)(s->title_until - now));
+        return 1;
+    }
     lcd_text(u, 18, KEY_ROW, "<Skip>");
     lcd_rule(u, TITLE_ROW, OS_NAME);
     lcd_center(u, 6, "Copyright 1987-2027");
@@ -2452,6 +2741,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
     if (s->screen != OS_MAIN) s->seq_ask = SEQ_ASK_NONE; // a question on the main page goes with it
     if (s->screen != OS_WARP && (s->warp_job || s->warp_result)) warp_close(s); // one warped sound, only while warping
     s->frame_ms = now_ms(u);
+    if (!s->start_ms) s->start_ms = s->frame_ms ? s->frame_ms : 1;
     for (int i = 0; i < 16; i++) // Step Edit's auditions, let go after a moment
         if (s->aud[i].until && s->frame_ms >= s->aud[i].until) {
             if (s->aud[i].channel > 0) seq_live_midi(&s->seq, s->aud[i].channel, s->aud[i].note, 0);
@@ -2496,6 +2786,18 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
     }
     if (s->screen == OS_SHUTDOWN) {
         shutdown_frame(u, s, in);
+        update_lights(u, s);
+        return 0;
+    }
+    if (s->usbm_watch && s->usbmode && s->screen != OS_SHUTDOWN) {
+        int st = s->usbmode->state(0, 0, 0);
+        if (st == USBM_CONNECTED) s->screen = OS_USBMODE; // the card went to the computer after all
+        if (st != USBM_WORKING) s->usbm_watch = 0;
+    }
+    if (s->screen == OS_USBMODE) { // locked: this page, and nothing else, until it is over
+        unsigned char drop[3];
+        for (int guard = 0; s->midi_in_read && guard < 256 && s->midi_in_read(drop, 0); guard++) {}
+        usbmode_frame(u, s, in);
         update_lights(u, s);
         return 0;
     }

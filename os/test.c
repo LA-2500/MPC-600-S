@@ -444,6 +444,14 @@ static struct input blank(void) {
     return in;
 }
 
+// MPC_TEST_LAYOUT=1: every frame drawn on the 2000XL layout, to look at its screenshots (checks
+// that read the screen may fail then).
+static int forced_layout = -1;
+static void force_layout(struct os *o) {
+    if (forced_layout >= 0) o->layout = forced_layout, lcd_layout = forced_layout;
+}
+#define os_frame(...) (force_layout(&os), os_frame(__VA_ARGS__))
+
 static void frame(struct input *in) {
     struct ui u = {.px = px, .now_ms = 1000, .track_led = -1};
     os_frame(&u, in, &os);
@@ -793,7 +801,13 @@ static void test_browser(const char *shot_dir) {
 static void test_no_pad_lights(void) {
     struct input in = blank();
     in.pad_hit[0] = 100, in.pad_down[0] = 1;
-    struct ui u = {.px = px, .now_ms = 1000, .track_led = -1};
+    // In the first seconds after power-on, Pad Lights OFF still sends every pad dark (the stock
+    // app may have left one lit); after that, nothing.
+    struct ui u0 = {.px = px, .now_ms = os.start_ms + 500, .track_led = -1};
+    os_frame(&u0, &in, &os);
+    CHECK(u0.nled == 16 && u0.led[11].r == 0 && u0.led[11].g == 0 && u0.led[11].b == 0);
+    in = blank();
+    struct ui u = {.px = px, .now_ms = os.start_ms + 60000, .track_led = -1};
     os_frame(&u, &in, &os);
     CHECK(u.nled == 0);
 }
@@ -809,6 +823,165 @@ static int fake_power_pressed(void) {
 static void fake_power_off(int force) {
     if (force) forced_calls++;
     else off_calls++;
+}
+
+// USB DATA MODE, with a stand-in for the device side.
+static int um_state = USBM_IDLE, um_flags, um_elapsed, um_begun[3], um_refuse;
+static char um_msg[96];
+
+static int um_begin(int op) {
+    if (um_refuse) return -1;
+    um_begun[op]++;
+    um_state = USBM_WORKING, um_elapsed = 0;
+    return 0;
+}
+static int um_get(int *flags, char *msg, size_t n) {
+    if (flags) *flags = um_state == USBM_CONNECTED ? um_flags : 0;
+    if (msg && n) snprintf(msg, n, "%s", um_msg);
+    return um_state;
+}
+static int um_ms(void) {
+    return um_elapsed;
+}
+
+static void test_usbmode(const char *shot_dir) {
+    static const struct usbmode_hooks hooks = {um_begin, um_get, um_ms};
+    engine_init(&e);
+    os_init(&os, &e);
+    os.screen = OS_MAIN;
+    os.usbmode = &hooks;
+    mkdir("build/os/umtest", 0755);
+    os.data_dir = "build/os/umtest";
+    um_state = USBM_IDLE, um_flags = 0, um_msg[0] = 0, um_refuse = 0;
+    memset(um_begun, 0, sizeof um_begun);
+    struct sample *smp = constant(44100);
+    os_pad_load(&os, 0, smp, "Hat");
+    os.pads[0].p.gate = 1;
+
+    // Save/Load, Mode USB DATA, <Start>.
+    disk_open(&os, DISK_USB, DISK_PROJECT);
+    struct input in = blank();
+    frame(&in);
+    CHECK(os.screen == OS_DISK);
+    if (shot_dir) write_shot(shot_dir, "usb_data_start");
+    in = blank();
+    in.pad_hit[0] = 100, in.pad_down[0] = 1;
+    frame(&in);
+    CHECK(voices() == 1);
+    tap(IN_B3);
+    CHECK(os.screen == OS_USBMODE && um_begun[USBM_CONNECT] == 1);
+    render(128), render(128);
+    CHECK(voices() == 0); // everything stops as it starts
+    frame(&in); // "Starting..."
+    CHECK(os.screen == OS_USBMODE);
+
+    // Connected: locked. Pads, SEQ, SAMPLE and the Save/Load keys do nothing.
+    um_state = USBM_CONNECTED, um_flags = USBM_CABLE | USBM_HOST;
+    in = blank();
+    in.pad_hit[0] = 100, in.pad_down[0] = 1;
+    frame(&in);
+    render(128);
+    CHECK(voices() == 0);
+    tap(IN_SEQ), tap(IN_SAMPLE), tap(IN_PLAY), tap(IN_B1);
+    CHECK(os.screen == OS_USBMODE && os.seq.mode == SEQ_STOPPED);
+    if (shot_dir) write_shot(shot_dir, "usb_data_connected");
+
+    // <Exit> before the computer ejects: asked first. <No> stays, <Yes> goes.
+    tap(IN_B3);
+    CHECK(os.usbm_ask == 1 && um_begun[USBM_EXIT] == 0);
+    in = blank();
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "usb_data_ask");
+    tap(IN_B1);
+    CHECK(os.usbm_ask == 0 && os.screen == OS_USBMODE && um_begun[USBM_EXIT] == 0);
+    tap(IN_B3);
+    tap(IN_B3);
+    CHECK(um_begun[USBM_EXIT] == 1 && os.screen == OS_USBMODE);
+
+    // A step that hangs: after 90 s <Leave> gets out regardless.
+    tap(IN_B3);
+    CHECK(os.screen == OS_USBMODE); // not yet
+    um_elapsed = 91000;
+    tap(IN_B3);
+    CHECK(os.screen == OS_DISK);
+    um_state = USBM_CONNECTED, um_flags = USBM_CABLE; // and if that step ends connected after all
+    in = blank();
+    frame(&in);
+    CHECK(os.screen == OS_USBMODE); // locked again
+    um_state = USBM_IDLE;
+    frame(&in);
+    CHECK(os.screen == OS_DISK);
+
+    // Again, ejected on the computer: <Exit> goes at once; then the card back, <OK>.
+    um_state = USBM_IDLE;
+    tap(IN_B3);
+    CHECK(os.screen == OS_USBMODE && um_begun[USBM_CONNECT] == 2);
+    um_state = USBM_CONNECTED, um_flags = USBM_CABLE | USBM_HOST | USBM_EJECTED;
+    tap(IN_B3);
+    CHECK(um_begun[USBM_EXIT] == 2 && os.usbm_ask == 0);
+    um_state = USBM_DONE;
+    in = blank();
+    frame(&in);
+    CHECK(os.screen == OS_USBMODE);
+    tap(IN_B3);
+    CHECK(os.screen == OS_DISK);
+
+    // No cable: <Exit> asks nothing.
+    tap(IN_B3);
+    um_state = USBM_CONNECTED, um_flags = 0;
+    tap(IN_B3);
+    CHECK(um_begun[USBM_EXIT] == 3 && os.usbm_ask == 0);
+
+    // Errors: <Repair>, then <OK>.
+    um_state = USBM_ERRORS;
+    snprintf(um_msg, sizeof um_msg, "The card has errors");
+    in = blank();
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "usb_data_errors");
+    tap(IN_B1);
+    CHECK(um_begun[USBM_REPAIR] == 1 && os.screen == OS_USBMODE);
+    um_state = USBM_DONE, um_msg[0] = 0;
+    tap(IN_B3);
+    CHECK(os.screen == OS_DISK);
+
+    // Could not start: back to Save/Load, nothing changed.
+    tap(IN_B3);
+    um_state = USBM_FAILED;
+    snprintf(um_msg, sizeof um_msg, "The card is in use");
+    in = blank();
+    frame(&in);
+    tap(IN_B3);
+    CHECK(os.screen == OS_DISK);
+    um_msg[0] = 0;
+
+    // Still busy from before: <Start> refused, not locked.
+    um_refuse = 1;
+    tap(IN_B3);
+    CHECK(os.screen == OS_DISK);
+    um_refuse = 0;
+
+    // The power key still works, and <No> comes back to the page.
+    os.power_pressed = fake_power_pressed;
+    os.power_off = fake_power_off;
+    fake_press = 0;
+    tap(IN_B3);
+    um_state = USBM_CONNECTED, um_flags = USBM_CABLE | USBM_HOST;
+    fake_press = 1;
+    in = blank();
+    frame(&in);
+    CHECK(os.screen == OS_SHUTDOWN);
+    if (shot_dir) write_shot(shot_dir, "usb_data_power");
+    tap(IN_B1);
+    CHECK(os.screen == OS_USBMODE);
+    os.power_pressed = 0, os.power_off = 0;
+
+    // Without the device side (the tests elsewhere): <Start> says so.
+    os.usbmode = 0;
+    um_state = USBM_IDLE;
+    disk_open(&os, DISK_USB, DISK_PROJECT);
+    tap(IN_B3);
+    CHECK(os.screen == OS_DISK);
+    disk_open(&os, DISK_SAVE, DISK_PROJECT);
 }
 
 static void power_frame(int64_t now, struct input *in) {
@@ -1473,6 +1646,11 @@ static void test_zone_ops(const char *shot_dir) {
         frame(&enter);
     }
     CHECK(!os.extract && os.nmemory == 1 && os.memory[0].s->frames == 100);
+    { // loaded over a pad (as from the browser): the sound it had stays in memory, for Sample: and Snd:
+        struct sample *was = os.pads[0].s;
+        os_pad_load_over(&os, 0, counting(300), "Over");
+        CHECK(os.nmemory == 2 && os.memory[1].s == was && os.pads[0].s->frames == 300);
+    }
 
     set_zone(100, 200);
     do_op(DO_SILENCE);
@@ -3814,6 +3992,44 @@ static void test_program_pads(const char *shot_dir) {
     CHECK(os.pads[4].s != 0);
     frame(&idle);
     if (shot_dir) write_shot(shot_dir, "program_pads");
+    // Copy to another program: the wheel picks it, the pad hit is that program's pad; Swap too.
+    {
+        int here = os.program, there = here + 1;
+        os.selected = 1; // Kick
+        tap(IN_B1);
+        in = blank();
+        in.encoder = 1;
+        frame(&in);
+        CHECK(os.pgm_mode == PGM_COPY && os.pgm_target == there);
+        frame(&idle);
+        if (shot_dir) write_shot(shot_dir, "program_copy_other");
+        in = blank();
+        in.pad_hit[6] = 100, in.pad_down[6] = 1;
+        frame(&in);
+        CHECK(os.pgm_mode == PGM_NONE && os.programs[there].pads[6].s == os.pads[1].s && os.program == here &&
+              !strcmp(os.programs[there].pads[6].name, "Kick") && os.selected == 1);
+        tap(IN_B2); // Swap A02 (Kick) with Pgm there's A07 (also Kick): then with its empty A08
+        in = blank();
+        in.encoder = 1;
+        frame(&in);
+        in = blank();
+        in.pad_hit[7] = 100, in.pad_down[7] = 1;
+        frame(&in);
+        CHECK(!os.pads[1].s && os.programs[there].pads[7].s && !strcmp(os.programs[there].pads[7].name, "Kick"));
+    }
+    // SHIFT + wheel on Snd: only sounds no pad plays. One goes into memory, unused; the empty A02 takes it.
+    {
+        struct sample *loose = constant(300);
+        os_memory_add(&os, loose, "Loose");
+        os.cursor_program = 3;
+        os.selected = 1;
+        in = blank();
+        in.encoder = 1, in.shift = 1, in.held = 1u << IN_SHIFT;
+        frame(&in);
+        CHECK(os.pads[1].s == loose && !strcmp(os.pads[1].name, "Loose"));
+        frame(&in); // the only unused one: stays
+        CHECK(os.pads[1].s == loose);
+    }
     os.screen = OS_MAIN;
 }
 
@@ -5939,6 +6155,79 @@ static void test_unmute_all(void) {
     q->track[2].solo = 0;
 }
 
+// The MPC2000XL layout: its letters, tabs and rules on every page; its main screen and Track
+// Mute page; the keys work as before; saved with the settings.
+static void test_layout_xl(const char *shot_dir) {
+    seq_fresh();
+    load_pad(0);
+    struct seq *sq = &os.seq;
+    seq_add_note(sq, 0, 0, 0, 0, 100, 24);
+    seq_add_note(sq, 0, 1, 0, 0, 100, 24);
+    snprintf(sq->sequence[0].name, sizeof sq->sequence[0].name, "Sequence01");
+    snprintf(sq->sequence[0].track[0].name, sizeof sq->sequence[0].track[0].name, "Drums");
+    snprintf(sq->sequence[0].track[1].name, sizeof sq->sequence[0].track[1].name, "Hats");
+    prefs_open(&os);
+    os.cursor_prefs = 4; // Layout:
+    struct input in = blank();
+    in.encoder = 1;
+    frame(&in);
+    CHECK(os.layout == LAYOUT_2000XL && lcd_layout == LAYOUT_2000XL);
+    if (shot_dir) write_shot(shot_dir, "prefs_layout");
+    char line[200];
+    prefs_save_line(&os, line, sizeof line);
+    os.layout = 0;
+    prefs_load_line(&os, line);
+    CHECK(os.layout == LAYOUT_2000XL && lcd_layout == LAYOUT_2000XL);
+    os.screen = OS_MAIN;
+    sq->track = 0;
+    in = blank();
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "xl_main");
+    sq->next = 4; // a change waiting: Next: beside Now:
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "xl_main_next");
+    sq->next = -1;
+    frame(&in);
+    tap(IN_B1); // TrMUTE: the track off, as before
+    CHECK(!sq->sequence[0].track[0].on);
+    tap(IN_B1);
+    tap(IN_B3); // Tr +
+    CHECK(sq->track == 1);
+    tap(IN_MUTE);
+    CHECK(os.screen == OS_MUTE);
+    in = blank();
+    in.pad_hit[1] = 100; // track 2 muted
+    frame(&in);
+    CHECK(sq->sequence[0].track[1].mute);
+    if (shot_dir) write_shot(shot_dir, "xl_mute");
+    tap(IN_B3);
+    os.screen = OS_SAMPLE; // other pages: the XL's letters, tabs and rules
+    in = blank();
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "xl_sample");
+    os.page = PAGE_AMP; // the envelope: values by their names, the shape beside them
+    os.pads[0].p.attack_ms = 300, os.pads[0].p.decay_ms = 2000;
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "xl_env");
+    os.page = PAGE_TRIM;
+    static const int MORE[] = {OS_MIXER, OS_SENDS, OS_INFX, OS_MASTER};
+    static const char *const MORE_NAMES[] = {"xl_mixer", "xl_sends", "xl_infx", "xl_master"};
+    for (int i = 0; i < 4; i++) {
+        os.screen = MORE[i];
+        frame(&in);
+        frame(&in);
+        if (shot_dir) write_shot(shot_dir, MORE_NAMES[i]);
+    }
+    os.screen = OS_MAIN;
+    frame(&in);
+    tap(IN_MUTE);
+    tap(IN_B2);
+    tap(IN_B3);
+    os.layout = LAYOUT_DEFAULT;
+    prefs_apply(&os);
+    CHECK(lcd_layout == LAYOUT_DEFAULT);
+}
+
 static void test_track_mute(const char *shot_dir) {
     seq_fresh();
     load_pad(0);
@@ -6472,6 +6761,31 @@ static void test_pad_bounce(void) {
 
 // The Arpeggiator page's knobs (K1 rate, K2 category, K3 pattern, from where they are) and the
 // added presets: JAZZ, BASSLINES, more STEP patterns and game cues.
+// Pattern Edit from a MIDI keyboard: each key enters its note at the step and moves on, the
+// octave from where the key is.
+static void test_arpedit_midi(void) {
+    engine_init(&e);
+    os_init(&os, &e);
+    struct seq *sq = &os.seq;
+    memset(&sq->arp_user[0], 0, sizeof sq->arp_user[0]);
+    sq->arp_user[0].len = 8;
+    arpedit_open(&os, 0);
+    os.midi_in_read = fake_midi_read;
+    fake_port = 0, midi_qn = midi_qat = 0; // the MIDI jacks
+    midi_push(0x90, 64, 100); // E above middle C: octave 0
+    midi_push(0x80, 64, 0);
+    midi_push(0x90, 47, 90);  // B below middle C: -1
+    midi_push(0x90, 84, 90);  // two octaves up: +1, the nearest
+    struct input in = blank();
+    frame(&in);
+    const struct seq_arp_steps *p = &sq->arp_user[0];
+    CHECK(p->step[0].note == 4 && p->step[0].oct == 0 && p->step[0].time == ARP_NOTE);
+    CHECK(p->step[1].note == 11 && p->step[1].oct == -1);
+    CHECK(p->step[2].note == 0 && p->step[2].oct == 1);
+    CHECK(os.arpedit_step == 3 && os.screen == OS_ARPEDIT);
+    os.midi_in_read = 0, midi_qn = midi_qat = 0;
+}
+
 static void test_arp_more(void) {
     seq_fresh();
     struct seq *sq = &os.seq;
@@ -6664,6 +6978,60 @@ static void test_panel_input(void) {
     CHECK(input_down(&in, IN_PLAY) && !(in.up >> IN_PLAY & 1) && dev.late_up);
     input_begin(&in, &dev);
     CHECK(input_late_releases(&dev, &in) == 1 && (in.up >> IN_PLAY & 1) && !in.held && !dev.held && !dev.late_up);
+    // A page button (KNOB FX) counts only as a whole press: a note-on alone opens nothing, a
+    // blip too quick for a finger opens nothing, a real press opens it on its release (with SHIFT
+    // as it was when it went down).
+    {
+        const unsigned char fx_on[3] = {0x90, 0, 127}, fx_off[3] = {0x80, 0, 0}, sh_on[3] = {0x90, 49, 127},
+                            sh_off[3] = {0x80, 49, 0};
+        input_begin(&in, &dev);
+        input_push(&dev, &in, fx_on);
+        CHECK(!input_down(&in, IN_KNOB_FX) && !(in.held >> IN_KNOB_FX & 1));
+        input_begin(&in, &dev);
+        input_push(&dev, &in, fx_on); // another note-on with no release between: the first was not a press
+        CHECK(!input_down(&in, IN_KNOB_FX) && dev.ghosts == 1);
+        input_push(&dev, &in, fx_off); // a blip: released at once
+        CHECK(!input_down(&in, IN_KNOB_FX) && dev.ghosts == 2);
+        input_push(&dev, &in, fx_off); // a release with nothing pressed
+        CHECK(!input_down(&in, IN_KNOB_FX));
+        input_begin(&in, &dev);
+        input_push(&dev, &in, fx_on);
+        usleep(30 * 1000); // a finger's press
+        input_push(&dev, &in, fx_off);
+        CHECK(input_down(&in, IN_KNOB_FX) && !in.shift && (dev.late_up >> IN_KNOB_FX & 1));
+        input_begin(&in, &dev);
+        CHECK(input_late_releases(&dev, &in) == 1 && !in.held);
+        input_begin(&in, &dev); // SHIFT + KNOB FX, SHIFT let go first
+        input_push(&dev, &in, sh_on);
+        input_push(&dev, &in, fx_on);
+        input_push(&dev, &in, sh_off);
+        usleep(30 * 1000);
+        input_push(&dev, &in, fx_off);
+        CHECK(input_down(&in, IN_KNOB_FX) && in.shift);
+        input_begin(&in, &dev);
+        input_late_releases(&dev, &in);
+        CHECK(!in.shift && !in.held);
+    }
+    // ERASE acts on its release: a release with no press is nothing (it opened the Erase page);
+    // a blip too short for a finger is nothing; a real tap is a release.
+    {
+        const unsigned char er_on[3] = {0x90, 9, 127}, er_off[3] = {0x80, 9, 0}, er_zero[3] = {0x90, 9, 0};
+        input_begin(&in, &dev);
+        input_push(&dev, &in, er_off);
+        input_push(&dev, &in, er_zero);
+        CHECK(!(in.up >> IN_ERASE & 1) && !in.held);
+        input_begin(&in, &dev);
+        input_push(&dev, &in, er_on);
+        CHECK(in.held >> IN_ERASE & 1); // held at once, for ERASE with the pads
+        input_push(&dev, &in, er_off);
+        CHECK(!(in.up >> IN_ERASE & 1) && !in.held && !dev.held && !dev.late_up);
+        input_begin(&in, &dev);
+        input_push(&dev, &in, er_on);
+        input_begin(&in, &dev);
+        usleep(30 * 1000);
+        input_push(&dev, &in, er_off);
+        CHECK((in.up >> IN_ERASE & 1) && !in.held);
+    }
     // SHIFT, the wheel and its push, K2, the slider.
     const unsigned char shift_on[3] = {0x90, 49, 127}, wheel_up[3] = {0xB0, 100, 1}, wheel_down[3] = {0xB0, 100, 127},
                         push[3] = {0x90, 111, 127}, k2[3] = {0xB0, 17, 90}, slider[3] = {0xB0, 20, 33};
@@ -7086,7 +7454,7 @@ static void test_prefs(const char *shot_dir) {
     for (int i = 0; i < u2.nled; i++)
         if (u2.led[i].index == 0) lit = u2.led[i].r;
     CHECK(lit > 0 && lit < 60);
-    os.cursor_prefs = 4; // Seq Res (after Screen): MPC 3000, MPC60, MPC 2000, SP12
+    os.cursor_prefs = 5; // Seq Res (after Screen): MPC 3000, MPC60, MPC 2000, SP12
     in = blank();
     in.encoder = 1;
     frame(&in);
@@ -7096,7 +7464,7 @@ static void test_prefs(const char *shot_dir) {
     CHECK(os.seq.res == SEQ_RES_SP1200);
     { // USB Audio Out (after Seq Res): OFF to start, on and off; saved with the settings
         CHECK(os.usb_out == 0);
-        os.cursor_prefs = 5;
+        os.cursor_prefs = 6;
         struct input w = blank();
         w.encoder = 1;
         frame(&w);
@@ -7116,7 +7484,7 @@ static void test_prefs(const char *shot_dir) {
     CHECK(os.screen_scheme == SCREEN_MPC60 && lcd_bg != 0x408cfa);
     if (shot_dir) write_shot(shot_dir, "prefs");
     tap(IN_B3); // <Page 2>
-    CHECK(os.cursor_prefs == 10);
+    CHECK(os.cursor_prefs == 11);
     in.encoder = 1; // Loop Conv: IMMEDIATE (the default), AFTER 1ST LOOP
     CHECK(os.loop_conv == LOOP_CONV_IMMEDIATE);
     frame(&in);
@@ -7125,7 +7493,7 @@ static void test_prefs(const char *shot_dir) {
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(os.cursor_prefs == 11 && os.auto_root == 1);
+    CHECK(os.cursor_prefs == 12 && os.auto_root == 1);
     in = blank(), in.encoder = -1;
     frame(&in);
     CHECK(os.auto_root == 0);
@@ -7136,7 +7504,7 @@ static void test_prefs(const char *shot_dir) {
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(os.cursor_prefs == 12 && os.start_rate == 29760);
+    CHECK(os.cursor_prefs == 13 && os.start_rate == 29760);
     in = blank();
     in.encoder = 1;
     frame(&in);
@@ -7148,7 +7516,7 @@ static void test_prefs(const char *shot_dir) {
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(os.rate_edit && os.cursor_prefs == 12); // pushed in: the number, the cursor stays
+    CHECK(os.rate_edit && os.cursor_prefs == 13); // pushed in: the number, the cursor stays
     in = blank();
     in.encoder = -3;
     frame(&in);
@@ -7157,7 +7525,7 @@ static void test_prefs(const char *shot_dir) {
     in = blank();
     in.encoder_press = 1;
     frame(&in);
-    CHECK(!os.rate_edit && os.cursor_prefs == 12);
+    CHECK(!os.rate_edit && os.cursor_prefs == 13);
     in = blank();
     in.encoder = -1; // off SET: back to the slider's rates
     frame(&in);
@@ -7165,18 +7533,18 @@ static void test_prefs(const char *shot_dir) {
     in.encoder = -1;
     frame(&in);
     CHECK(os.start_rate == 29760);
-    os.cursor_prefs = 13; // Bit Rate
+    os.cursor_prefs = 14; // Bit Rate
     frame(&in);
     CHECK(os.start_bits == 8 && os.rec_set[2].bits == 8);
     in.encoder = 1;
     frame(&in);
-    os.cursor_prefs = 16; // Input Thru: OFF, then on by hand
+    os.cursor_prefs = 17; // Input Thru: OFF, then on by hand
     in.encoder = -1;
     frame(&in);
     CHECK(os.start_thru == 0 && os.input_thru == 0);
     in.encoder = 1;
     frame(&in);
-    os.cursor_prefs = 17; // Rec Mode
+    os.cursor_prefs = 18; // Rec Mode
     frame(&in);
     CHECK(os.start_mode == REC_MONO_L && os.rec_set[4].mode == REC_MONO_L && os.rec_set[2].mode == REC_MONO_LR);
     in.encoder = -1;
@@ -7345,8 +7713,8 @@ static void test_disk(const char *shot_dir) {
     os.screen = OS_MAIN;
     shift_pad16();
     CHECK(os.screen == OS_DISK && os.disk_mode == DISK_LOAD && os.disk_type == DISK_MPCPRJ);
-    // Clear all: shown on a load into memory, off each time the page opens, asked first, then
-    // everything emptied before the load.
+    // Clear all: shown on a load into memory, asked first, then everything emptied before the
+    // load; once set it stays set for the next load, until changed back.
     disk_open(&os, DISK_LOAD, DISK_PROGRAM);
     CHECK(os.disk_clear == 0);
     {
@@ -7356,7 +7724,12 @@ static void test_disk(const char *shot_dir) {
         frame(&w);
         CHECK(os.disk_clear == 1);
         if (shot_dir) write_shot(shot_dir, "disk_clear");
-        os.disk_clear = 0;
+        disk_open(&os, DISK_LOAD, DISK_PROGRAM); // opened again: still YES
+        CHECK(os.disk_clear == 1);
+        os.disk_cursor = 3;
+        w.encoder = -1;
+        frame(&w);
+        CHECK(os.disk_clear == 0);
     }
     // An effects chain, out and back in.
     infx_load_preset(&os, 2);
@@ -7683,6 +8056,7 @@ static int demo_piano(const char *dir) {
 }
 
 int main(int argc, char **argv) {
+    if (getenv("MPC_TEST_LAYOUT")) forced_layout = atoi(getenv("MPC_TEST_LAYOUT"));
     if (getenv("DEMO_PIANO")) return demo_piano(getenv("DEMO_PIANO")) != 0 || failures != 0;
     test_one_shot();
     test_keymap();
@@ -7703,6 +8077,8 @@ int main(int argc, char **argv) {
     test_title(argc > 1 ? argv[1] : 0);
     test_screen(argc > 1 ? argv[1] : 0);
     test_browser(argc > 1 ? argv[1] : 0);
+    test_usbmode(argc > 1 ? argv[1] : 0);
+    test_arpedit_midi();
     test_no_pad_lights();
     test_seq_sample_accurate();
     test_seq_loop_and_stop();
@@ -7773,6 +8149,7 @@ int main(int argc, char **argv) {
     test_fx_modes(argc > 1 ? argv[1] : 0);
     test_help_and_locate(argc > 1 ? argv[1] : 0);
     test_track_mute(argc > 1 ? argv[1] : 0);
+    test_layout_xl(argc > 1 ? argv[1] : 0);
     test_unmute_all();
     test_knob_modes();
     test_tc_knobs();

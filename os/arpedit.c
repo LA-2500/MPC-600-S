@@ -65,6 +65,22 @@ static void next_step(struct os *s) {
     s->arpedit_step = (s->arpedit_step + 1) % clampi(pattern(s)->len, 1, ARP_STEPS);
 }
 
+// A key on a MIDI keyboard: its note at the step, as pads 1-12 enter it, with the octave from
+// where the key is (middle C's octave 0, the one below -1, above +1; further out, the nearest).
+// Returns the semitones to sound it at, or ARPEDIT_SILENT.
+int arpedit_key(struct os *s, int key) {
+    struct seq *sq = &s->seq;
+    pthread_mutex_lock(&sq->lock);
+    struct seq_arp_step *st = &pattern(s)->step[clampi(s->arpedit_step, 0, ARP_STEPS - 1)];
+    st->note = (signed char)(key % 12), st->time = ARP_NOTE;
+    st->oct = (signed char)clampi(key / 12 - 5, -1, 1);
+    int sound = st->note + 12 * st->oct;
+    next_step(s);
+    pthread_mutex_unlock(&sq->lock);
+    changed(s);
+    return s->arpedit_play ? ARPEDIT_SILENT : sound; // playing, the pattern is heard instead
+}
+
 // A pad on the page. Returns the semitones to sound it at, or ARPEDIT_SILENT.
 int arpedit_pad(struct os *s, int i) {
     struct seq *sq = &s->seq;

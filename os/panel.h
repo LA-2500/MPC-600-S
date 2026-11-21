@@ -5,6 +5,7 @@
 // struct input, calls the OS's frame function with a struct ui to draw into, then sends the
 // display and the lights whatever changed. Nothing here knows about the OS's screens.
 #pragma once
+#include <stddef.h>
 #include <stdint.h>
 
 #define UI_W 320
@@ -54,6 +55,12 @@ struct input_dev {
     int pad_on_vel[16];    // the velocity of each pad's last press: a light hit just after it on
                            // a pad near it is that pad shaking, not a press
     unsigned rejected;     // readings and pad hits thrown away as noise
+    // The page buttons (CONFIRM_BUTTONS in panel.c) count only as a whole press: their note-on
+    // waits here until the release comes, at least CONFIRM_MIN_MS later. A stray note-on alone,
+    // or a note-off alone, is not a press.
+    unsigned confirm_pending, confirm_shift;
+    long long confirm_ms[32];
+    unsigned ghosts;       // page-button note-ons never confirmed, for the log
 };
 
 // A new frame: nothing happened yet, held things as the panel holds them (dev NULL: nothing).
@@ -97,5 +104,6 @@ int panel_run(ui_frame frame, void *state);
 void panel_set_bicolour_style(int style);
 unsigned panel_pad_bounces(void); // pad bounces ignored so far, for the log
 unsigned panel_rejected(void);    // knob jumps and ghost pad hits ignored so far, for the log
+int panel_take_note(char *out, size_t n); // a KNOB FX press and the raw bytes before it, once, for the log
 // The lightest pad hit that counts (velocity 1..60; default 12).
 void panel_set_pad_threshold(int velocity);

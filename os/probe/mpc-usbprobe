@@ -1,0 +1,49 @@
+#!/bin/sh
+# Read-only USB report for the MPC Sample: whether the kernel can show the SD card to a
+# computer as a USB drive (mass storage gadget), and how the stock USB gadget is set up.
+# Writes usbprobe.txt next to the app. Changes nothing. Serial numbers are filtered out.
+[ $# -eq 0 ] || exit 0 # the start script's --codec-volume calls: nothing to do
+OUT="${MPC_APP_DIR:-.}/usbprobe.txt"
+exec >"$OUT" 2>&1
+
+have() { command -v "$1" >/dev/null 2>&1; }
+noserial() { grep -v -i -E 'serial|ssid|mac_?addr|host_addr|dev_addr'; }
+
+run() {
+  printf '\n===== %s\n' "$1"
+  if have timeout; then timeout 15 sh -c "$1" | noserial; else sh -c "$1" | noserial; fi
+  printf '[exit %s]\n' "$?"
+}
+
+date
+run 'uname -a'
+
+# The kernel: mass storage built in, as a module, or not at all.
+run 'zcat /proc/config.gz 2>/dev/null | grep -E "USB_GADGET|USB_CONFIGFS|USB_F_|MASS_STORAGE|USB_LIBCOMPOSITE|USB_DWC"'
+run 'ls /sys/module | grep -i -E "mass|usb_f|composite|gadget|dwc|configfs"'
+run 'ls /sys/module/usb_f_mass_storage/parameters 2>&1'
+run 'find /lib/modules -name "*.ko*" 2>/dev/null | grep -i -E "mass|usb_f|gadget|composite"'
+run 'cat /proc/filesystems'
+
+# The gadget as the stock system set it up.
+run 'ls /sys/class/udc; for u in /sys/class/udc/*; do echo "$u: $(cat $u/state 2>/dev/null) $(cat $u/current_speed 2>/dev/null)"; done'
+run 'find /sys/kernel/config/usb_gadget -maxdepth 4 2>/dev/null | head -n 200'
+run 'for f in $(find /sys/kernel/config/usb_gadget -maxdepth 6 -type f 2>/dev/null | grep -v -E "/os_desc/|/webusb/" | head -n 200); do printf "%s = " "$f"; head -c 200 "$f" 2>/dev/null | tr "\n" " "; echo; done'
+run 'find /sys/kernel/config/usb_gadget -maxdepth 4 -type l -exec ls -l {} \; 2>/dev/null'
+
+# The stock scripts that make it, and what mounts the card.
+run 'systemctl list-unit-files --no-pager | grep -i -E "az0x|gadget|usb|disk|mount|ac50"'
+run 'systemctl list-units --all --no-pager | grep -i -E "az0x|gadget|usb|disk|mount"'
+run 'systemctl cat "az0x-usb-gadget@.service" --no-pager'
+run 'systemctl cat "az0x-usb-gadget@ac50.service" --no-pager'
+run 'for f in $(systemctl cat "az0x-usb-gadget@.service" --no-pager 2>/dev/null | sed -n "s/^Exec[A-Za-z]*=[-@+!]*//p" | cut -d" " -f1); do printf "\n## %s\n" "$f"; head -c 20000 "$f"; done'
+run 'ls -l /usr/bin /usr/sbin /usr/libexec 2>/dev/null | grep -i -E "gadget|usb|az0x|disk|mount|msc|storage"'
+run 'grep -r -l -i -E "mass_storage|lun\.0|usb_gadget" /usr/bin /usr/sbin /usr/libexec /usr/lib/systemd /etc 2>/dev/null | head -n 40'
+run 'for f in $(grep -r -l -i -E "mass_storage|lun\.0" /usr/bin /usr/sbin /usr/libexec /usr/lib/systemd /etc 2>/dev/null | head -n 8); do printf "\n## %s\n" "$f"; if file "$f" 2>/dev/null | grep -q text || head -c 2 "$f" | grep -q "#!"; then head -c 20000 "$f"; else strings "$f" 2>/dev/null | grep -i -E "mass|lun|gadget|media|mmcblk|umount|udc" | head -n 60; fi; done'
+run 'systemctl cat edisksd.service --no-pager; ls /etc/edisksd* 2>&1; cat /etc/edisksd*/* 2>/dev/null | head -n 100'
+run 'cat /proc/mounts | grep -E "mmcblk1|media"'
+run 'ls -l /sys/class/block | grep mmcblk1; cat /sys/class/block/mmcblk1/size /sys/class/block/mmcblk1/ro 2>/dev/null'
+run 'cat /proc/partitions'
+run 'id; ls -ld /sys/kernel/config/usb_gadget'
+echo
+echo done

@@ -901,17 +901,20 @@ void sends_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_text(u, 0, KEY_ROW, "<FX->");
     lcd_text(u, 9, KEY_ROW, "<FX+>");
     lcd_text(u, in->shift ? 17 : 20, KEY_ROW, in->shift ? "<Inserts>" : "<Back>");
+    // On the 2000XL layout the lines under the tabs sit XL_DROP lower and the bars are that much
+    // shorter; DEFAULT as it was.
+    int dy = XL_DROP, top = 48 + dy, span = 120 - dy;
     snprintf(line, sizeof line, "Trk:%c%02d %-.14s", 'A' + t / 16, t + 1, q->track[t].name);
-    lcd_text(u, 0, 1, line);
+    lcd_text_y(u, 0, CELL_H + dy, line);
     snprintf(name, sizeof name, "Send %d: %s", fx + 1, type ? fx_name(type) : "(empty)");
-    lcd_rule(u, TITLE_ROW, name);
+    lcd_rule_y(u, TITLE_ROW * CELL_H + dy, name);
     for (int i = 0; i < 16; i++) { // the bank's sixteen sends to this effect, as bars
         int tr = s->bank * 16 + i;
         if (tr >= SEQ_TRACKS) break;
-        int lvl = q->track[tr].send[fx], h = lvl * 120 / 100, x = i * 20 + 3;
+        int lvl = q->track[tr].send[fx], h = lvl * span / 100, x = i * 20 + 3;
         if (tr == t) {
-            lcd_fill(u, x - 2, 48, 18, 1, LCD_FG), lcd_fill(u, x - 2, 172, 18, 1, LCD_FG);
-            lcd_fill(u, x - 2, 48, 1, 125, LCD_FG), lcd_fill(u, x + 15, 48, 1, 125, LCD_FG);
+            lcd_fill(u, x - 2, top, 18, 1, LCD_FG), lcd_fill(u, x - 2, 172, 18, 1, LCD_FG);
+            lcd_fill(u, x - 2, top, 1, 173 - top, LCD_FG), lcd_fill(u, x + 15, top, 1, 173 - top, LCD_FG);
         }
         if (h > 0) lcd_fill(u, x + 2, 170 - h, 10, h, LCD_FG);
         else lcd_fill(u, x + 2, 169, 10, 1, LCD_FG);

@@ -33,7 +33,7 @@
 
 #define NAME_MAX_LEN 16
 static const char CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-static const char *const MODES[DISK_MODES] = {"SAVE", "LOAD", "EXPORT"};
+static const char *const MODES[DISK_MODES] = {"SAVE", "LOAD", "EXPORT", "USB DATA"};
 static const char *const TYPES[DISK_TYPES] = {"PROJECT", "PROGRAM", "SAMPLE", "SETTINGS", "AUTOLOAD", "FX CHAIN", "ARP PATTERN",
                                               "TRACK FX", "S600 WAVE", "SEQUENCE", "MIDI FILE", "MPC 2500 SEQUENCE", "MPC 2500 PROGRAM", "MPC 2500 PROJECT", "SEQUENCE", "SONG",
                                               "MIXDOWN SEQ", "MIXDOWN SONG"};
@@ -1136,6 +1136,7 @@ static int clear_ok(int t) { // a load that adds to what is in memory: Clear all
 
 static int field_shown(const struct os *s, int f) {
     int t = s->disk_type, m = s->disk_mode;
+    if (m == DISK_USB) return f == DF_MODE; // USB DATA MODE: nothing else to set
     switch (f) {
     case DF_WHICH: return is_prog(t) || is_sound(t) || t == DISK_ARP || m == DISK_EXPORT || is_seqtype(t);
     case DF_CLEAR: return m == DISK_LOAD && clear_ok(t) && !s->disk_renaming;
@@ -1312,7 +1313,7 @@ void disk_open(struct os *s, int mode, int type) {
     s->disk_mode = mode, s->disk_type = type;
     s->disk_cursor = s->disk_mode == DISK_SAVE ? DF_NAME : DF_MODE;
     s->disk_ask = 0, s->disk_renaming = 0, s->disk_pending = 0, s->disk_newdir = 0;
-    s->disk_used = 1, s->disk_clear = 0, s->disk_page = 0;
+    s->disk_used = 1, s->disk_page = 0; // Clear all stays as it was set, for the next load too
     s->disk_which = is_prog(type) ? s->program : is_seqtype(type) ? s->seq.current : 0;
     default_name(s);
     restore_folder(s); // where this type was last used; its own folder to start with
@@ -1714,7 +1715,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         }
         if (input_down(in, IN_B3) && s->disk_ask == 'C') { // Clear all, then the load
             disk_clear_all(s);
-            s->disk_clear = 0, s->disk_ask = 0, s->disk_pending = 'L';
+            s->disk_ask = 0, s->disk_pending = 'L';
         } else if (input_down(in, IN_B3)) s->disk_pending = s->disk_ask == 'P' || s->disk_ask == 'O' ? 'L' : s->disk_ask, s->disk_ask = 0;
         lcd_text(u, 0, KEY_ROW, s->disk_ask == 'P' ? "<Cancel>" : "<No>");
         if (s->disk_ask == 'P') lcd_text(u, 9, KEY_ROW, "<To Empty>");
@@ -1757,6 +1758,11 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     } else if (s->disk_renaming) {
         if (input_down(in, IN_B1)) s->disk_renaming = 0, s->disk_cursor = m == DISK_LOAD ? DF_MODE : DF_FILE; // <Cancel>
         if (input_down(in, IN_B3)) s->disk_pending = 'R', s->disk_renaming = 0, s->disk_cursor = m == DISK_LOAD ? DF_MODE : DF_FILE; // <OK>
+    } else if (m == DISK_USB) {
+        if (input_down(in, IN_B3)) { // <Start>: USB DATA MODE
+            usbmode_open(s, u);
+            return;
+        }
     } else if (m == DISK_LOAD) {
         if (input_down(in, IN_B3)) s->disk_page = 1, list_files(s); // <Browse>: the files
     } else if (m != DISK_LOAD && s->disk_type != DISK_AUTOLOAD && input_down(in, IN_B1)) { // <New Dir>
@@ -1841,6 +1847,8 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     if (s->disk_renaming || s->disk_newdir) {
         lcd_text(u, 0, KEY_ROW, "<Cancel>");
         lcd_text(u, 22, KEY_ROW, "<OK>");
+    } else if (m == DISK_USB) {
+        lcd_text(u, 19, KEY_ROW, "<Start>");
     } else if (m == DISK_LOAD) {
         lcd_text(u, 18, KEY_ROW, "<Browse>");
     } else if (s->disk_type != DISK_AUTOLOAD) {
@@ -1850,7 +1858,17 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     } else {
         lcd_text(u, 18, KEY_ROW, m == DISK_EXPORT ? "<Export>" : "<Save>");
     }
-    lcd_rule(u, TITLE_ROW, s->disk_pending ? "Working..." : "Save/Load");
+    if (lcd_layout == LAYOUT_2000XL && !s->disk_pending && (m == DISK_SAVE || m == DISK_LOAD)) {
+        // The XL's picture in place of the title: LOAD, the card's arrow to the MPC; SAVE, the
+        // MPC's arrow to the card.
+        int load = m == DISK_LOAD;
+        lcd_art(u, load ? 190 : 194, 30, load ? LCD_ART_CARD : LCD_ART_MPC, load ? 16 : 14);
+        lcd_text_y(u, 19, 24, load ? "LOAD" : "SAVE"); // over the arrow
+        lcd_art(u, 244, 40, LCD_ART_ARROW, 11);
+        lcd_art(u, load ? 288 : 284, 30, load ? LCD_ART_MPC : LCD_ART_CARD, load ? 14 : 16);
+    } else {
+        lcd_rule(u, TITLE_ROW, s->disk_pending ? "Working..." : "Save/Load");
+    }
     struct {
         int f, row, col;
         const char *label;
@@ -1859,6 +1877,21 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_text(u, 0, 3, rows[0].label);
     if (s->disk_cursor == DF_MODE) lcd_inverse(u, 6, 3, v);
     else lcd_text(u, 6, 3, v);
+    if (m == DISK_USB) { // what it does, before it starts
+        static const char *const ABOUT[] = {
+            "The SD card becomes a USB",
+            "drive on a computer, for",
+            "copying samples to it.",
+            "",
+            "USB audio and MIDI stop,",
+            "and the MPC is locked",
+            "until you exit. Nothing in",
+            "memory is lost.",
+        };
+        for (int i = 0; i < (int)(sizeof ABOUT / sizeof ABOUT[0]); i++) lcd_text(u, 0, 5 + i, ABOUT[i]);
+        lcd_rule(u, BOTTOM_ROW, 0);
+        return;
+    }
     snprintf(v, sizeof v, " %s ", TYPES[s->disk_type]);
     lcd_text(u, 0, 4, rows[1].label);
     if (s->disk_cursor == DF_TYPE) lcd_inverse(u, 6, 4, v);

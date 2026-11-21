@@ -40,6 +40,14 @@ int midi_port_open(int which) {
     return port[which].out >= 0 || port[which].in >= 0 ? 0 : -1;
 }
 
+void midi_port_close(int which) {
+    if (which < 0 || which >= MIDI_PORTS) return;
+    if (port[which].out >= 0) close(port[which].out);
+    if (port[which].in >= 0) close(port[which].in);
+    port[which].out = port[which].in = -1;
+    port[which].len = port[which].at = port[which].count = 0, port[which].status = 0;
+}
+
 void midi_ports_enable(int ext, int usb) {
     port[MIDI_PORT_EXT].on = ext;
     port[MIDI_PORT_USB].on = usb;

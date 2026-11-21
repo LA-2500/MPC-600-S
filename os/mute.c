@@ -111,6 +111,72 @@ static void cell(struct ui *u, int i, const char *top, const char *bottom, int l
     lcd_small_text(u, x + 5, y + 21, bottom, ink);
 }
 
+// The MPC2000XL layout: its Track Mute page. Each pad's name in a 4 x 4 grid, pad 1 bottom left,
+// on a bar while it plays (TRACK MUTE: the tracks not muted) and plain when not; a track with
+// nothing on it is (Unused), as on the XL. Caller holds the lock.
+static void mute_xl(struct os *s, struct ui *u) {
+    struct seq *sq = &s->seq;
+    struct seq_sequence *q = &sq->sequence[sq->current];
+    int kit = q->track[sq->track].kit;
+    char b[40];
+    lcd_text(u, 0, KEY_ROW, "<Type>");
+    lcd_text(u, 8, KEY_ROW, "<All Off>");
+    lcd_text(u, 20, KEY_ROW, "<Back>");
+    int next = sq->next >= 0 ? sq->next : sq->current;
+    lcd_text(u, 0, 2, "Sq:");
+    snprintf(b, sizeof b, "%02d-%.16s", next + 1, seq_used(&sq->sequence[next]) ? sq->sequence[next].name : "(unused)");
+    if (s->cursor_mute == M_NEXT) lcd_inverse(u, 3, 2, b);
+    else lcd_text(u, 3, 2, b);
+    long at = sq->pos > 0 ? (long)sq->pos : 0;
+    int bt = seq_bar_ticks(q), qt = seq_beat_ticks(q);
+    snprintf(b, sizeof b, "Now:%03ld.%02ld.%02ld", at / bt + 1, at % bt / qt + 1, at % qt);
+    lcd_text(u, 0, 3, b);
+    if (sq->mode != SEQ_STOPPED && sq->next >= 0) {
+        snprintf(b, sizeof b, "Plays %d", sq->current + 1);
+        lcd_text(u, 18, 3, b);
+    }
+    // The box: what the grid holds, then the grid.
+    lcd_box(u, 0, 4 * CELL_H + 6, UI_W, 9 * CELL_H + 4);
+    if (s->mute_type <= MUTE_TRACK_SOLO) snprintf(b, sizeof b, "Tr:%02d-%02d BANK %c", s->bank * 16 + 1, s->bank * 16 + 16, 'A' + s->bank);
+    else if (s->mute_type <= MUTE_PAD_SOLO) snprintf(b, sizeof b, "Pgm:%02d BANK %c", kit + 1, 'A' + s->bank);
+    else snprintf(b, sizeof b, "Sq:%02d-%02d BANK %c", s->bank * 16 + 1, s->bank * 16 + 16, 'A' + s->bank);
+    lcd_text(u, 1, 5, b);
+    int top = 6 * CELL_H + 8, row_h = 28, col_w = (UI_W - 8) / 4;
+    for (int i = 0; i < 16; i++) {
+        int n = s->bank * 16 + i, on = 0;
+        char name[16] = "";
+        switch (s->mute_type) {
+        case MUTE_TRACK: case MUTE_TRACK_SOLO:
+            if (n >= SEQ_TRACKS) break;
+            on = s->mute_type == MUTE_TRACK ? !q->track[n].mute : q->track[n].solo;
+            snprintf(name, sizeof name, "%.12s", seq_track_used(&q->track[n]) ? q->track[n].name : "(Unused)");
+            break;
+        case MUTE_PAD: case MUTE_PAD_SOLO: {
+            const struct os_pad *p = &s->programs[kit].pads[n];
+            on = s->mute_type == MUTE_PAD ? !sq->pad_mute[kit][n] : sq->pad_solo[kit][n];
+            snprintf(name, sizeof name, "%.12s", p->s ? p->name : "(Unused)");
+            break;
+        }
+        case MUTE_SEQUENCE:
+            if (n >= SEQ_COUNT) break;
+            on = n == next;
+            snprintf(name, sizeof name, "%.12s", seq_used(&sq->sequence[n]) ? sq->sequence[n].name : "(Unused)");
+            break;
+        }
+        int x = 4 + (i % 4) * col_w, y = top + (3 - i / 4) * row_h;
+        if (on) {
+            lcd_fill(u, x, y, col_w - 4, 13, LCD_FG);
+            lcd_small_text(u, x + 3, y + 3, name, LCD_BG);
+        } else {
+            lcd_small_text(u, x + 3, y + 3, name, LCD_FG);
+        }
+    }
+    lcd_text(u, 0, 14, "Type:");
+    snprintf(b, sizeof b, "%s", TYPES[s->mute_type]);
+    if (s->cursor_mute == M_TYPE) lcd_inverse(u, 5, 14, b);
+    else lcd_text(u, 5, 14, b);
+}
+
 void mute_frame(struct os *s, struct ui *u, const struct input *in) {
     struct seq *sq = &s->seq;
     pthread_mutex_lock(&sq->lock);
@@ -127,6 +193,12 @@ void mute_frame(struct os *s, struct ui *u, const struct input *in) {
     if (d && s->cursor_mute == M_TYPE) s->mute_type = clampi(s->mute_type + d, 0, MUTE_TYPES - 1);
     if (d && s->cursor_mute == M_NEXT) queue_sequence(s, (sq->next >= 0 ? sq->next : sq->current) + d);
 
+    if (lcd_layout == LAYOUT_2000XL) {
+        mute_xl(s, u);
+        if (sq->mode != SEQ_STOPPED) ui_wake(u, 100);
+        pthread_mutex_unlock(&sq->lock);
+        return;
+    }
     struct seq_sequence *q = &sq->sequence[sq->current];
     int kit = q->track[sq->track].kit;
     char b[40], top[16], bottom[16];

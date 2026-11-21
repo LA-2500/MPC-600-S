@@ -139,11 +139,75 @@ static void pad_message(struct input_dev *dev, struct input *in, int kind, int n
     }
 }
 
+// The panel's last raw bytes, and a note of them when KNOB FX is pressed: a tester saw Input
+// Effects open by itself, so the log shows what arrived just before (panel_take_note).
+static unsigned char raw_ring[48];
+static unsigned raw_count;
+static char raw_note[400];
+static long long raw_start;
+
+static void raw_keep(unsigned char c) {
+    raw_ring[raw_count++ % sizeof raw_ring] = c;
+}
+
+static void raw_snapshot(const char *what) {
+    if (!raw_start) raw_start = clock_ms();
+    int at = snprintf(raw_note, sizeof raw_note, "t=%llds %s; last bytes:", (clock_ms() - raw_start) / 1000, what);
+    unsigned n = raw_count < sizeof raw_ring ? raw_count : (unsigned)sizeof raw_ring;
+    for (unsigned i = raw_count - n; i != raw_count && at < (int)sizeof raw_note - 4; i++)
+        at += snprintf(raw_note + at, sizeof raw_note - at, " %02x", raw_ring[i % sizeof raw_ring]);
+}
+
+int panel_take_note(char *out, size_t n) {
+    if (!raw_note[0]) return 0;
+    snprintf(out, n, "%s", raw_note);
+    raw_note[0] = 0;
+    return 1;
+}
+
+// Buttons that only open a page (none of them is held for anything): they act on a whole
+// press, note-on then note-off, so a stray message from the panel cannot open a page by itself.
+// The others act at once: SHIFT, SAMPLE, ERASE, NOTE REPEAT, B1-B3 and -/+ are held with other
+// controls, and PLAY, STOP, REC and TAP TEMPO keep time.
+#define CONFIRM_BUTTONS ((1u << IN_KNOB_FX) | (1u << IN_PAD_FX) | (1u << IN_MUTE) | (1u << IN_LEVELS) | \
+                         (1u << IN_LOOP) | (1u << IN_CHOP) | (1u << IN_SAMPLE_SELECT) | (1u << IN_SEQ) | \
+                         (1u << IN_SAMPLE_REC) | (1u << IN_PAD_BANK))
+#define CONFIRM_MIN_MS 12   // a finger holds a button longer than this; a glitch does not
+#define CONFIRM_MAX_MS 4000 // a release this long after is not that press's
+
 static void button_message(struct input_dev *dev, struct input *in, int kind, int note, int value) {
     int b = 0;
     while (b < IN_N && BUTTON_NOTE[b] != note) b++;
     if (b == IN_N) return;
     unsigned bit = 1u << b;
+    if (dev && b == IN_KNOB_FX && kind == 0x90) raw_snapshot(value == 127 ? "KNOB FX note-on" : "KNOB FX note");
+    if (dev && (bit & CONFIRM_BUTTONS)) {
+        long long now = clock_ms();
+        if (kind == 0x90 && value == 127) { // a press, maybe: kept until its release
+            if (dev->confirm_pending & bit) dev->ghosts++; // the last one never released: not a press
+            dev->confirm_pending |= bit;
+            dev->confirm_ms[b] = now;
+            if (in->shift) dev->confirm_shift |= bit;
+            else dev->confirm_shift &= ~bit;
+        } else if (kind == 0x80 || (kind == 0x90 && value == 0)) {
+            if (!(dev->confirm_pending & bit)) return; // a release with no press: nothing
+            dev->confirm_pending &= ~bit;
+            long long held = now - dev->confirm_ms[b];
+            if (held < CONFIRM_MIN_MS || held > CONFIRM_MAX_MS) {
+                dev->ghosts++;
+                if (b == IN_KNOB_FX) raw_snapshot("KNOB FX ignored (not a whole press)");
+                return;
+            }
+            // The whole press, now: down this frame, let go the next, with SHIFT as it was when
+            // the button went down.
+            in->down |= bit, in->held |= bit;
+            dev->late_up |= bit;
+            if (dev->confirm_shift & bit) in->held |= 1u << IN_SHIFT;
+            in->shift = (in->held >> IN_SHIFT) & 1;
+            if (b == IN_KNOB_FX) raw_snapshot("KNOB FX pressed");
+        }
+        return;
+    }
     if (kind == 0x90 && value == 127) { // a press (other velocities are not the panel's presses)
         if (!(in->held & bit)) {
             in->down |= bit;
@@ -151,8 +215,22 @@ static void button_message(struct input_dev *dev, struct input *in, int kind, in
         }
         if (b == IN_ENCODER && dev) dev->ctl_ms = clock_ms();
         in->held |= bit;
-        if (dev) dev->held |= bit;
+        if (dev) dev->held |= bit, dev->confirm_ms[b] = clock_ms();
     } else if (kind == 0x80 || (kind == 0x90 && value == 0)) {
+        // A release with no press before it is a stray message, not a release: ERASE, for one,
+        // acts on its release, and a lone one opened the Erase page.
+        if (dev && !(dev->held & bit) && !(in->held & bit)) {
+            dev->ghosts++;
+            return;
+        }
+        // ERASE's tap acts on the release: shorter than a finger's press, it was not one.
+        if (dev && b == IN_ERASE && clock_ms() - dev->confirm_ms[b] < CONFIRM_MIN_MS) {
+            dev->ghosts++;
+            dev->held &= ~bit, in->held &= ~bit, in->down &= ~bit;
+            dev->late_up &= ~bit;
+            in->shift = (in->held >> IN_SHIFT) & 1;
+            return;
+        }
         if ((in->down & bit) && dev) { // pressed this same frame: a quick tap, released next frame
             dev->late_up |= bit;
         } else {
@@ -566,8 +644,10 @@ int panel_run(ui_frame frame, void *state) {
                 unsigned char buf[256], msg[3];
                 ssize_t n;
                 while ((n = read(port.fd, buf, sizeof buf)) > 0)
-                    for (ssize_t i = 0; i < n; i++)
+                    for (ssize_t i = 0; i < n; i++) {
+                        raw_keep(buf[i]);
                         if (reader_byte(&rd, buf[i], msg)) input_push(&dev, &in, msg), got = 1;
+                    }
             }
             if (wake > 0 && clock_ms() >= drawn + wake) got = 1; // asked for: a frame with no input
         }
