@@ -8055,8 +8055,311 @@ static int demo_piano(const char *dir) {
     return rc;
 }
 
+
+// ---- The demo project (DEMO_PROJECT=folder): three sequences and a song for the card ----
+//
+// 80s dance-pop at 105 BPM, written at 210 (twice the resolution): a musical bar is two
+// sequence bars, a musical 16th a sequence 8th. In F. Program 1 is empty: its A01, A02 and A03
+// are the kick, snare and hi-hat the user loads. Program 2 a saw bass (S600), 3 the demo piano
+// (S600 MULTI), 4 a smooth lead and 5 bells (S600, from the S600 waveforms).
+#include "s600_waves.h"
+#define DM_BAR 768 // a musical bar in ticks at 210
+#define DM_16 48   // a musical 16th
+
+static struct seq_note *dm_buf[SEQ_TRACKS];
+static int dm_n[SEQ_TRACKS], dm_cap[SEQ_TRACKS];
+
+static void dm_note(int t, int bar, int step, int len16, int pad, int tune, int vel) {
+    if (dm_n[t] == dm_cap[t]) dm_cap[t] = dm_cap[t] ? dm_cap[t] * 2 : 256, dm_buf[t] = realloc(dm_buf[t], dm_cap[t] * sizeof **dm_buf);
+    struct seq_note *n = &dm_buf[t][dm_n[t]++];
+    memset(n, 0, sizeof *n);
+    n->tick = (uint32_t)(bar * DM_BAR + step * DM_16);
+    int d = len16 * DM_16 - 6;
+    n->dur = (uint16_t)(d < 12 ? 12 : d);
+    n->note = (uint8_t)pad, n->vel = (uint8_t)vel, n->tune = (int8_t)tune;
+}
+
+static int dm_cmp(const void *a, const void *b) {
+    const struct seq_note *x = a, *y = b;
+    return x->tick < y->tick ? -1 : x->tick > y->tick;
+}
+
+static void dm_commit(int sq) {
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        if (!dm_n[t]) continue;
+        qsort(dm_buf[t], dm_n[t], sizeof **dm_buf, dm_cmp);
+        struct seq_track *k = &os.seq.sequence[sq].track[t];
+        free(k->notes);
+        k->notes = dm_buf[t], k->count = k->cap = dm_n[t];
+        dm_buf[t] = 0, dm_n[t] = dm_cap[t] = 0;
+    }
+}
+
+enum { DT_KICK, DT_SNARE, DT_HAT, DT_BASS, DT_KEYS, DT_LEAD, DT_BELLS };
+enum { C_F, C_AM, C_BB, C_C, C_DM, C_GM, C_CSUS };
+static const int DM_VOICE[][4] = {{53, 57, 60, 65}, {52, 57, 60, 64}, {53, 58, 62, 65}, {52, 55, 60, 64},
+                                  {53, 57, 62, 65}, {55, 58, 62, 67}, {53, 55, 60, 65}};
+static const int DM_ROOT[] = {29, 33, 34, 36, 38, 31, 36}; // the bass: F1 .. D2
+#define DM_BASS_ROOT 36 // the SAW waveform plays C2 at its own pitch
+#define DM_SYN_ROOT 36
+
+static void dm_drums(int bar, int hats16, int kick, int snare, int fill) {
+    for (int st = 0; st < 16; st++) {
+        if (hats16 == 2 || (hats16 == 1 && st % 2 == 0)) dm_note(DT_HAT, bar, st, 1, 2, 0, st % 4 == 0 ? 104 : st % 2 == 0 ? 84 : 58);
+    }
+    if (kick) {
+        for (int st = 0; st < 16; st += 4) dm_note(DT_KICK, bar, st, 1, 0, 0, st == 0 ? 120 : 108);
+        if (kick == 2) dm_note(DT_KICK, bar, 14, 1, 0, 0, 90);
+    }
+    if (snare) {
+        dm_note(DT_SNARE, bar, 4, 1, 1, 0, 112);
+        if (fill) {
+            dm_note(DT_SNARE, bar, 12, 1, 1, 0, 112), dm_note(DT_SNARE, bar, 13, 1, 1, 0, 70);
+            dm_note(DT_SNARE, bar, 14, 1, 1, 0, 90), dm_note(DT_SNARE, bar, 15, 1, 1, 0, 105);
+        } else {
+            dm_note(DT_SNARE, bar, 12, 1, 1, 0, 115);
+        }
+    }
+}
+
+// Eighths, the root and its octave: the 80s pulse.
+static void dm_bass(int bar, int ch, int walk) {
+    int r = DM_ROOT[ch];
+    for (int st = 0; st < 16; st += 2) {
+        int n = st % 4 == 2 ? r + 12 : r;
+        if (walk && st == 14) n = r + 7;
+        dm_note(DT_BASS, bar, st, 2, 0, n - DM_BASS_ROOT, st % 4 == 0 ? 112 : 92);
+    }
+}
+
+static void dm_chord(int bar, int step, int len, int ch, int vel) {
+    for (int i = 0; i < 4; i++) dm_note(DT_KEYS, bar, step, len, 0, DM_VOICE[ch][i] - 60, vel - i * 4);
+}
+
+static void dm_bells(int bar, int ch, int vel) { // eighths up and down the chord, two octaves up
+    static const int ORDER[8] = {0, 1, 2, 3, 2, 1, 2, 3};
+    for (int i = 0; i < 8; i++) dm_note(DT_BELLS, bar, i * 2, 2, 0, DM_VOICE[ch][ORDER[i]] + 12 - DM_SYN_ROOT, vel - (i % 2) * 12);
+}
+
+static void dm_lead(int bar, int step, int len, int note, int vel) {
+    dm_note(DT_LEAD, bar, step, len, 0, note - DM_SYN_ROOT, vel);
+}
+
+static void dm_tracks(int sq, const char *name, int bars) {
+    struct seq_sequence *q = &os.seq.sequence[sq];
+    seq_sequence_reset(q, sq);
+    snprintf(q->name, sizeof q->name, "%s", name);
+    q->bars = bars, q->tempo10 = 2100, q->loop_bar = 1;
+    static const char *const NAMES[7] = {"Kick", "Snare", "Hihat", "Saw Bass", "Synth Keys", "Smooth Lead", "Bells"};
+    static const int KIT[7] = {0, 0, 0, 1, 2, 3, 4}, LEVEL[7] = {86, 82, 66, 58, 44, 88, 56}, PAN[7] = {0, 0, 12, 0, -12, 0, 18};
+    for (int t = 0; t < 7; t++) {
+        struct seq_track *k = &q->track[t];
+        snprintf(k->name, sizeof k->name, "%s", NAMES[t]);
+        k->type = TRACK_DRUM, k->kit = KIT[t], k->level = LEVEL[t], k->pan = PAN[t];
+    }
+}
+
+static void dm_intro(void) { // 4 musical bars (8 at 210)
+    static const int CH[4] = {C_BB, C_C, C_AM, C_CSUS};
+    dm_tracks(0, "Intro", 8);
+    for (int b = 0; b < 4; b++) {
+        dm_drums(b, b < 2 ? 1 : 2, b >= 2, b >= 2, b == 3);
+        dm_chord(b, 0, b == 3 ? 8 : 16, CH[b], 92);
+        if (b == 3) dm_chord(b, 8, 8, C_C, 96);
+        dm_bells(b, CH[b] == C_CSUS ? C_C : CH[b], 96);
+        if (b >= 2) dm_bass(b, CH[b] == C_CSUS ? C_C : CH[b], b == 3);
+    }
+    dm_lead(3, 12, 4, 72, 90); // a pickup into the main
+    dm_commit(0);
+}
+
+static void dm_main(void) { // 16 musical bars (32 at 210)
+    static const int CH[16] = {C_F, C_AM, C_BB, C_C, C_DM, C_AM, C_BB, C_C, C_F, C_AM, C_BB, C_C, C_DM, C_BB, C_GM, C_CSUS};
+    dm_tracks(1, "Main", 32);
+    for (int b = 0; b < 16; b++) {
+        int ch = CH[b] == C_CSUS ? C_C : CH[b];
+        dm_drums(b, 2, b % 4 == 3 ? 2 : 1, 1, b == 15);
+        // the keys: stabs pushed ahead of the beat
+        dm_chord(b, 0, 5, CH[b], 98), dm_chord(b, 6, 3, CH[b], 86), dm_chord(b, 10, 6, CH[b], 92);
+        dm_bass(b, ch, b % 4 == 3);
+        if (b % 2 == 0) dm_note(DT_BELLS, b, 0, 8, 0, DM_VOICE[ch][3] + 12 - DM_SYN_ROOT, 84);
+    }
+    // the lead answers in the second half
+    dm_lead(9, 8, 4, 76, 86), dm_lead(9, 12, 2, 74, 80), dm_lead(9, 14, 2, 72, 82);
+    dm_lead(10, 0, 8, 70, 84);
+    dm_lead(11, 8, 8, 67, 80);
+    dm_lead(13, 8, 4, 74, 86), dm_lead(13, 12, 4, 72, 82);
+    dm_lead(14, 0, 8, 70, 84);
+    dm_lead(15, 0, 6, 72, 86), dm_lead(15, 6, 2, 74, 84), dm_lead(15, 8, 8, 76, 90);
+    dm_commit(1);
+}
+
+static void dm_hook(void) { // 8 musical bars (16 at 210)
+    static const int CH[8] = {C_BB, C_C, C_AM, C_DM, C_BB, C_C, C_F, C_C};
+    dm_tracks(2, "Hook", 16);
+    for (int b = 0; b < 8; b++) {
+        dm_drums(b, 2, b % 2 == 1 ? 2 : 1, 1, b == 7);
+        dm_chord(b, 0, 14, CH[b], 96), dm_chord(b, 14, 2, CH[(b + 1) % 8], 90);
+        dm_bass(b, CH[b], b == 3 || b == 7);
+        dm_bells(b, CH[b], 92);
+    }
+    static const struct { int bar, step, len, note, vel; } MEL[] = {
+        {0, 0, 6, 72, 100}, {0, 6, 2, 74, 92}, {0, 8, 6, 77, 104}, {0, 14, 2, 74, 90},
+        {1, 0, 4, 76, 100}, {1, 4, 4, 74, 92}, {1, 8, 8, 72, 96},
+        {2, 0, 3, 72, 94}, {2, 3, 3, 76, 96}, {2, 6, 2, 76, 88}, {2, 8, 4, 74, 94}, {2, 12, 4, 72, 90},
+        {3, 0, 12, 69, 96},
+        {4, 0, 6, 72, 100}, {4, 6, 2, 74, 92}, {4, 8, 6, 77, 104}, {4, 14, 2, 79, 96},
+        {5, 0, 4, 79, 104}, {5, 4, 4, 77, 94}, {5, 8, 8, 76, 98},
+        {6, 0, 6, 77, 100}, {6, 6, 2, 76, 90}, {6, 8, 8, 72, 94},
+        {7, 0, 4, 74, 94}, {7, 4, 4, 76, 96}, {7, 8, 8, 72, 92},
+    };
+    for (size_t i = 0; i < sizeof MEL / sizeof MEL[0]; i++) dm_lead(MEL[i].bar, MEL[i].step, MEL[i].len, MEL[i].note, MEL[i].vel);
+    dm_commit(2);
+}
+
+static struct sample *dm_wave(int w) {
+    struct sample *x = sample_new(S600_WAVE_POINTS, 1, 44100);
+    for (int i = 0; i < S600_WAVE_POINTS; i++) x->data[i] = S600_WAVE_DATA[w][i] / 32768.0f;
+    return x;
+}
+
+static void dm_wave_pad(int program, int pad, int w, const char *name) {
+    os_set_program(&os, program);
+    os_pad_load(&os, pad, dm_wave(w), name);
+    struct os_pad *p = &os.pads[pad];
+    p->p.loop = 0, p->p.loop_on = 1;
+    p->sp.root = DM_SYN_ROOT;
+}
+
+static void dm_programs(void) {
+    snprintf(os.programs[0].name, sizeof os.programs[0].name, "DRUMS");
+    // 2: SAW BASS. Two saws a few cents apart, through the S600 LPF, mono.
+    os_program_set_s600(&os, 1, PROG_S600);
+    snprintf(os.programs[1].name, sizeof os.programs[1].name, "SAW BASS");
+    dm_wave_pad(1, 0, 1, "SAW");
+    {
+        struct s600_params *q = &os.pads[0].sp;
+        s600_env_template(q, 1, "Synth Bass 1"), s600_env_template(q, 2, "Synth Bass 1");
+        q->filter = FILTER_MOOG, q->cutoff = 38, q->reso = 22, q->f_depth = 45;
+        q->mono = 1, q->layers = 2, q->l2_pad = 0, q->l2_vol = 75, q->l2_fine = 8;
+        os.pads[0].p.volume = 82;
+        os_pad_push(&os, 0);
+    }
+    os.programs[1].inst = 0;
+    // 4: SMOOTH LEAD. A saw with a sine an octave up, soft filter, delayed vibrato, a little glide.
+    os_program_set_s600(&os, 3, PROG_S600);
+    snprintf(os.programs[3].name, sizeof os.programs[3].name, "SMOOTH LEAD");
+    dm_wave_pad(3, 1, 0, "SINE");
+    dm_wave_pad(3, 0, 1, "SAW");
+    {
+        struct s600_params *q = &os.pads[0].sp;
+        s600_env_template(q, 1, "Synth Lead"), s600_env_template(q, 2, "Synth Lead");
+        q->attack = 25, q->release = 260;
+        q->filter = FILTER_MOOG, q->cutoff = 52, q->reso = 12, q->f_depth = 18;
+        q->lfo_shape = LFO_SINE, q->lfo_rate = 42, q->lfo_delay = 450, q->lfo_pitch = 7;
+        q->mono = 1, q->legato = 1, q->porta = 45;
+        q->layers = 2, q->l2_pad = 2, q->l2_vol = 55, q->l2_semi = 12;
+        os.pads[0].p.volume = 78;
+        os_pad_push(&os, 0);
+    }
+    os.programs[3].inst = 0;
+    // 5: BELLS. A sine with a sine far above it, a little off a harmonic: struck metal.
+    os_program_set_s600(&os, 4, PROG_S600);
+    snprintf(os.programs[4].name, sizeof os.programs[4].name, "BELLS");
+    dm_wave_pad(4, 0, 0, "SINE");
+    {
+        struct s600_params *q = &os.pads[0].sp;
+        s600_env_template(q, 1, "Bell"), s600_env_template(q, 2, "Bell");
+        q->decay = 1400, q->release = 900;
+        q->note_on = 0;
+        q->filter = FILTER_OFF, q->cutoff = 100;
+        q->layers = 2, q->l2_pad = 0, q->l2_vol = 40, q->l2_semi = 27, q->l2_fine = 30;
+        os.pads[0].p.volume = 70;
+        os_pad_push(&os, 0);
+    }
+    os.programs[4].inst = 0;
+    // 3: SYNTH KEYS, the demo piano.
+    os_set_program(&os, 2);
+    os_program_set_s600(&os, 2, PROG_MULTI);
+    snprintf(os.programs[2].name, sizeof os.programs[2].name, "SYNTH KEYS");
+    int pad = 0;
+    for (int note = 36; note <= 96; note += 4)
+        for (int loud = 0; loud < 2; loud++) {
+            char nn[8], name[24];
+            multi_note_name(note, nn, sizeof nn);
+            snprintf(name, sizeof name, loud ? "Piano %s v2" : "Piano %s", nn);
+            os_pad_load(&os, pad++, piano_note(note, loud), name);
+        }
+    os.programs[2].inst = 0;
+    int skipped;
+    multi_auto_map(&os, 0, 0, OS_PADS - 1, 0, 0, 2, 1, &skipped);
+    multi_apply_template(&os, 0, 1);
+    os_multi_refresh(&os, 2);
+    os_set_program(&os, 0);
+}
+
+static struct sample *dm_drum(int kind) { // stand-ins for the preview only
+    int n = kind == 2 ? 6000 : 16000;
+    struct sample *x = sample_new(n, 1, 44100);
+    uint32_t r = 99u + (uint32_t)kind;
+    double ph = 0, lp = 0, prev = 0;
+    for (int i = 0; i < n; i++) {
+        double t = i / 44100.0, v;
+        r = r * 1664525u + 1013904223u;
+        double nz = (double)(r >> 8) / (1 << 24) * 2 - 1;
+        if (kind == 0) { ph += 2 * M_PI * (48 + 110 * exp(-t * 30)) / 44100; v = sin(ph) * exp(-t * 7); }
+        else if (kind == 1) { ph += 2 * M_PI * 190 / 44100; lp += 0.5 * (nz - lp); v = 0.45 * sin(ph) * exp(-t * 25) + 0.6 * lp * exp(-t * 14); }
+        else { v = (nz - prev) * 0.5 * exp(-t * 60); prev = nz; }
+        x->data[i] = (float)(v * (kind == 0 ? 0.55 : kind == 1 ? 0.6 : 0.35));
+    }
+    return x;
+}
+
+static int demo_project(const char *dir) {
+    seq_fresh();
+    dm_programs();
+    dm_intro(), dm_main(), dm_hook();
+    os.seq.current = 0, os.seq.tc = TC_8; // a musical 16th at 210
+    static const int SONG[] = {0, 1, 2, 1, 2, 2};
+    os.seq.song[0].nsteps = 6;
+    for (int i = 0; i < 6; i++) os.seq.song[0].step[i].seq = (unsigned char)SONG[i], os.seq.song[0].step[i].reps = 1;
+    char p[700];
+    snprintf(p, sizeof p, "%s/MPC600S/projects/DEMO 105", dir);
+    int rc = disk_project_save(&os, p);
+    printf("demo project: saved %s (%s)\n", p, rc == 0 ? "ok" : "FAILED");
+    for (int sq = 0; sq < 3; sq++) {
+        printf("  %-6s %2d bars:", os.seq.sequence[sq].name, os.seq.sequence[sq].bars);
+        for (int t = 0; t < 7; t++) printf(" %d", os.seq.sequence[sq].track[t].count);
+        printf("\n");
+    }
+    // Read back: it must load as it was saved.
+    seq_fresh();
+    CHECK(rc == 0 && disk_project_load(&os, p) == 0);
+    CHECK(os.seq.sequence[1].bars == 32 && os.seq.sequence[1].tempo10 == 2100 && os.seq.sequence[1].track[5].count > 0);
+    CHECK(os.programs[1].s600 == PROG_S600 && os.programs[2].s600 == PROG_MULTI && !os.programs[0].pads[0].s);
+    // A preview with stand-in drums (not in the project): the song, mixed.
+    if (getenv("DEMO_PROBE")) { // one keys note, C4, and one lead note, C4
+        dm_tracks(5, "Probe", 2);
+        dm_note(DT_KEYS, 0, 0, 8, 0, 0, 100);
+        dm_note(DT_LEAD, 0, 8, 8, 0, 60 - DM_SYN_ROOT, 100);
+        dm_commit(5);
+        for (int i = 0; i < 400; i++) render(128);
+        disk_export(&os, -1, 5, 2, 0, getenv("DEMO_PROBE"));
+    }
+    const char *prev = getenv("DEMO_PREVIEW");
+    if (prev) {
+        os_set_program(&os, 0);
+        for (int k = 0; k < 3; k++) os_pad_load(&os, k, dm_drum(k), k == 0 ? "Kick" : k == 1 ? "Snare" : "Hat");
+        for (int i = 0; i < 400; i++) render(128); // the engine takes in every pad
+        int n = disk_export(&os, 0, 0, getenv("DEMO_STEMS") ? 2 : 0, 1, prev);
+        printf("preview: %d file(s) in %s\n", n, prev);
+    }
+    return rc;
+}
+
 int main(int argc, char **argv) {
     if (getenv("MPC_TEST_LAYOUT")) forced_layout = atoi(getenv("MPC_TEST_LAYOUT"));
+    if (getenv("DEMO_PROJECT")) return demo_project(getenv("DEMO_PROJECT")) != 0 || failures != 0;
     if (getenv("DEMO_PIANO")) return demo_piano(getenv("DEMO_PIANO")) != 0 || failures != 0;
     test_one_shot();
     test_keymap();

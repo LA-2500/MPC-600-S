@@ -951,6 +951,8 @@ static int render(struct os *s, int song, int which, int track, int mono, const 
     engine_init(e);
     memcpy(e->pad, s->engine->pad, sizeof e->pad); // every pad as the engine has it now
     memcpy(e->bus, s->engine->bus, sizeof e->bus); // the track EQs
+    memcpy(e->km, s->engine->km, sizeof e->km);       // S600 MULTI instruments: their key maps
+    memcpy(e->km_of, s->engine->km_of, sizeof e->km_of);
     if (fx_inserts_init(ic) == 0) {
         for (int i = 0; i < FX_INSERTS; i++) {
             atomic_store(&ic->track[i], atomic_load(&s->ins.track[i])), atomic_store(&ic->pos[i], atomic_load(&s->ins.pos[i]));
