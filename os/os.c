@@ -1306,6 +1306,7 @@ static void pad_down(struct os *s, struct ui *u, const struct input *in, int i) 
         }
         int id = play_sound(s, note, tune, vel, type);
         if (id >= 0) s->sounding[i] = id, s->sounding_key[i] = tune;
+        if (id >= 0 && s->nlive_on < 32) s->live_on[s->nlive_on].id = id, s->live_on[s->nlive_on++].key = tune;
     }
     if (!record) return;
     if (seq_record_hit_tuned(&s->seq, note, tune, vel) == 0) s->rec_note[i] = note, s->rec_tune[i] = tune;
@@ -1327,6 +1328,17 @@ static void handle_pads(struct os *s, struct ui *u, const struct input *in) {
         if (s->repeat_pad[i] && in->pad_pressure[i] > 0 && !s->full_level)
             seq_repeat_pressure(&s->seq, i, in->pad_pressure[i]);
         if (released && !in->pad_down[i]) pad_up(s, i);
+    }
+    // Every pad up, no key or pedal holding: each note the pads started is let go once more, so a
+    // release the panel never sent cannot leave an S600 (or 16 Levels) note sounding.
+    if (s->nlive_on) {
+        int held = s->sus_down;
+        for (int i = 0; i < 16 && !held; i++) held = in->pad_down[i] || s->sounding[i] >= 0;
+        for (int k = 0; k < 128 && !held; k++) held = s->midi_held[k] != 0;
+        if (!held) {
+            for (int k = 0; k < s->nlive_on; k++) engine_note_off_key(s->engine, s->live_on[k].id, s->live_on[k].key);
+            s->nlive_on = 0;
+        }
     }
 }
 

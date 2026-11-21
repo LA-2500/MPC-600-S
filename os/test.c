@@ -3098,6 +3098,129 @@ static void test_hold_playback(void) {
 
 // SAMPLE REC opens Sample New Sound. A take, once done, waits for a pad (which gets it, tuned
 // back down by the Pitch) or ENTER (which keeps it in memory).
+// A take goes to the pad pressed in the program being played (the active track's), never to
+// program 1 when another is selected.
+static void test_record_other_program(void) {
+    seq_fresh();
+    os.seq.metronome = METRO_OFF;
+    os.seq.sequence[os.seq.current].track[os.seq.track].kit = 2;
+    struct input idle = blank();
+    frame(&idle);
+    CHECK(os.program == 2);
+    tap(IN_SAMPLE_REC);
+    atomic_store(&os.rec.present, 1);
+    os.rec_set[0].thres_db = -61;
+    tap(IN_B3);
+    long ph = 0;
+    feed(&os.rec, 440, 0.5f, ENGINE_RATE, &ph);
+    frame(&idle);
+    tap(IN_B3);
+    feed(&os.rec, 440, 0.5f, 128, &ph);
+    frame(&idle);
+    CHECK(os.rec_result != 0);
+    struct input in = blank();
+    in.pad_hit[5] = 100, in.pad_down[5] = 1;
+    frame(&in);
+    in = blank(), in.pad_release[5] = 1;
+    frame(&in);
+    CHECK(!os.rec_result && os.programs[2].pads[5].s && !os.programs[0].pads[5].s && !os.programs[0].pads[0].s);
+    os.screen = OS_MAIN;
+}
+
+// The master effects go with the file: a sequence or project loads its own, and one saved with
+// none leaves none on, never the last file's.
+// Saving: the name goes past those already in the folder (PATTERN01 there: PATTERN02, both: PATTERN03),
+// and after a save (or a load) the next save of that type starts on that name.
+static void test_save_name_next(void) {
+    seq_fresh();
+    char dir[] = "/tmp/claude-mpc-names-XXXXXX";
+    CHECK(mkdtemp(dir) != 0);
+    os.data_dir = dir;
+    memset(os.disk_last_saved, 0, sizeof os.disk_last_saved);
+    memset(os.disk_last, 0, sizeof os.disk_last);
+    struct input idle = blank();
+    disk_open(&os, DISK_SAVE, DISK_ARP);
+    CHECK(strcmp(os.disk_name, "PATTERN01") == 0);
+    tap(IN_B3), frame(&idle); // <Save>
+    disk_open(&os, DISK_SAVE, DISK_ARP);
+    CHECK(strcmp(os.disk_name, "PATTERN01") == 0); // the name just saved, to save over it
+    memset(os.disk_last_saved, 0, sizeof os.disk_last_saved); // a new session
+    disk_open(&os, DISK_SAVE, DISK_ARP);
+    CHECK(strcmp(os.disk_name, "PATTERN02") == 0);
+    tap(IN_B3), frame(&idle);
+    memset(os.disk_last_saved, 0, sizeof os.disk_last_saved);
+    disk_open(&os, DISK_SAVE, DISK_ARP);
+    CHECK(strcmp(os.disk_name, "PATTERN03") == 0);
+    snprintf(os.disk_name, sizeof os.disk_name, "MYLINE07");
+    tap(IN_B3), frame(&idle);
+    disk_open(&os, DISK_SAVE, DISK_ARP);
+    CHECK(strcmp(os.disk_name, "MYLINE07") == 0);
+    os.screen = OS_MAIN, os.data_dir = 0;
+    memset(os.disk_last_saved, 0, sizeof os.disk_last_saved);
+    memset(os.disk_last, 0, sizeof os.disk_last);
+}
+
+static void test_master_with_file(void) {
+    seq_fresh();
+    char dir[] = "/tmp/claude-mpc-master-XXXXXX";
+    CHECK(mkdtemp(dir) != 0);
+    char p1[700], p2[700];
+    snprintf(p1, sizeof p1, "%s/one.sq6", dir), snprintf(p2, sizeof p2, "%s/two.sq6", dir);
+    master_defaults(&os.master);
+    atomic_store(&os.master.eq_on, 1), atomic_store(&os.master.thresh, -20);
+    CHECK(disk_seq_save(&os, 0, p1) == 0);
+    master_defaults(&os.master);
+    CHECK(disk_seq_save(&os, 0, p2) == 0);
+    CHECK(disk_seq_load(&os, 0, p1) == 0 && atomic_load(&os.master.eq_on) == 1 && atomic_load(&os.master.thresh) == -20);
+    CHECK(disk_seq_load(&os, 0, p2) == 0 && atomic_load(&os.master.eq_on) == 0 && atomic_load(&os.master.thresh) == -6);
+    atomic_store(&os.master.eq_on, 1);
+    CHECK(disk_project_save(&os, dir) == 0);
+    master_defaults(&os.master);
+    CHECK(disk_project_load(&os, dir) == 0 && atomic_load(&os.master.eq_on) == 1);
+    master_defaults(&os.master);
+}
+
+// 16 Levels (Tune) on an S600 program: whatever the order of presses and releases (one in the
+// same read as its press, overlapping, a bank between), every note ends when every pad is up.
+static void test_levels_s600_no_held(void) {
+    unsigned rnd = 12345;
+    for (int mode = 0; mode < 3; mode++) { // POLY, MONO, MONO + Legato
+        seq_fresh();
+        os.seq.metronome = METRO_OFF;
+        os_pad_load(&os, 0, constant(44100), "Held");
+        os_program_set_s600(&os, 0, 1);
+        os.pads[0].p.loop_on = 1, os.pads[0].sp.mono = mode > 0, os.pads[0].sp.legato = mode == 2;
+        os_pad_push(&os, 0);
+        os.levels_on = 1, os.levels_type = LEVELS_TUNE, os.levels_pad = 0, os.levels_root = 4;
+        os.screen = OS_MAIN;
+        int down[16] = {0};
+        for (int step = 0; step < 400; step++) {
+            struct input in = blank();
+            for (int k = 0; k < 3; k++) {
+                rnd = rnd * 1103515245u + 12345u;
+                int p = (int)(rnd >> 16) % 6, what = (int)(rnd >> 8) % 4;
+                if (!down[p] && what < 2) {
+                    in.pad_hit[p] = 90, down[p] = 1;
+                    if (what == 1) in.pad_release[p] = 1, down[p] = 0; // a tap inside one read
+                } else if (down[p] && what >= 2) {
+                    in.pad_release[p] = 1, down[p] = 0;
+                }
+            }
+            for (int p = 0; p < 16; p++) in.pad_down[p] = down[p];
+            frame(&in);
+            render(64);
+        }
+        struct input in = blank();
+        for (int p = 0; p < 16; p++) if (down[p]) in.pad_release[p] = 1;
+        frame(&in);
+        for (int b = 0; b < 400; b++) render(128); // past any release
+        CHECK(voices() == 0);
+        if (voices()) printf("  16 Levels S600 mode %d: %d notes left on\n", mode, voices());
+        os.levels_on = 0;
+        os_program_set_s600(&os, 0, 0);
+    }
+}
+
 static void test_record_page(const char *shot_dir) {
     seq_fresh();
     os.seq.metronome = METRO_OFF;
@@ -4300,6 +4423,49 @@ static void test_edit_all(void) {
     in.down = in.held = (1u << IN_B3) | (1u << IN_SHIFT), in.shift = 1;
     frame(&in);
     CHECK(os.edit_all == 0);
+    os.screen = OS_MAIN;
+}
+
+// Edit All Pads only ever reaches the program being edited: the wheel, the knobs, the
+// slider and a toggle on the Sample screen, and the S600 screen, leave other programs alone.
+static void test_edit_all_one_program(void) {
+    seq_fresh();
+    os_set_program(&os, 1);
+    os_pad_load(&os, 0, constant(100), "Other A");
+    os_pad_load(&os, 1, constant(100), "Other B");
+    struct os_pad other[2] = {os.programs[1].pads[0], os.programs[1].pads[1]};
+    os_set_program(&os, 0);
+    os_pad_load(&os, 0, constant(100), "One");
+    os_pad_load(&os, 1, constant(200), "Two");
+    os.screen = OS_SAMPLE, os.selected = 0;
+    tap(IN_B1);
+    struct input in = blank();
+    in.down = in.held = (1u << IN_B3) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in);
+    CHECK(os.edit_all == 1);
+    os.frame_slot = 0;
+    in = blank(), in.encoder = -15;
+    frame(&in);
+    for (int k = 0; k < 3; k++) { // every knob, swept
+        in = blank(), in.knob[k] = 0;
+        frame(&in);
+        in = blank(), in.knob[k] = 127;
+        frame(&in);
+        in = blank(), in.knob[k] = 20;
+        frame(&in);
+    }
+    in = blank(), in.fader = 0;
+    frame(&in);
+    in = blank(), in.fader = 90;
+    frame(&in);
+    tap(IN_B2), tap(IN_B3); // the other page groups, edited too
+    in = blank(), in.encoder = 7;
+    frame(&in);
+    CHECK(os.pads[0].p.volume == os.pads[1].p.volume);
+    for (int i = 0; i < 2; i++)
+        CHECK(!memcmp(&os.programs[1].pads[i].p, &other[i].p, sizeof other[i].p) &&
+              !memcmp(&os.programs[1].pads[i].sp, &other[i].sp, sizeof other[i].sp));
+    os.edit_all = 0;
     os.screen = OS_MAIN;
 }
 
@@ -7288,6 +7454,99 @@ static void test_step_edit(const char *shot_dir) {
     CHECK(k->count == 1 && k->notes[0].tick == 24);
     tap(IN_B3); // Note>>
     CHECK(os.step_tick == 24);
+    // Shift + SEQ again: the Grid. The wheel picks a row, <Dot> puts its note in at Now and takes it out.
+    in = blank();
+    in.down = in.held = (1u << IN_SEQ) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in);
+    CHECK(os.screen == OS_STEP && os.step_grid == 1);
+    os.step_row = 0;
+    in = blank();
+    in.encoder = 3; // row 4
+    frame(&in);
+    CHECK(os.step_row == 3);
+    tap(IN_B1); // <Dot>
+    CHECK(k->count == 2);
+    int found = 0;
+    for (int i = 0; i < k->count; i++) found += k->notes[i].tick == 24 && k->notes[i].note == 3;
+    CHECK(found == 1);
+    tap(IN_B1); // again: out
+    CHECK(k->count == 1);
+    in = blank();
+    in.pad_hit[0] = 70; // a pad: its row, and a note at Now
+    frame(&in);
+    CHECK(os.step_row == 0 && k->count == 2);
+    for (int st = 0; st < 16; st += 4) { // a beat to show
+        os.step_tick = (uint32_t)(st * 24);
+        in = blank(), in.pad_hit[0] = 110, frame(&in);
+        os.step_tick = (uint32_t)(st * 24 + 48);
+        in = blank(), in.pad_hit[1] = 50, frame(&in);
+    }
+    os.step_tick = 24 * 6, os.step_row = 1;
+    in = blank();
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "step_grid");
+    tap(IN_B3); // Page>>: past the 1-bar end, nowhere to go
+    CHECK(os.step_tick == 24 * 6);
+    // 16 Levels Tune: a chord on pad A01 (+0 +4 +7) is three rows of the Grid, each its own note.
+    os.levels_on = 1, os.levels_type = LEVELS_TUNE, os.levels_pad = 0, os.levels_root = 0;
+    os.step_tick = 24 * 8;
+    in = blank();
+    in.pad_hit[0] = 100, in.pad_hit[4] = 100, in.pad_hit[7] = 100;
+    frame(&in);
+    int chord = 0;
+    for (int i = 0; i < k->count; i++) chord += k->notes[i].tick == 24 * 8 && k->notes[i].note == 0;
+    CHECK(chord == 3 && os.step_row == 7);
+    int tunes = 0;
+    for (int i = 0; i < k->count; i++)
+        if (k->notes[i].tick == 24 * 8 && k->notes[i].note == 0) tunes |= 1 << k->notes[i].tune;
+    CHECK(tunes == (1 | 1 << 4 | 1 << 7)); // +0 +4 +7, none lost to another's tuning
+    os.step_row = 4;
+    in = blank();
+    if (shot_dir) frame(&in), write_shot(shot_dir, "step_grid_levels");
+    tap(IN_B1); // <Dot> on +4: that one out
+    chord = 0;
+    for (int i = 0; i < k->count; i++) chord += k->notes[i].tick == 24 * 8 && k->notes[i].note == 0 && k->notes[i].tune != 4;
+    CHECK(chord == 2 && k->count >= 2);
+    tap(IN_B1); // and back in, tuned +4
+    chord = 0;
+    for (int i = 0; i < k->count; i++) chord += k->notes[i].tick == 24 * 8 && k->notes[i].note == 0 && k->notes[i].tune == 4;
+    CHECK(chord == 1);
+    // 16 Levels off: the three share A01's row, a music note there, and <Dot> takes them all out.
+    os.levels_on = 0, os.step_row = 0;
+    if (shot_dir) frame(&in), write_shot(shot_dir, "step_grid_chord");
+    tap(IN_B1);
+    chord = 0;
+    for (int i = 0; i < k->count; i++) chord += k->notes[i].tick == 24 * 8 && k->notes[i].note == 0;
+    CHECK(chord == 0);
+    // A MIDI track: every note 0-127, opening on the lowest the track plays.
+    sq->track = 1;
+    sq->sequence[0].track[1].type = TRACK_MIDI;
+    seq_add_note(sq, 0, 1, 0, 60, 100, 20), seq_add_note(sq, 0, 1, 0, 64, 100, 20), seq_add_note(sq, 0, 1, 0, 67, 100, 20);
+    seq_add_note(sq, 0, 1, 48, 50, 100, 20);
+    os.step_tick = 0;
+    in = blank();
+    in.down = in.held = (1u << IN_SEQ) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in), frame(&in); // to the list and back: the Grid opens again
+    CHECK(os.step_grid == 1 && os.step_mtop == 50 && os.step_mnote == 50);
+    in = blank();
+    in.encoder = 14; // to 64, still on screen
+    frame(&in);
+    CHECK(os.step_mnote == 64 && os.step_mtop == 50);
+    in.encoder = 3; // 67: the list scrolls
+    frame(&in);
+    CHECK(os.step_mnote == 67 && os.step_mtop == 52);
+    if (shot_dir) write_shot(shot_dir, "step_grid_midi");
+    tap(IN_B1); // <Dot>: 67 out of the chord
+    const struct seq_track *m = &sq->sequence[0].track[1];
+    CHECK(m->count == 3);
+    sq->track = 0;
+    in = blank();
+    in.down = in.held = (1u << IN_SEQ) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in), frame(&in);
+    in = blank();
+    in.down = in.held = (1u << IN_SEQ) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in);
+    CHECK(os.step_grid == 0); // back to the list
     for (int i = 0; i < 40; i++) render(128);
 }
 
@@ -8405,6 +8664,11 @@ int main(int argc, char **argv) {
     test_pick_sound();
     test_undo();
     test_edit_all();
+    test_edit_all_one_program();
+    test_record_other_program();
+    test_master_with_file();
+    test_save_name_next();
+    test_levels_s600_no_held();
     test_program_type();
     test_zones(argc > 1 ? argv[1] : 0);
     test_zones_transient(argc > 1 ? argv[1] : 0);

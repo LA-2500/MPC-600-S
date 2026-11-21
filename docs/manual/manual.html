@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 1.7A &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 1.7B &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -106,7 +106,7 @@
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
-<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v1.7A.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v1.7B.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
 <ol>
   <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
   <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
@@ -504,6 +504,24 @@
   <li>ENTER moves through Now, Step and each note&rsquo;s pad, velocity and length; the wheel changes it.</li>
 </ul>
 {{shot:step_edit|Step Edit}}
+<h3>Grid</h3>
+<p>Press <span class="key">SHIFT + SEQ</span> again in Step Edit for the Grid, and again to go back to the list. The Grid shows the track a page at a time, its look taken from the drum edit screens of the Atari sequencers: a window with a striped title bar, the sounds listed down the left, the steps across, and a diamond for each note. Both views edit the same notes, with the same Undo.</p>
+<ul>
+  <li>The top line shows Now, the <strong>Step</strong> (Timing Correct&rsquo;s note value; at 1/16 a page is one bar of 4/4) and the velocity of the note under the cursor. The ruler shows each bar&rsquo;s number where it starts and .2, .3, .4 at the beats; the step at Now is dark. Lines are solid at the beats and dotted between them; past the end of the sequence the steps are shaded.</li>
+  <li>A filled diamond is a note; a hollow one is a soft note (velocity under 64). Where several notes share a row and a moment (a chord), a <strong>music note</strong> marks them, and the top line reads, for example, <span class="lcd">3 notes</span>.</li>
+  <li><span class="key">&minus;</span> and <span class="key">+</span> step Now back and on, playing what is there. The wheel picks the row. <span class="key">B2 &lt;&lt;Page</span> and <span class="key">B3 Page&gt;&gt;</span> go 16 steps back or on.</li>
+  <li><span class="key">B1 &lt;Dot&gt;</span> puts the selected row&rsquo;s note in at Now (velocity 100, or 127 with Full Level), or, if there is one, takes it out; where a music note is, all of them.</li>
+  <li>A pad puts a note in at Now, as on the list, and selects its row.</li>
+</ul>
+{{shot:step_grid|Step Edit: the Grid}}
+<p>What the rows are depends on the track:</p>
+<ul>
+  <li><strong>A drum track</strong>: the 16 pads of the bank (<span class="key">PAD BANK</span> changes it), each with its sound&rsquo;s name. A chord from 16 Levels shows as a music note on its pad.</li>
+  <li><strong>16 Levels on</strong>: the levels of the 16 Levels pad, like the pads while 16 Levels is on. With Tune, each row is a tuning (<span class="lcd">A01 +4</span>), so each note of a chord has its own row and <span class="key">&lt;Dot&gt;</span> works on it alone. With Velocity, each row is a velocity (<span class="lcd">A01 v63</span>).</li>
+  <li><strong>A MIDI track</strong>: every note, 0 to 127, by name and number (<span class="lcd">C3 60</span>, C3 being middle C), 16 at a time. The wheel scrolls through them; arrows show there are more above or below. It opens on the lowest note the track plays.</li>
+</ul>
+{{shot:step_grid_levels|The Grid with 16 Levels Tune: a chord, +0 +4 +7}}
+{{shot:step_grid_midi|The Grid on a MIDI track}}
 
 <h2>Copy Sequence</h2>
 <p>Hold <span class="key">SHIFT</span> on the main page and B3 shows <span class="lcd">&lt;Copy&gt;</span>: <span class="key">SHIFT + B3</span> opens Copy Sequence. It copies a whole sequence over another: every track with its notes, fader moves and mixer settings, and the sequence&rsquo;s bars, tempo, time signature, loop and name.</p>
@@ -1126,7 +1144,7 @@
 <p><span class="key">SHIFT + Pad 16</span> opens Save/Load (<span class="key">SHIFT + SAMPLE SELECT</span> opens it ready to save the pad&rsquo;s sound). It opens on the Mode and Type you used last (after loading an MPC 2500 PROJECT, LOAD and MPC 2500 PROJECT again); the first time after power-on, SAVE and PROJECT. <strong>Mode</strong>: SAVE, LOAD, EXPORT or USB DATA (USB Data Mode, below). Sequences and MIDI files open in <span class="lcd">MPC600S/sequences</span>. MPC 2500 SEQUENCE, MPC 2500 PROGRAM and MPC 2500 PROJECT open at the top of the card, where an MPC&rsquo;s folders go when copied from its card, and they do not list the MPC 600 S&rsquo;s own saved projects and programs. Any folder on the card can be browsed to.</p>
 <table>
   <tr><th>Type</th><th>Saves and loads</th></tr>
-  <tr><td>PROJECT</td><td>Everything: every program and sound, the sounds in memory, the sequences, songs, mixer, effects and Master Effects. Master Effects are kept only in projects (and the Autoload project): with no Autoload, they start off at power-on.</td></tr>
+  <tr><td>PROJECT</td><td>Everything: every program and sound, the sounds in memory, the sequences, songs, mixer, effects and Master Effects. Master Effects go with the project or sequence they were saved in: loading a project or a SEQUENCE file sets them as they were, and one saved without them (an older file) turns them off, so the last file&rsquo;s never carry over. With no Autoload, they start off at power-on.</td></tr>
   <tr><td>PROGRAM</td><td>One program and its sounds (an S600 MULTI program with its Instrument and keygroups), from or into any of the 24. Saving: <strong>Pgm:</strong> picks which. Loading: <strong>Into:</strong> picks where (the program in use, to start), and <span class="key">&lt;Load&gt;</span> asks first, naming it: <span class="lcd">Load into Program 04? / Data will be cleared</span>. The wheel changes the program; <span class="key">B3 &lt;Yes&gt;</span> loads into it (Undo brings back what was there); <span class="key">B2 &lt;To Empty&gt;</span> loads into the first program with no sounds instead; <span class="key">B1 &lt;Cancel&gt;</span>.</td></tr>
   <tr><td>SAMPLE</td><td>The selected pad&rsquo;s sound as a 24-bit WAV.</td></tr>
   <tr><td>SETTINGS</td><td>Your settings and preferences.</td></tr>
@@ -1135,7 +1153,7 @@
   <tr><td>S600 WAVE</td><td>A sound from or onto the selected pad, as a WAV, in <span class="lcd">MPC600S/s600</span>, where the S600 waveforms are (Chapter 9).</td></tr>
   <tr><td>TRACK FX</td><td>The Track/Mixer chain: its nine send effects and their settings. Saved and loaded whichever mode the Input Effects page is on; loaded, it is there when you choose TRACK/MIXER.</td></tr>
   <tr><td>ARP PATTERN</td><td>One USER step pattern (chosen with User:), saved from it or loaded into it.</td></tr>
-  <tr><td>SEQUENCE</td><td>One sequence and all its tracks: notes, recorded moves, track settings, tempo, time signature and length. Saving: <strong>Seq:</strong> picks which. Loading: <strong>Into:</strong> picks where, and asks first if that sequence has notes (Undo brings it back).</td></tr>
+  <tr><td>SEQUENCE</td><td>One sequence and all its tracks: notes, recorded moves, track settings, tempo, time signature and length, and the Master Effects. Saving: <strong>Seq:</strong> picks which. Loading: <strong>Into:</strong> picks where, and asks first if that sequence has notes (Undo brings it back).</td></tr>
   <tr><td>MIDI FILE</td><td>LOAD only. A Standard MIDI File (.mid, format 0 or 1, any resolution), its tracks chosen (below).</td></tr>
   <tr><td>MPC 2500 SEQUENCE</td><td>LOAD only. An MPC 2500 <strong>.ALL</strong> file (the sequences and songs it saves together), or a <strong>.SEQ</strong> (one sequence saved on its own, taking the file&rsquo;s name): one sequence, its tracks chosen (below). The list shows both, with their extension. The MPC 1000 and MPC 500 save the same files, and theirs load too.</td></tr>
   <tr><td>MPC 2500 PROGRAM</td><td>LOAD only. An MPC 2500 program (<strong>.PGM</strong>; an MPC 1000 or MPC 500 one too, the same file) with its samples, the WAVs beside it, into the program on <strong>Into:</strong> (asked first, as PROGRAM). Each pad takes its first layer&rsquo;s sample, with the start and end points (and loop) the MPC keeps in the WAV, its level (with the pad&rsquo;s mixer level), pan, tuning, play mode (Note On or one-shot), mute group, attack, decay and decay mode, and filter type, cutoff and resonance. A pad has one sound here, so a pad&rsquo;s other layers are left out; the message says how many pads had them.</td></tr>
@@ -1170,6 +1188,7 @@
   <tr><td>LOAD, files</td><td>&lt;Back&gt;: up a folder; at the top, back to the first page</td><td>&lt;Rename&gt; the item; <span class="key">SHIFT + B2</span>: &lt;Delete&gt; it (asks first)</td><td>&lt;Load&gt; the item, or &lt;Open&gt; a folder (also by pushing the wheel)</td></tr>
 </table>
 <p>Names: the wheel sets each letter, <span class="key">&minus;</span>/<span class="key">+</span> move along the name. Saving over a name asks first. </p>
+<p>The name to start: once you have saved or loaded a PROJECT, FX CHAIN, SETTINGS or ARP PATTERN since power-on, the next save of that type starts on that name, ready to save over it (or to change). Otherwise it starts on the type&rsquo;s numbered name, moved past those already in the folder: with <span class="lcd">PROJECT01</span> there, <span class="lcd">PROJECT02</span>; with both, <span class="lcd">PROJECT03</span>. Programs, sequences and sounds start on their own names.</p>
 <p>LOAD has two pages. The first sets what is loaded: <strong>Mode</strong>, <strong>Type</strong>, where it goes (<strong>Into</strong>, <strong>Pad</strong>) and <strong>Clear all</strong>; pushing the wheel moves between them. <span class="key">B3 &lt;Browse&gt;</span> opens the second page, the files, which works like Load Files (<span class="key">SAMPLE SELECT</span>): the wheel moves the bar, pushing the wheel or <span class="key">B3</span> opens a folder or loads the item, and <span class="key">B1 &lt;Back&gt;</span> goes up a folder, or back to the first page from the top. <span class="key">B2</span> renames the item, and <span class="key">SHIFT + B2</span> deletes it (only with SHIFT, so it cannot happen by accident; it asks first: this cannot be undone).</p>
 <p><strong>Clear all</strong> (LOAD of a project, program, sample, sequence, MIDI file or MPC 2500 file): YES empties memory before the load. <span class="key">&lt;Load&gt;</span> asks <span class="lcd">Clear all, then load?</span> first: <em>Yes</em> clears every program, sound, sequence and song (as at power-on; your settings stay), then loads. It stays as you set it for the next load, until you set it back to NO.</p>
 <h2>Exporting</h2>
@@ -1267,7 +1286,7 @@
 <p><strong>Layout: 2000XL</strong> (Additional Settings) gives every page the look of the MPC2000XL&rsquo;s screen, at the MPC 600 S&rsquo;s size: the XL&rsquo;s letters, the key labels drawn as tabs, and dotted lines. With <strong>Screen: MPC2000</strong> it takes the XL&rsquo;s colour too. What the pages do stays the same; a few are laid out as on the XL. <strong>DEFAULT</strong> is the MPC 600 S&rsquo;s own look.</p>
 {{shot:prefs_layout|Additional Settings: Layout}}
 <ul>
-  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 1.7A</span> in the middle of the screen, nothing else.</li>
+  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 1.7B</span> in the middle of the screen, nothing else.</li>
   <li><strong>The main page</strong>: the sequence and <span class="lcd">Now:</span> on top; under them tempo, time signature, Timing, Count, Loop and Bars; the track under the dotted line. <span class="key">B1</span>&ndash;<span class="key">B3</span> read TrMUTE, Tr &minus; and Tr + (the same keys as on DEFAULT), and the knobs are listed along the bottom: <span class="lcd">K1:Track K2:BPM K3:Pgm</span>. Pick another sequence while one plays and <span class="lcd">Next:</span> shows beside the counter, with its number and name, until it starts.</li>
   <li><strong>Track Mute</strong>: the XL&rsquo;s grid of track names, 16 at a time. A playing track sits on a bar; a muted one is plain; a track with nothing on it reads <span class="lcd">(Unused)</span>.</li>
   <li><strong>Save and Load</strong>: the XL&rsquo;s pictures. SAVE: the MPC, an arrow marked SAVE, and the card (marked SD). LOAD: the card, an arrow marked LOAD, and the MPC.</li>

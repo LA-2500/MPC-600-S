@@ -18,7 +18,7 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM };
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "1.7A"
+#define OS_NUMBER "1.7B"
 #define OS_VERSION "LA Version " OS_NUMBER " (11/21/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
@@ -188,6 +188,8 @@ struct os {
     int knob_mode; // KNOB_CATCH (to start), KNOB_JUMP or KNOB_SCALE
     int sounding[16]; // engine pad held under each physical pad, or -1
     int sounding_key[16];
+    struct { int id, key; } live_on[32]; // notes started from the pads since they were last all up
+    int nlive_on;
     int rec_tune[16];
     // 16 Levels: one sound across the pads, at 16 velocities or (with PAD BANK reaching
     // further) 128 tunings around the root pad.
@@ -416,6 +418,8 @@ struct os {
     int song_ask; // <Export> asked: 1 + the sequence it goes into, waiting for <Export> again or <Cancel>
     uint32_t step_tick;           // Step Edit: Now
     int cursor_step, step_return, step_armed;
+    int step_grid, step_row;      // Step Edit's Grid view (Shift + SEQ again), and its selected pad row
+    int step_mnote, step_mtop;    // the Grid on a MIDI track: the selected note, and the note on the top row
     // Warp: the page (0 Warp, 1 S-Series), its settings, the render under way and its result.
     int warp_page, warp_cursor, warp_return, warp_pad, warp_dirty;
     int warp_pct, warp_pitch, warp_fine, warp_bars;
@@ -453,6 +457,7 @@ struct os {
     char disk_keep[40];   // the item's name, kept while a folder is named
     char disk_last[DISK_TYPES][512]; // each type's folder when last used, until power-off ("": its own)
     char disk_last_item[DISK_TYPES][40]; // and the item last loaded or saved there, to start on
+    char disk_last_saved[DISK_TYPES][40]; // the name each type was last saved under this session: the next save's name
     int mpc_missing; // the last MPC program's samples with no WAV found
     struct { int id, key, channel, note; int64_t until; } aud[16]; // Step Edit's auditions, to be released
     int led_style; // which colours of the two-colour button LEDs light: 0 both, 1 A, 2 B

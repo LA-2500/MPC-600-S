@@ -562,6 +562,7 @@ int disk_project_load(struct os *s, const char *dir) {
     rstr(&b, line, sizeof line);
     if (b.ok) infx_load_line(s, line);
     rstr(&b, line, sizeof line);
+    master_defaults(&s->master); // the master effects belong to the project: none saved, none on
     if (b.ok) master_load_line(&s->master, line);
     rstr(&b, line, sizeof line);
     inserts_load_line(s, b.ok ? line : ""); // none saved (an older project): none
@@ -814,6 +815,9 @@ int disk_seq_save(struct os *s, int which, const char *path) {
     w32(&b, SEQ_TRACKS);
     for (int t = 0; t < SEQ_TRACKS; t++) write_track(&b, &q->track[t]);
     pthread_mutex_unlock(&sq->lock);
+    char mline[400];
+    master_save_line(&s->master, mline, sizeof mline); // the master effects go with it (older files end before this)
+    wstr(&b, mline);
     int ok = b.ok;
     if (fclose(b.f) != 0) ok = 0;
     return ok ? 0 : -1;
@@ -835,6 +839,13 @@ int disk_seq_load(struct os *s, int which, const char *path) {
         read_track(&b, t < SEQ_TRACKS ? &tmp->track[t] : &spare);
         free(spare.notes), free(spare.autos);
     }
+    char mline[400] = "";
+    int have_master = 0;
+    if (b.ok) { // the master effects, in files saved since they went with a sequence
+        rstr(&b, mline, sizeof mline);
+        have_master = b.ok;
+        b.ok = 1;
+    }
     fclose(b.f);
     if (!b.ok) {
         for (int t = 0; t < SEQ_TRACKS; t++) free(tmp->track[t].notes), free(tmp->track[t].autos);
@@ -842,6 +853,8 @@ int disk_seq_load(struct os *s, int which, const char *path) {
         return -1;
     }
     os_undo_save(s, "Load Sequence");
+    master_defaults(&s->master); // its own master effects, or none: never the last file's
+    if (have_master) master_load_line(&s->master, mline);
     struct seq *sq = &s->seq;
     pthread_mutex_lock(&sq->lock);
     struct seq_sequence *q = &sq->sequence[clampi(which, 0, SEQ_COUNT - 1)];
@@ -1288,6 +1301,28 @@ static void restore_folder(struct os *s) {
         if (!s->disk_isdir[i] && !strcmp(s->disk_files[i], s->disk_last_item[s->disk_type])) s->disk_file = i;
 }
 
+// The types whose names are numbered (PROJECT01, CHAIN01...).
+static int numbered(const struct os *s) {
+    return s->disk_type == DISK_FX || s->disk_type == DISK_PROJECT || s->disk_type == DISK_SETTINGS || s->disk_type == DISK_ARP;
+}
+
+// The name's number moved on past every name already in the folder.
+static void next_free(struct os *s) {
+    char base[NAME_MAX_LEN + 1], path[700];
+    snprintf(base, sizeof base, "%s", s->disk_name);
+    int len = (int)strlen(base), at = len;
+    while (at > 0 && base[at - 1] >= '0' && base[at - 1] <= '9') at--;
+    if (at == len) return;
+    int n = atoi(base + at), width = len - at;
+    base[at] = 0;
+    for (int tries = 0; tries < 999; tries++) {
+        item_path(s, s->disk_type, s->disk_name, path, sizeof path);
+        if (access(path, F_OK) != 0) return;
+        n++;
+        snprintf(s->disk_name, sizeof s->disk_name, "%.*s%0*d", NAME_MAX_LEN - width, base, width, n);
+    }
+}
+
 static void default_name(struct os *s) {
     const char *base = s->disk_mode == DISK_EXPORT ? (is_mixdown(s->disk_type) ? "MIX" : is_song(s->disk_type) ? "SONG" : "SEQ")
                                                    : TYPES[s->disk_type];
@@ -1307,6 +1342,12 @@ static void default_name(struct os *s) {
     else
         snprintf(s->disk_name, sizeof s->disk_name, "%s", clean);
     s->disk_pos = 0;
+    if (s->disk_mode != DISK_SAVE || !numbered(s)) return;
+    if (s->disk_last_saved[s->disk_type][0]) { // saved before this session: that name again
+        snprintf(s->disk_name, sizeof s->disk_name, "%s", s->disk_last_saved[s->disk_type]);
+        return;
+    }
+    next_free(s); // PROJECT01 there already: PROJECT02, or the next one not there
 }
 
 void disk_open(struct os *s, int mode, int type) {
@@ -1317,8 +1358,8 @@ void disk_open(struct os *s, int mode, int type) {
     s->disk_ask = 0, s->disk_renaming = 0, s->disk_pending = 0, s->disk_newdir = 0;
     s->disk_used = 1, s->disk_page = 0; // Clear all stays as it was set, for the next load too
     s->disk_which = is_prog(type) ? s->program : is_seqtype(type) ? s->seq.current : 0;
-    default_name(s);
     restore_folder(s); // where this type was last used; its own folder to start with
+    default_name(s);   // after it: the name's number goes past those in that folder
 }
 
 static void trimmed(const char *in, char *out, size_t n) { // the name without trailing spaces
@@ -1371,9 +1412,11 @@ static void perform(struct os *s, struct ui *u, int action) {
         }
         }
         snprintf(msg, sizeof msg, rc == 0 ? "Saved: %.16s" : "Could not save %.10s", t == DISK_AUTOLOAD ? "AUTOLOAD" : name);
+        if (rc == 0 && t != DISK_AUTOLOAD) snprintf(s->disk_last_saved[t], sizeof s->disk_last_saved[0], "%s", name);
     } else if (action == 'L') { // load
         const char *file = s->disk_files[s->disk_file];
         snprintf(s->disk_last_item[t], sizeof s->disk_last_item[0], "%s", file);
+        snprintf(s->disk_last_saved[t], sizeof s->disk_last_saved[0], "%s", file); // saving it again: under its name
         item_path(s, t, file, path, sizeof path);
         switch (t) {
         case DISK_PROJECT: case DISK_AUTOLOAD: rc = disk_project_load(s, path); break;
@@ -1807,7 +1850,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
             if (s->disk_mode != DISK_EXPORT && s->disk_type >= DISK_SEQUENCE) s->disk_type = DISK_PROJECT;
             if (s->disk_mode == DISK_SAVE && (s->disk_type == DISK_MIDI || s->disk_type == DISK_MPC)) s->disk_type = DISK_SEQFILE;
             if (s->disk_mode == DISK_SAVE && s->disk_type == DISK_MPCPGM) s->disk_type = DISK_PROGRAM;
-            default_name(s), restore_folder(s); // the new type's folder: where it was last used
+            restore_folder(s), default_name(s); // the new type's folder: where it was last used
             break;
         case DF_TYPE:
             if (m == DISK_EXPORT) s->disk_type = clampi(s->disk_type + d, DISK_SEQUENCE, DISK_MIX_SONG);
@@ -1817,7 +1860,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
                 s->disk_type = t2;
             } else s->disk_type = clampi(s->disk_type + d, 0, DISK_MPCPRJ);
             s->disk_which = is_prog(s->disk_type) ? s->program : is_seqtype(s->disk_type) ? s->seq.current : 0;
-            default_name(s), restore_folder(s); // the new type's folder: where it was last used
+            restore_folder(s), default_name(s); // the new type's folder: where it was last used
             break;
         case DF_WHICH:
             if (is_sound(s->disk_type)) s->selected = clampi(s->selected + d, 0, OS_PADS - 1);
