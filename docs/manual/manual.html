@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 1.7C &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 1.7D &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -106,7 +106,7 @@
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
-<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v1.7C.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v1.7D.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
 <ol>
   <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
   <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
@@ -178,7 +178,7 @@
   <tr><td class="key">SAMPLE SELECT</td><td>Load WAV files</td><td>Save/Load, ready to save the pad&rsquo;s sound</td></tr>
   <tr><td class="key">SAMPLE REC</td><td>Sample New Sound, then Audiotrack Record, Convert Sample, Stems</td><td>Help (main page: back a bar)</td></tr>
   <tr><td class="key">SEQ REC</td><td>Arm recording: OVERDUB, REC, off</td><td>Help page 2 (main page: on a bar)</td></tr>
-  <tr><td class="key">PLAY</td><td>Play from the start</td><td>Continue from where it stopped</td></tr>
+  <tr><td class="key">PLAY</td><td>Play from the start; pressed again while playing, back to the start</td><td>Continue from where it stopped</td></tr>
   <tr><td class="key">STOP</td><td>Stop; twice quickly stops every sound</td><td>Stop and return to the start</td></tr>
   <tr><td class="key">TAP TEMPO</td><td>Tap the tempo</td><td>The metronome page</td></tr>
   <tr><td class="key">NOTE REPEAT</td><td>Hold for Note Repeat / the arpeggiator</td><td>The Note Repeat / Arpeggiator page</td></tr>
@@ -188,7 +188,7 @@
   <tr><td class="key">MUTE</td><td>Track Mute</td><td>Unmute all tracks</td></tr>
   <tr><td class="key">PAD FX</td><td>Print Effects</td><td></td></tr>
   <tr><td class="key">KNOB FX</td><td>Input Effects</td><td></td></tr>
-  <tr><td class="key">ERASE</td><td>Tap: the Erase page. Hold with pads while playing: erase those notes. Naming: take out a letter</td><td>Copy the pad pressed last (Program Config). Naming: clear the name</td></tr>
+  <tr><td class="key">ERASE</td><td>Tap: the Erase page. Hold with pads while playing: erase those notes. Naming: take out a letter</td><td>Copy Events (COPY, as printed on the panel). Naming: clear the name</td></tr>
 </table>
 <h3>SHIFT + Pads</h3>
 <table>
@@ -213,7 +213,7 @@
 
 <h2>The Main Page</h2>
 <p><span class="key">SEQ</span> opens the main page: <strong>Play/Record</strong> at the top (sequence, tempo, bars, time signature, loop) and <strong>Track Data</strong> under it (track, type, on/off, MIDI channel, velocity %, program). The <span class="lcd">Now:</span> line shows the position as bar.beat.tick.</p>
-<p>The knobs are labelled at the bottom: <span class="key">K1</span> the track, <span class="key">K2</span> the tempo (whole BPM), <span class="key">K3</span> the track&rsquo;s program. The slider steps through the tracks. <span class="key">B1</span> turns the track on or off; <span class="key">B2</span> and <span class="key">B3</span> step to the track before and after. <span class="key">SHIFT + B3</span> opens Copy Sequence (Chapter 6).</p>
+<p>The knobs are labelled at the bottom: <span class="key">K1</span> the track, <span class="key">K2</span> the tempo (whole BPM), <span class="key">K3</span> the track&rsquo;s program. The slider steps through the tracks. <span class="key">B1</span> turns the track on or off; <span class="key">B2</span> and <span class="key">B3</span> step to the track before and after. <span class="key">SHIFT + B3</span> opens Copy Sequence (Chapter 6). Hold <span class="key">SHIFT</span> and the key labels change to show these: B2 reads <span class="lcd">&lt;Rename&gt;</span>, B3 <span class="lcd">&lt;Copy&gt;</span>.</p>
 <h3>Renaming</h3>
 <p>Put the cursor on <strong>Seq</strong>, <strong>Trk</strong> or <strong>Pgm</strong> and press <span class="key">SHIFT + B2</span> to rename the sequence, the track or the track&rsquo;s program. The wheel sets the highlighted letter, <span class="key">&minus;</span> and <span class="key">+</span> move along the name (up to 16 letters), <span class="key">ERASE</span> takes out a letter and <span class="key">SHIFT + ERASE</span> the whole name, <span class="key">B3 &lt;OK&gt;</span> keeps it and <span class="key">B1 &lt;Cancel&gt;</span> leaves the old name. A MIDI track&rsquo;s Pgm is a program number, so it has no name to change.</p>
 {{shot:seq_main_knobs|The main page}}
@@ -222,7 +222,7 @@
 <ol>
   <li>Choose the sequence and the track to record on, on the main page.</li>
   <li>Press <span class="key">SEQ REC</span> to arm a recording mode (see below). The light flashes while armed, and the display shows the mode.</li>
-  <li>Press <span class="key">PLAY</span>. If Count-in is on, the count-in comes first.</li>
+  <li>Press <span class="key">PLAY</span>. If Count-in is on, the count-in comes first. (Pressed again while only playing, PLAY starts the sequence over from the start; the notes sounding stop first.)</li>
   <li>Play the pads, or a MIDI keyboard. Each note goes onto the active track, placed by Timing Correct (Chapter 4), with its velocity and how long you held it.</li>
   <li>Press <span class="key">STOP</span>. <span class="key">SHIFT + &minus;</span> undoes the whole recording.</li>
 </ol>
@@ -500,7 +500,7 @@
 <ul>
   <li><span class="key">&minus;</span> and <span class="key">+</span> step Now back and on by the <strong>Step</strong> note value, playing what is there.</li>
   <li><span class="key">B2 &lt;&lt;Note</span> and <span class="key">B3 Note&gt;&gt;</span> jump to the previous and next notes.</li>
-  <li>A pad puts a note in at Now, a step long. <span class="key">B1 &lt;Delete&gt;</span> deletes the selected note.</li>
+  <li>A pad puts a note in at Now, a step long, while the sequence is stopped (playing, a pad plays and records as anywhere, so one press is one note). <span class="key">B1 &lt;Delete&gt;</span> deletes the selected note.</li>
   <li>ENTER moves through Now, Step and each note&rsquo;s pad, velocity and length; the wheel changes it.</li>
 </ul>
 {{shot:step_edit|Step Edit}}
@@ -510,16 +510,16 @@
   <li>The top line shows Now, the <strong>Step</strong> (Timing Correct&rsquo;s note value; at 1/16 a page is one bar of 4/4) and the velocity of the note under the cursor. The ruler shows each bar&rsquo;s number where it starts and .2, .3, .4 at the beats; the step at Now is dark. Lines are solid at the beats and dotted between them; past the end of the sequence the steps are shaded.</li>
   <li>A filled diamond is a note; a hollow one is a soft note (velocity under 64). Where several notes share a row and a moment (a chord), a <strong>music note</strong> marks them, and the top line reads, for example, <span class="lcd">3 notes</span>.</li>
   <li><span class="key">&minus;</span> and <span class="key">+</span> step Now back and on, playing what is there. The wheel picks the row. <span class="key">B2 &lt;&lt;Page</span> and <span class="key">B3 Page&gt;&gt;</span> go 16 steps back or on.</li>
-  <li><span class="key">B1 &lt;Dot&gt;</span> puts the selected row&rsquo;s note in at Now (velocity 100, or 127 with Full Level), or, if there is one, takes it out; where a music note is, all of them.</li>
-  <li>A pad puts a note in at Now, as on the list, and selects its row.</li>
-  <li>While the sequence plays, the Grid follows it: it shows the page the play position is on, turning the page as it goes, with a line and a marker on the ruler where it is, and the top line reads <span class="lcd">Play</span> and the position. Each row with a note sounding is lit: its name dark and a line above and below it across the steps (a short note stays lit for a step). Stopped, it goes back to Now&rsquo;s page.</li>
+  <li><span class="key">B1 &lt;Insert&gt;</span> puts the selected row&rsquo;s note in at Now, at full level (127). Where the cursor is on a note, B1 reads <span class="lcd">&lt;Delete&gt;</span> and takes it out; where a music note is, all of them. Hold <span class="key">SHIFT</span> on a note and B1 reads <span class="lcd">&lt;Ghost&gt;</span>: it makes it a ghost note (velocity 48, a hollow diamond); on a ghost note it reads <span class="lcd">&lt;Full&gt;</span> and puts it back to 127. <span class="key">SHIFT</span> + the wheel moves Now a tick at a time, to put a note off the step. (With 16 Levels Velocity the rows are the velocities, so Ghost is off there.)</li>
+  <li>A pad selects its row; it does not put a note in (B1 does), so a stray press changes nothing.</li>
+  <li>While the sequence plays, the Grid follows it: it shows the page the play position is on, turning the page as it goes, with a line and a marker on the ruler where it is, and the top line reads <span class="lcd">Play</span> and the position. Stopped, it goes back to Now&rsquo;s page.</li>
 </ul>
 {{shot:step_grid|Step Edit: the Grid}}
 {{shot:step_grid_play|The Grid while the sequence plays}}
 <p>What the rows are depends on the track:</p>
 <ul>
   <li><strong>A drum track</strong>: the 16 pads of the bank (<span class="key">PAD BANK</span> changes it), each with its sound&rsquo;s name. A chord from 16 Levels shows as a music note on its pad.</li>
-  <li><strong>16 Levels on</strong>: the levels of the 16 Levels pad, like the pads while 16 Levels is on. With Tune, each row is a tuning (<span class="lcd">A01 +4</span>), so each note of a chord has its own row and <span class="key">&lt;Dot&gt;</span> works on it alone. With Velocity, each row is a velocity (<span class="lcd">A01 v63</span>).</li>
+  <li><strong>16 Levels on</strong>: the levels of the 16 Levels pad, like the pads while 16 Levels is on. With Tune, each row is a tuning (<span class="lcd">A01 +4</span>), so each note of a chord has its own row and <span class="key">&lt;Insert&gt;</span> works on it alone. With Velocity, each row is a velocity (<span class="lcd">A01 v63</span>).</li>
   <li><strong>A MIDI track</strong>: every note, 0 to 127, by name and number (<span class="lcd">C3 60</span>, C3 being middle C), 16 at a time. The wheel scrolls through them; arrows show there are more above or below. It opens on the lowest note the track plays.</li>
 </ul>
 {{shot:step_grid_levels|The Grid with 16 Levels Tune: a chord, +0 +4 +7}}
@@ -532,8 +532,35 @@
   <li>A pad picks To, as on the Song page: A01 is sequence 1, B01 sequence 17.</li>
   <li><span class="key">B3 &lt;Copy&gt;</span> copies. If To already has notes it asks <span class="lcd">Replace Seq n?</span> first. <span class="key">SHIFT + &minus;</span> undoes a copy.</li>
 </ul>
-<p>Copy a verse to make a chorus from, or keep a version of a sequence before you change it.</p>
+<p>Copy a verse to make a chorus from, or keep a version of a sequence before you change it. <span class="key">B1</span> on Copy Events opens this page too, From on Copy Events&rsquo; sequence, and Back returns there.</p>
 {{shot:seq_copy|Copy Sequence}}
+
+<h2>Copy Events</h2>
+<p><span class="key">SHIFT + ERASE</span> (COPY, as printed on the panel) opens Copy Events, taken from the MPC3000&rsquo;s Edit 6: notes and fader moves copied from one place in a sequence to another, in the same sequence or another one. Press it again to go back.</p>
+<table>
+  <tr><th>Field</th><th>Does</th></tr>
+  <tr><td>From Sq</td><td>The sequence copied from. It opens on the current one.</td></tr>
+  <tr><td>Trk</td><td>The track copied from (the active track to start). <strong>0</strong> is every track, each copied onto its own number in the To sequence.</td></tr>
+  <tr><td>Ticks</td><td>The range: from, and up to (not including) the end. It opens on the whole sequence, and choosing another sequence sets it to the whole of that one.</td></tr>
+  <tr><td>Notes</td><td>ALL, or the pads you press on this page (press one again to take it out; turning the wheel here goes back to ALL).</td></tr>
+  <tr><td>To Sq</td><td>The sequence copied to: the same one to start.</td></tr>
+  <tr><td>Trk</td><td>The track copied to: the same track as From to start. Not shown when From Trk is 0.</td></tr>
+  <tr><td>Start</td><td>Where the copy begins in the To sequence.</td></tr>
+  <tr><td>Mode</td><td><strong>REPLACE</strong> (where it opens) clears the To track over the span the copies cover first; <strong>MERGE</strong> adds the copy to what is there.</td></tr>
+  <tr><td>Copies</td><td>How many times, one after another (1 to 999).</td></tr>
+</table>
+<p>The copy does not make the To sequence longer: what would land past its end is left out, and the message says how much. <span class="key">K1</span> picks the From sequence, the slider the From track, <span class="key">K2</span> the To track and <span class="key">K3</span> the end of the range, by bars; each catches up to the value shown, as on the Erase page. <span class="key">B1 &lt;CopySq&gt;</span> opens Copy Sequence, <span class="key">B2 &lt;CopyBar&gt;</span> Copy Bars, and <span class="key">B3 &lt;Do It&gt;</span> copies. Hold <span class="key">SHIFT</span> and B1 shows <span class="lcd">&lt;Back&gt;</span>. <span class="key">SHIFT + &minus;</span> undoes.</p>
+{{shot:copy_events|Copy Events}}
+
+<h2>Copy Bars</h2>
+<p><span class="key">B2</span> on Copy Events opens Copy Bars, taken from the MPC3000&rsquo;s Edit 5. <span class="key">B2 &lt;Mode&gt;</span> steps through its three jobs; it opens on COPY.</p>
+<ul>
+  <li><strong>COPY</strong>: bars First to Last of the From sequence, copied in before bar <strong>Before bar</strong> of the To sequence, <strong>Copies</strong> times. The bars from there on move later, and the To sequence gets longer. Before bar one past the last bar (shown as <span class="lcd">(the end)</span>, where it opens) adds them at the end. Copying a sequence into itself takes the bars as they were before the copy.</li>
+  <li><strong>INSERT BLANK</strong>: <strong>Bars</strong> empty bars before bar Before bar of the sequence.</li>
+  <li><strong>DELETE</strong>: bars First to Last taken out; the bars after move back. A sequence keeps at least one bar.</li>
+</ul>
+<p>All tracks move together, with their fader moves, and a loop point moves with its bar. Between sequences in different time signatures each event keeps its place in its bar, and what does not fit in a shorter bar is left out. 999 bars is the most a sequence can have. <span class="key">B3 &lt;Do It&gt;</span> does it, <span class="key">B1 &lt;Back&gt;</span> returns to Copy Events, and <span class="key">SHIFT + &minus;</span> undoes.</p>
+{{shot:copy_bars|Copy Bars}}
 
 <h2>Track Mute</h2>
 <p><span class="key">MUTE</span> opens Track Mute: the 16 pads become a 4 &times; 4 grid. <strong>Type</strong> chooses what they do: TRACK MUTE, TRACK SOLO, PAD MUTE, PAD SOLO, or SEQUENCE (a pad queues that sequence to play next). <span class="key">B2 &lt;All Off&gt;</span> clears the type shown. <span class="key">SHIFT + MUTE</span> (UNMUTE ALL, as printed on the panel) unmutes every track of the sequence, on any page. <strong>Next Seq</strong> is on every type, set with the wheel.</p>
@@ -555,7 +582,7 @@
 <h1 class="chapter" id="ch8"><small>Chapter 8</small>Programs and Pad Sounds</h1>
 
 <h2>Program Config</h2>
-<p><span class="key">SHIFT + SAMPLE</span> opens Program Config: the program&rsquo;s pads and their sounds, a bank at a time. <strong>Type</strong> is MPC (drums), S600 (each pad a two-oscillator synth, Chapter 9) or S600 MULTI (a multisample instrument, Chapter 10). <strong>Inst</strong> (S600 and S600 MULTI) is the Instrument, the pad MIDI keys play: A01 to start; turn the wheel, or with the cursor on Inst press a pad. On S600, <strong>LAST PAD</strong> plays the pad pressed last. <span class="key">B1 &lt;Copy&gt;</span>, <span class="key">B2 &lt;Swap&gt;</span> and <span class="key">B3 &lt;Delete&gt;</span> work on single pads; with <span class="key">SHIFT</span> they copy or clear the whole program. <span class="key">SHIFT + ERASE</span> (COPY, as printed on the panel) opens Program Config from any page with Copy already started on the pad pressed last: press the pad to copy it to. <strong>Snd:</strong> gives the selected pad any sound in memory; with <span class="key">SHIFT</span>, the wheel steps only through the sounds in memory that no pad plays (<span class="lcd">No unused sounds in memory</span> if there are none).</p>
+<p><span class="key">SHIFT + SAMPLE</span> opens Program Config: the program&rsquo;s pads and their sounds, a bank at a time. <strong>Type</strong> is MPC (drums), S600 (each pad a two-oscillator synth, Chapter 9) or S600 MULTI (a multisample instrument, Chapter 10). <strong>Inst</strong> (S600 and S600 MULTI) is the Instrument, the pad MIDI keys play: A01 to start; turn the wheel, or with the cursor on Inst press a pad. On S600, <strong>LAST PAD</strong> plays the pad pressed last. <span class="key">B1 &lt;Copy&gt;</span>, <span class="key">B2 &lt;Swap&gt;</span> and <span class="key">B3 &lt;Delete&gt;</span> work on single pads; with <span class="key">SHIFT</span> they copy or clear the whole program. <strong>Snd:</strong> gives the selected pad any sound in memory; with <span class="key">SHIFT</span>, the wheel steps only through the sounds in memory that no pad plays (<span class="lcd">No unused sounds in memory</span> if there are none).</p>
 <p><strong>Copy and Swap with another program.</strong> After <span class="key">B1 &lt;Copy&gt;</span> or <span class="key">B2 &lt;Swap&gt;</span>, the wheel picks the program whose pad it goes to: this one to start (the prompt reads <span class="lcd">A02 to (wheel: Pgm)</span>), or any of the 24 (<span class="lcd">A02 to Pgm 02 NAME</span>). Then press the pad (any bank). Copy puts the pad, its sound and its settings onto that program&rsquo;s pad (<span class="lcd">Copied A02 to P02 A05</span>); Swap trades the two pads. Undo puts them back.</p>
 <p>A sound a pad lets go of stays in memory unless another pad plays it, and a sound loaded or recorded over a pad keeps the old one in memory too, so nothing leaves memory without being deleted. Memory holds up to 512 sounds.</p>
 {{shot:program|Program Config}}
@@ -1153,7 +1180,7 @@
   <tr><td>AUTOLOAD</td><td>A project loaded at power-on.</td></tr>
   <tr><td>FX CHAIN</td><td>The input chain: Input Effects in INPUT (or PAD while that is in use).</td></tr>
   <tr><td>S600 OSC</td><td>A sound from or onto the selected pad, as a WAV, in <span class="lcd">MPC600S/s600</span>, where the S600 waveforms are (Chapter 9).</td></tr>
-  <tr><td>.SND</td><td>One sound as an Akai <strong>.SND</strong> (the sound file of the MPC 2000, 2000XL, MPC 3000 and other Akai machines), in <span class="lcd">MPC600S/samples</span> (any folder can be browsed to). <strong>SAVE</strong>: the selected pad&rsquo;s sound, 16-bit, with its start, end, loop (and loop on or off) and tuning (to the tenth of a semitone the 2000XL keeps), and the name you give (16 letters). <strong>LOAD</strong>: onto the selected pad, with the start, end, loop and tuning kept in the file; the pad takes the sound&rsquo;s name. Stereo and mono both. An MPC 2500 PROGRAM whose sample is an .SND instead of a WAV finds it too.</td></tr>
+  <tr><td>.SND</td><td>One sound as an Akai <strong>.SND</strong> (the sound file of the MPC 2000, 2000XL, MPC 3000 and other Akai machines), in <span class="lcd">MPC600S/samples</span> (any folder can be browsed to). <strong>SAVE</strong>: the selected pad&rsquo;s sound, 16-bit, with its start, end and tuning (to the tenth of a semitone), and the name you give (16 letters). <strong>For:</strong> picks the machine it is for: <strong>2000XL</strong> (also the MPC 2000) keeps the loop too, and a rate other than 44.1 kHz; <strong>3000</strong> writes the file as the MPC 3000 does, which reads only its own (it has no loop, and plays everything at 44.1 kHz). <strong>LOAD</strong>: onto the selected pad, with the start, end, loop and tuning kept in the file, from either kind; the pad takes the sound&rsquo;s name. Stereo and mono both. An MPC 2500 PROGRAM whose sample is an .SND instead of a WAV finds it too.</td></tr>
   <tr><td>TRACK FX</td><td>The Track/Mixer chain: its nine send effects and their settings. Saved and loaded whichever mode the Input Effects page is on; loaded, it is there when you choose TRACK/MIXER.</td></tr>
   <tr><td>ARP PATTERN</td><td>One USER step pattern (chosen with User:), saved from it or loaded into it.</td></tr>
   <tr><td>SEQUENCE</td><td>One sequence and all its tracks: notes, recorded moves, track settings, tempo, time signature and length, and the Master Effects. Saving: <strong>Seq:</strong> picks which. Loading: <strong>Into:</strong> picks where, and asks first if that sequence has notes (Undo brings it back).</td></tr>
@@ -1289,7 +1316,7 @@
 <p><strong>Layout: 2000XL</strong> (Additional Settings) gives every page the look of the MPC2000XL&rsquo;s screen, at the MPC 600 S&rsquo;s size: the XL&rsquo;s letters, the key labels drawn as tabs, and dotted lines. With <strong>Screen: MPC2000</strong> it takes the XL&rsquo;s colour too. What the pages do stays the same; a few are laid out as on the XL. <strong>DEFAULT</strong> is the MPC 600 S&rsquo;s own look.</p>
 {{shot:prefs_layout|Additional Settings: Layout}}
 <ul>
-  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 1.7C</span> in the middle of the screen, nothing else.</li>
+  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 1.7D</span> in the middle of the screen, nothing else.</li>
   <li><strong>The main page</strong>: the sequence and <span class="lcd">Now:</span> on top; under them tempo, time signature, Timing, Count, Loop and Bars; the track under the dotted line. <span class="key">B1</span>&ndash;<span class="key">B3</span> read TrMUTE, Tr &minus; and Tr + (the same keys as on DEFAULT), and the knobs are listed along the bottom: <span class="lcd">K1:Track K2:BPM K3:Pgm</span>. Pick another sequence while one plays and <span class="lcd">Next:</span> shows beside the counter, with its number and name, until it starts.</li>
   <li><strong>Track Mute</strong>: the XL&rsquo;s grid of track names, 16 at a time. A playing track sits on a bar; a muted one is plain; a track with nothing on it reads <span class="lcd">(Unused)</span>.</li>
   <li><strong>Save and Load</strong>: the XL&rsquo;s pictures. SAVE: the MPC, an arrow marked SAVE, and the card (marked SD). LOAD: the card, an arrow marked LOAD, and the MPC.</li>

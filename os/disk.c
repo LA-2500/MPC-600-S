@@ -179,6 +179,7 @@ static int snd_save_pad(struct os *s, int slot, const char *name, const char *pa
     in.loop_on = pad->p.loop_on;
     int t = pad->p.semi * 10 + pad->p.fine / 10;
     in.tune = t < -120 ? -120 : t > 120 ? 120 : t;
+    in.mpc3000 = s->disk_snd3000;
     return snd_save(path, pad->s, &in);
 }
 
@@ -1177,7 +1178,7 @@ void disk_autoload(struct os *s) {
 
 // ---- The page ----
 
-enum { DF_MODE, DF_TYPE, DF_WHICH, DF_CLEAR, DF_TRACKS, DF_MIX, DF_NAME, DF_FILE, DF_FIELDS };
+enum { DF_MODE, DF_TYPE, DF_SNDFMT, DF_WHICH, DF_CLEAR, DF_TRACKS, DF_MIX, DF_NAME, DF_FILE, DF_FIELDS };
 
 int disk_naming(const struct os *s) {
     return s->screen == OS_DISK && s->disk_cursor == DF_NAME && !s->disk_ask;
@@ -1192,6 +1193,7 @@ static int field_shown(const struct os *s, int f) {
     if (m == DISK_USB) return f == DF_MODE; // USB DATA MODE: nothing else to set
     switch (f) {
     case DF_WHICH: return is_prog(t) || is_sound(t) || t == DISK_ARP || m == DISK_EXPORT || is_seqtype(t);
+    case DF_SNDFMT: return m == DISK_SAVE && t == DISK_SND && !s->disk_renaming && !s->disk_newdir;
     case DF_CLEAR: return m == DISK_LOAD && clear_ok(t) && !s->disk_renaming;
     case DF_TRACKS: case DF_MIX: return m == DISK_EXPORT && !is_mixdown(t);
     case DF_NAME: return (m == DISK_SAVE && t != DISK_AUTOLOAD) || m == DISK_EXPORT || s->disk_renaming;
@@ -1919,6 +1921,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
                                                               : s->disk_type == DISK_ARP ? ARP_USER : SEQ_COUNT) - 1);
             if (m != DISK_LOAD) default_name(s);
             break;
+        case DF_SNDFMT: s->disk_snd3000 = d > 0; break;
         case DF_CLEAR: s->disk_clear = d > 0; break;
         case DF_TRACKS: s->disk_tracks = clampi(s->disk_tracks + d, 0, 2); break;
         case DF_MIX: s->disk_mix = d > 0; break;
@@ -1993,6 +1996,12 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_text(u, 0, 4, rows[1].label);
     if (s->disk_cursor == DF_TYPE) lcd_inverse(u, 6, 4, v);
     else lcd_text(u, 6, 4, v);
+    if (field_shown(s, DF_SNDFMT)) { // which MPC's .SND: the 2000XL's keeps the loop, the 3000 reads only its own
+        lcd_text(u, 13, 4, "For:");
+        snprintf(v, sizeof v, " %s ", s->disk_snd3000 ? "3000" : "2000XL");
+        if (s->disk_cursor == DF_SNDFMT) lcd_inverse(u, 17, 4, v);
+        else lcd_text(u, 17, 4, v);
+    }
     if (field_shown(s, DF_WHICH)) {
         const char *label = is_prog(s->disk_type) || is_seqtype(s->disk_type) ? (m == DISK_LOAD ? "Into:" : is_prog(s->disk_type) ? "Pgm:" : "Seq:")
                           : is_sound(s->disk_type) ? "Pad:"

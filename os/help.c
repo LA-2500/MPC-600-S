@@ -298,8 +298,7 @@ static const struct {
      "keyboard).\n"
      "Inst (S600 and S600 MULTI): the Instrument, the pad MIDI keys play. A01 to start; turn "
      "the wheel, or with the cursor here press a pad. LAST PAD (S600): the pad pressed last.\f"
-     "Copy, Swap, Delete work on single pads: choose, then press the other pad.\n"
-     "SHIFT+ERASE (COPY), on any page: here, Copy started on the pad pressed last.\f"
+     "Copy, Swap, Delete work on single pads: choose, then press the other pad.\f"
      "Hidden keys: <Copy Pgm>, <Clear Pgm> with Shift.\n"
      "Snd: gives the selected pad any sound in memory."},
     {OS_TC, -1, "Timing Correct",
@@ -323,7 +322,20 @@ static const struct {
      "name.\n"
      "From: the sequence copied. To: where it goes; a pad picks it (A01 is Seq 1, B01 Seq 17).\n"
      "A sequence with notes is replaced only after you say so. Shift+- undoes.\f"
-     "Shift+B3 on the main page opens this page (hold SHIFT to see <Copy>)."},
+     "Shift+B3 on the main page opens this page (hold SHIFT to see <Copy>), and so does "
+     "B1 on Copy Events."},
+    {OS_COPYEV, -1, "Copy Events",
+     "Copies notes and fader moves: from a sequence and track (0 is every track, each onto "
+     "its own), a range and pads you press (none is all), to a sequence, track and start.\n"
+     "MERGE adds them; REPLACE clears that span first. Copies: end to end. Past the end of "
+     "the sequence is left out.\f"
+     "K1 the From sequence, the slider the From track, K2 the To track, K3 the end (by bars).\n"
+     "B1 Copy Sequence, B2 Copy Bars, B3 Do It. SHIFT+B1 or SHIFT+ERASE goes back."},
+    {OS_COPYBARS, -1, "Copy Bars",
+     "B2 <Mode>: COPY bars of one sequence in before a bar of another (the bars after move "
+     "on), INSERT BLANK bars, or DELETE bars (the bars after move back).\n"
+     "Before bar past the last puts them at the end. 999 bars at most; a sequence keeps one.\f"
+     "B3 does it; Shift+- undoes. B1 goes back to Copy Events."},
     {OS_ARPEDIT, -1, "Pattern Edit",
      "A USER step pattern, played from the lowest pad held.\n"
      "Pads 1-12 enter C to B into the selected step and move on.\n"
@@ -447,11 +459,16 @@ static const struct {
     {OS_STEP, -1, "Step Edit",
      "The active track's notes at one moment (Now), one at a time, as on the MPC3000.\n"
      "- and + step Now by the Step note value and play what is there.\f"
-     "B2 and B3 jump to the previous and next notes. A pad puts a note in at Now. B1 "
+     "B2 and B3 jump to the previous and next notes. Stopped, a pad puts a note in at Now. B1 "
      "deletes the selected note.\n"
      "ENTER moves through Now, Step and each note's pad, velocity and length.\f"
      "Shift + wheel on Now moves a tick at a time.\n"
-     "Opened with Shift+SEQ."},
+     "Opened with Shift+SEQ.\f"
+     "The Grid (Shift+SEQ again): a row a pad, the steps across. The wheel picks the row; a pad "
+     "selects its row only. - and + step Now. B1 <Insert> puts a note in (full level); on a "
+     "note it reads <Delete>.\f"
+     "Shift + wheel moves Now a tick at a time. On a note, Shift + B1 <Ghost> makes it soft (48), "
+     "<Full> puts it back to 127. B2/B3 a page."},
     {OS_WARP, -1, "Warp",
      "Changes the selected pad's length and pitch apart. K1 length, K2 pitch, K3 fine.\n"
      "Bars: how long the loop is, for its BPM. <Seq BPM> fits it to the sequence.\f"

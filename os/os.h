@@ -18,13 +18,13 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM };
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "1.7C"
-#define OS_VERSION "LA Version " OS_NUMBER " (11/21/26)" // 26 columns: a four-digit year will not fit
+#define OS_NUMBER "1.7D"
+#define OS_VERSION "LA Version " OS_NUMBER " (11/23/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
 #define OS_POWER_FORCE_MS 15000 // if an orderly shutdown has not finished by then, cut the power
 
-enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI, OS_INSERT, OS_USBMODE };
+enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI, OS_INSERT, OS_USBMODE, OS_COPYEV, OS_COPYBARS };
 enum { DISK_SAVE, DISK_LOAD, DISK_EXPORT, DISK_USB, DISK_MODES }; // DISK_USB: USB DATA MODE
 enum { DISK_PROJECT, DISK_PROGRAM, DISK_SAMPLE, DISK_SETTINGS, DISK_AUTOLOAD, DISK_FX, DISK_ARP, DISK_TRACKFX, DISK_WAVE,
        DISK_SND,                                       // an Akai .SND: the sound on the selected pad
@@ -331,6 +331,16 @@ struct os {
     int erase_count;
     int erase_return;
     int copy_from, copy_to, copy_ask, cursor_copy; // Copy Sequence (Shift+B3 on the main page)
+    int copy_return;    // the screen Copy Sequence goes back to
+    // Copy Events (SHIFT + ERASE), after the MPC3000's Edit 6: from a sequence and track (0 all),
+    // a tick range and the picked notes, to a sequence, track and start; MERGE or REPLACE, copies.
+    int ce_seq, ce_track, ce_to_seq, ce_to_track, ce_replace, ce_copies, cursor_ce, ce_return;
+    uint32_t ce_from, ce_to, ce_at;
+    unsigned char ce_notes[128];
+    int ce_count;
+    // Copy Bars (B2 on Copy Events), after the MPC3000's Edit 5: COPY, INSERT BLANK or DELETE.
+    // Bars count from 1; Before bar is bars + 1 for after the last.
+    int cb_mode, cb_seq, cb_first, cb_last, cb_to_seq, cb_before, cb_copies, cb_count, cursor_cb;
     int metro_return;   // the screen the metronome page goes back to
     int repeat_return, cursor_repeat; // the Note Repeat page
     // Pattern Edit: the USER pattern, its selected step, the field, Clear asked, the preview playing.
@@ -446,6 +456,7 @@ struct os {
     int disk_used;                // opened since power-on: it opens again on the mode and type last used
     int disk_clear;               // LOAD: Clear all first (asked each time; stays set until changed back)
     int disk_page;                // LOAD: 0 the settings (Mode, Type, Into, Clear all), 1 the files (as Load Files)
+    int disk_snd3000;             // SAVE .SND: as the MPC 3000 writes one (else the 2000XL's)
     int disk_tracks, disk_mix;    // EXPORT: tracks 0 none, 1 mono, 2 stereo; the mix with Master FX
     int disk_ask, disk_pending, disk_renaming; // a question up, an action next frame ('S' 'L' 'E' 'D' 'R')
     char disk_name[40];
@@ -584,6 +595,7 @@ void song_frame(struct os *s, struct ui *u, const struct input *in);
 void song_pad(struct os *s, struct ui *u, int i);
 void step_open(struct os *s);
 void step_frame(struct os *s, struct ui *u, const struct input *in);
+void step_grid_pad(struct os *s, int note, int tune, int vel); // the Grid: a pad selects its row
 void step_pad(struct os *s, int note, int tune, int vel);
 void warp_open(struct os *s);
 void warp_frame(struct os *s, struct ui *u, const struct input *in);

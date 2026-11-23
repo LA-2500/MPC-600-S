@@ -2,6 +2,7 @@
 #include "lcd.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -15,7 +16,11 @@ enum {
     F_CLICK, F_INPLAY, F_CVOL, F_RATE, F_CAUDIO, F_CLOOP, F_CIN, F_CTYPE, F_CBARS, F_KIT, F_PSND, F_PTYPE, F_PINST,
     F_REP_TYPE, F_REP_RATE, F_ARP_PAT, F_REP_KEYS, F_ARP_CAT, F_ARP_OCT, F_ARP_GATE, F_ARP_LATCH, F_ARP_TRANS,
     F_E_SEQ, F_E_TRK, F_E_FROM_BAR, F_E_FROM_BEAT, F_E_FROM_TICK, F_E_TO_BAR, F_E_TO_BEAT, F_E_TO_TICK, F_E_NOTES,
+    F_CE_SEQ, F_CE_TRK, F_CE_FROM_BAR, F_CE_FROM_BEAT, F_CE_FROM_TICK, F_CE_TO_BAR, F_CE_TO_BEAT, F_CE_TO_TICK, F_CE_NOTES,
+    F_CE_TO_SEQ, F_CE_TO_TRK, F_CE_AT_BAR, F_CE_AT_BEAT, F_CE_AT_TICK, F_CE_MODE, F_CE_COPIES,
+    F_CB_MODE, F_CB_SEQ, F_CB_FIRST, F_CB_LAST, F_CB_TO_SEQ, F_CB_BEFORE, F_CB_COPIES, F_CB_COUNT,
 };
+enum { CB_COPY, CB_INSERT, CB_DELETE, CB_MODES };
 
 struct field {
     int id, row, col;
@@ -112,6 +117,11 @@ static int swing_shown(const struct os *s) {
 
 static int field_shown(const struct os *s, int id) {
     if (s->screen == OS_MAIN && (id == F_TC_NOTE || id == F_CIN)) return lcd_layout == LAYOUT_2000XL;
+    if (id == F_CE_TO_TRK) return s->ce_track != 0; // every track: each onto its own number
+    if (id == F_CB_FIRST || id == F_CB_LAST) return s->cb_mode != CB_INSERT;
+    if (id == F_CB_TO_SEQ || id == F_CB_COPIES) return s->cb_mode == CB_COPY;
+    if (id == F_CB_BEFORE) return s->cb_mode != CB_DELETE;
+    if (id == F_CB_COUNT) return s->cb_mode == CB_INSERT;
     return id != F_TC_SWING || swing_shown(s);
 }
 
@@ -247,6 +257,48 @@ static void value(struct os *s, int id, char *b, size_t n) {
     case F_E_NOTES:
         notes_label(s->erase_notes, s->erase_count, k->type == TRACK_MIDI, b, n);
         break;
+    case F_CE_SEQ: case F_CE_TO_SEQ: case F_CB_SEQ: case F_CB_TO_SEQ: {
+        int i = id == F_CE_SEQ ? s->ce_seq : id == F_CE_TO_SEQ ? s->ce_to_seq : id == F_CB_SEQ ? s->cb_seq : s->cb_to_seq;
+        const struct seq_sequence *x = &s->seq.sequence[i];
+        snprintf(b, n, "%2d-%.16s", i + 1, seq_used(x) ? x->name : "(unused)");
+        break;
+    }
+    case F_CE_TRK:
+        if (!s->ce_track) snprintf(b, n, " 0-ALL TRACKS");
+        else track_label(&s->seq.sequence[s->ce_seq].track[s->ce_track - 1], s->ce_track - 1, b, n);
+        break;
+    case F_CE_TO_TRK: track_label(&s->seq.sequence[s->ce_to_seq].track[s->ce_to_track - 1], s->ce_to_track - 1, b, n); break;
+    case F_CE_FROM_BAR: case F_CE_FROM_BEAT: case F_CE_FROM_TICK:
+        tick_part(&s->seq.sequence[s->ce_seq], s->ce_from, id - F_CE_FROM_BAR, b, n);
+        break;
+    case F_CE_TO_BAR: case F_CE_TO_BEAT: case F_CE_TO_TICK:
+        tick_part(&s->seq.sequence[s->ce_seq], s->ce_to, id - F_CE_TO_BAR, b, n);
+        break;
+    case F_CE_AT_BAR: case F_CE_AT_BEAT: case F_CE_AT_TICK:
+        tick_part(&s->seq.sequence[s->ce_to_seq], s->ce_at, id - F_CE_AT_BAR, b, n);
+        break;
+    case F_CE_NOTES: {
+        int t = s->ce_track ? s->ce_track - 1 : s->seq.track;
+        notes_label(s->ce_notes, s->ce_count, s->seq.sequence[s->ce_seq].track[t].type == TRACK_MIDI, b, n);
+        break;
+    }
+    case F_CE_MODE: snprintf(b, n, "%s", s->ce_replace ? "REPLACE" : "MERGE"); break;
+    case F_CE_COPIES: snprintf(b, n, "%3d", s->ce_copies); break;
+    case F_CB_MODE: {
+        static const char *const M[CB_MODES] = {"COPY", "INSERT BLANK", "DELETE"};
+        snprintf(b, n, "%s", M[s->cb_mode]);
+        break;
+    }
+    case F_CB_FIRST: snprintf(b, n, "%3d", s->cb_first); break;
+    case F_CB_LAST: snprintf(b, n, "%3d", s->cb_last); break;
+    case F_CB_BEFORE: {
+        int bars = s->seq.sequence[s->cb_mode == CB_COPY ? s->cb_to_seq : s->cb_seq].bars;
+        if (s->cb_before > bars) snprintf(b, n, "%3d (the end)", s->cb_before);
+        else snprintf(b, n, "%3d", s->cb_before);
+        break;
+    }
+    case F_CB_COPIES: snprintf(b, n, "%3d", s->cb_copies); break;
+    case F_CB_COUNT: snprintf(b, n, "%3d", s->cb_count); break;
     default: b[0] = 0; break;
     }
 }
@@ -355,6 +407,54 @@ static void change(struct os *s, int id, int d, int fine) {
         memset(s->erase_notes, 0, sizeof s->erase_notes);
         s->erase_count = 0;
         break;
+    case F_CE_SEQ: // a new sequence: the range covers all of it again
+        s->ce_seq = clampi(s->ce_seq + d, 0, SEQ_COUNT - 1);
+        s->ce_from = 0;
+        s->ce_to = (uint32_t)seq_length(&sq->sequence[s->ce_seq]);
+        break;
+    case F_CE_TRK: s->ce_track = clampi(s->ce_track + d, 0, SEQ_TRACKS); break;
+    case F_CE_FROM_BAR: case F_CE_FROM_BEAT: case F_CE_FROM_TICK:
+        s->ce_from = move_ticks(&sq->sequence[s->ce_seq], s->ce_from, id - F_CE_FROM_BAR, d);
+        break;
+    case F_CE_TO_BAR: case F_CE_TO_BEAT: case F_CE_TO_TICK:
+        s->ce_to = move_ticks(&sq->sequence[s->ce_seq], s->ce_to, id - F_CE_TO_BAR, d);
+        break;
+    case F_CE_NOTES:
+        memset(s->ce_notes, 0, sizeof s->ce_notes);
+        s->ce_count = 0;
+        break;
+    case F_CE_TO_SEQ:
+        s->ce_to_seq = clampi(s->ce_to_seq + d, 0, SEQ_COUNT - 1);
+        if (s->ce_at >= (uint32_t)seq_length(&sq->sequence[s->ce_to_seq])) s->ce_at = 0;
+        break;
+    case F_CE_TO_TRK: s->ce_to_track = clampi(s->ce_to_track + d, 1, SEQ_TRACKS); break;
+    case F_CE_AT_BAR: case F_CE_AT_BEAT: case F_CE_AT_TICK: {
+        const struct seq_sequence *tq = &sq->sequence[s->ce_to_seq];
+        s->ce_at = move_ticks(tq, s->ce_at, id - F_CE_AT_BAR, d);
+        if (s->ce_at >= (uint32_t)seq_length(tq)) s->ce_at = (uint32_t)seq_length(tq) - 1;
+        break;
+    }
+    case F_CE_MODE: s->ce_replace = d > 0; break;
+    case F_CE_COPIES: s->ce_copies = clampi(s->ce_copies + d, 1, 999); break;
+    case F_CB_MODE: s->cb_mode = clampi(s->cb_mode + d, 0, CB_MODES - 1); break;
+    case F_CB_SEQ: {
+        s->cb_seq = clampi(s->cb_seq + d, 0, SEQ_COUNT - 1);
+        int bars = sq->sequence[s->cb_seq].bars;
+        s->cb_first = 1, s->cb_last = bars;
+        if (s->cb_mode == CB_INSERT) s->cb_before = clampi(s->cb_before, 1, bars + 1);
+        break;
+    }
+    case F_CB_FIRST: s->cb_first = clampi(s->cb_first + d, 1, sq->sequence[s->cb_seq].bars); break;
+    case F_CB_LAST: s->cb_last = clampi(s->cb_last + d, 1, sq->sequence[s->cb_seq].bars); break;
+    case F_CB_TO_SEQ:
+        s->cb_to_seq = clampi(s->cb_to_seq + d, 0, SEQ_COUNT - 1);
+        s->cb_before = sq->sequence[s->cb_to_seq].bars + 1; // after its last bar, to start
+        break;
+    case F_CB_BEFORE:
+        s->cb_before = clampi(s->cb_before + d, 1, sq->sequence[s->cb_mode == CB_COPY ? s->cb_to_seq : s->cb_seq].bars + 1);
+        break;
+    case F_CB_COPIES: s->cb_copies = clampi(s->cb_copies + d, 1, 99); break;
+    case F_CB_COUNT: s->cb_count = clampi(s->cb_count + d, 1, 99); break;
     case F_CLICK:
         if (sq->metronome == METRO_OFF) {
             sq->metronome = s->metro_on_mode;
@@ -491,7 +591,7 @@ static void draw_main_xl(struct os *s, struct ui *u, int shifted) {
     const struct seq_sequence *q = current(s);
     const struct seq_track *k = &q->track[s->seq.track];
     lcd_tab(u, 0, 8, "TrMUTE", 1);
-    lcd_text(u, 9, KEY_ROW, "<Tr ->");
+    lcd_text(u, 9, KEY_ROW, shifted ? "<Rename>" : "<Tr ->");
     lcd_text(u, 18, KEY_ROW, shifted ? "<Copy>" : "<Tr +>");
     int bar, beat, tick;
     split(q, (long)s->seq.pos, &bar, &beat, &tick);
@@ -823,7 +923,7 @@ void seq_screen_frame(struct os *s, struct ui *u, const struct input *in) {
         draw_main_xl(s, u, in->shift && !asking);
     } else {
         lcd_text(u, 0, KEY_ROW, "<Tk on/off>");
-        lcd_text(u, 12, KEY_ROW, "<Trk->");
+        lcd_text(u, 11, KEY_ROW, in->shift && !asking ? "<Rename>" : " <Trk->");
         lcd_text(u, 20, KEY_ROW, in->shift && !asking ? "<Copy>" : "<Trk+>");
         lcd_rule(u, TITLE_ROW, "Play/Record");
         lcd_rule(u, 6, "Track Data");
@@ -1391,6 +1491,196 @@ void seq_erase_frame(struct os *s, struct ui *u, const struct input *in) {
     pthread_mutex_unlock(&sq->lock);
 }
 
+// ---- Copy Events (SHIFT + ERASE), after the MPC3000's Edit 6 ----
+
+static const struct field CE_FIELDS[] = {
+    {F_CE_SEQ, 3, 8}, {F_CE_TRK, 4, 5},
+    {F_CE_FROM_BAR, 5, 6}, {F_CE_FROM_BEAT, 5, 10}, {F_CE_FROM_TICK, 5, 13},
+    {F_CE_TO_BAR, 5, 16}, {F_CE_TO_BEAT, 5, 20}, {F_CE_TO_TICK, 5, 23}, {F_CE_NOTES, 6, 6},
+    {F_CE_TO_SEQ, 8, 8}, {F_CE_TO_TRK, 9, 5},
+    {F_CE_AT_BAR, 10, 6}, {F_CE_AT_BEAT, 10, 10}, {F_CE_AT_TICK, 10, 13},
+    {F_CE_MODE, 11, 5}, {F_CE_COPIES, 11, 21},
+};
+static const struct label CE_LABELS[] = {
+    {3, 0, "From Sq:"}, {4, 0, "Trk:"}, {5, 0, "Ticks:"}, {5, 9, "."}, {5, 12, "."}, {5, 15, "-"},
+    {5, 19, "."}, {5, 22, "."}, {6, 0, "Notes:"},
+    {8, 0, "To  Sq:"}, {9, 0, "Trk:"}, {10, 0, "Start:"}, {10, 9, "."}, {10, 12, "."},
+    {11, 0, "Mode:"}, {11, 14, "Copies:"},
+    {13, 0, "K1 Sq  K2 To Trk  K3 End"},
+};
+
+// Opens on the current sequence and active track, over the whole sequence, all notes, copying
+// into the same sequence and track, at its start, REPLACE.
+void seq_copyev_open(struct os *s) {
+    struct seq *sq = &s->seq;
+    pthread_mutex_lock(&sq->lock);
+    if (s->screen != OS_COPYEV && s->screen != OS_COPYBARS && s->screen != OS_SEQCOPY) s->ce_return = s->screen;
+    s->screen = OS_COPYEV;
+    s->ce_seq = s->ce_to_seq = sq->current;
+    s->ce_track = sq->track + 1;
+    s->ce_from = 0;
+    s->ce_to = (uint32_t)seq_length(current(s)); // all of it
+    memset(s->ce_notes, 0, sizeof s->ce_notes);
+    s->ce_count = 0;
+    s->ce_to_track = sq->track + 1; // the same track, as on the MPC3000
+    s->ce_at = 0, s->ce_replace = 1, s->ce_copies = 1; // REPLACE to start
+    s->cursor_ce = 0;
+    for (int k = 0; k < 3; k++) s->knob_caught[k] = 0; // the knobs catch up to the values
+    pthread_mutex_unlock(&sq->lock);
+}
+
+void seq_copyev_pad(struct os *s, int note) {
+    if (note < 0 || note >= 128) return;
+    s->ce_notes[note] = !s->ce_notes[note];
+    s->ce_count += s->ce_notes[note] ? 1 : -1;
+}
+
+static void copyev_do(struct os *s, struct ui *u) {
+    struct seq *sq = &s->seq;
+    os_undo_save(s, "Copy Events");
+    struct seq_copy_ev c = {
+        .from_seq = s->ce_seq, .from_track = s->ce_track - 1, .from = s->ce_from, .to = s->ce_to,
+        .notes = s->ce_count ? s->ce_notes : NULL, .to_seq = s->ce_to_seq, .to_track = s->ce_track ? s->ce_to_track - 1 : 0,
+        .at = s->ce_at, .replace = s->ce_replace, .copies = s->ce_copies,
+    };
+    int dropped = 0, n = seq_copy_events(sq, &c, &dropped);
+    char msg[40];
+    if (n < 0) snprintf(msg, sizeof msg, "Not enough memory");
+    else if (dropped) snprintf(msg, sizeof msg, "Copied %d (%d past the end)", n, dropped);
+    else snprintf(msg, sizeof msg, "Copied %d events", n);
+    os_toast(s, u, msg);
+}
+
+void seq_copyev_frame(struct os *s, struct ui *u, const struct input *in) {
+    struct seq *sq = &s->seq;
+    if (input_down(in, IN_B1) && in->shift) { // <Back>
+        s->screen = s->ce_return;
+        ui_wake(u, 1);
+        return;
+    }
+    if (input_down(in, IN_B1)) { // <CopySq>: a whole sequence over another
+        seq_copy_open(s);
+        ui_wake(u, 1);
+        return;
+    }
+    if (input_down(in, IN_B2)) { // <CopyBar>: bars copied, inserted or deleted
+        seq_copybars_open(s);
+        ui_wake(u, 1);
+        return;
+    }
+    if (input_down(in, IN_B3)) copyev_do(s, u); // <Do It>
+    pthread_mutex_lock(&sq->lock);
+    edit_fields(s, in, CE_FIELDS, COUNT(CE_FIELDS), &s->cursor_ce);
+    if (in->fader_moved) s->ce_track = 1 + in->fader * (SEQ_TRACKS - 1) / 127, s->cursor_ce = 1; // From track, 1 to 99
+    // K1 the From sequence, K2 the To track, K3 the end of the range (by bars).
+    int seq = knob_follow(s, in, 0, s->ce_seq, 0, SEQ_COUNT - 1);
+    if (seq != s->ce_seq) change(s, F_CE_SEQ, seq - s->ce_seq, 0), s->cursor_ce = 0;
+    int trk = knob_follow(s, in, 1, s->ce_to_track, 1, SEQ_TRACKS);
+    if (trk != s->ce_to_track && s->ce_track) s->ce_to_track = trk, s->cursor_ce = 10;
+    const struct seq_sequence *fq = &sq->sequence[s->ce_seq];
+    int bar = seq_bar_ticks(fq), endbar = (int)((s->ce_to + (uint32_t)bar - 1) / (uint32_t)bar);
+    int eb = knob_follow(s, in, 2, endbar, 1, fq->bars);
+    if (eb != endbar) {
+        s->ce_to = (uint32_t)eb * (uint32_t)bar;
+        if (s->ce_from >= s->ce_to) s->ce_from = s->ce_to - (uint32_t)bar;
+        s->cursor_ce = 5;
+    }
+    if (in->shift) lcd_text(u, 0, KEY_ROW, "<Back>");
+    else lcd_text(u, 0, KEY_ROW, "<CopySq>");
+    lcd_text(u, 9, KEY_ROW, "<CopyBar>");
+    lcd_text(u, 19, KEY_ROW, "<Do It>");
+    lcd_rule(u, TITLE_ROW, "Copy Events");
+    draw_labels(u, CE_LABELS, COUNT(CE_LABELS));
+    if (!s->ce_track) lcd_text(u, 5, 9, "(each its own)");
+    lcd_rule(u, 7, 0);
+    if (!s->ce_count) lcd_text(u, 14, 6, "(Press pads)");
+    draw_fields(s, u, CE_FIELDS, COUNT(CE_FIELDS), s->cursor_ce);
+    lcd_rule(u, BOTTOM_ROW, 0);
+    pthread_mutex_unlock(&sq->lock);
+}
+
+// ---- Copy Bars (B2 on Copy Events), after the MPC3000's Edit 5: copy, insert blank, delete ----
+
+static const struct field CB_FIELDS[] = {
+    {F_CB_MODE, 3, 6}, {F_CB_SEQ, 5, 9}, {F_CB_FIRST, 6, 11}, {F_CB_LAST, 7, 11},
+    {F_CB_TO_SEQ, 8, 9}, {F_CB_BEFORE, 9, 12}, {F_CB_COPIES, 10, 8}, {F_CB_COUNT, 10, 6},
+};
+
+void seq_copybars_open(struct os *s) {
+    struct seq *sq = &s->seq;
+    pthread_mutex_lock(&sq->lock);
+    s->screen = OS_COPYBARS;
+    s->cb_mode = CB_COPY;
+    s->cb_seq = s->cb_to_seq = sq->current;
+    s->cb_first = 1, s->cb_last = current(s)->bars;
+    s->cb_before = current(s)->bars + 1; // after the last bar
+    s->cb_copies = 1, s->cb_count = 1;
+    s->cursor_cb = 0;
+    pthread_mutex_unlock(&sq->lock);
+}
+
+static void copybars_do(struct os *s, struct ui *u) {
+    struct seq *sq = &s->seq;
+    char msg[40];
+    int rc, n = abs(s->cb_last - s->cb_first) + 1;
+    if (s->cb_mode == CB_COPY) {
+        os_undo_save(s, "Copy Bars");
+        rc = seq_copy_bars(sq, s->cb_seq, s->cb_first - 1, s->cb_last - 1, s->cb_to_seq, s->cb_before - 1, s->cb_copies);
+        if (rc == 0) snprintf(msg, sizeof msg, "Copied %d bar%s", n * s->cb_copies, n * s->cb_copies == 1 ? "" : "s");
+        else snprintf(msg, sizeof msg, "Too many bars (999 at most)");
+    } else if (s->cb_mode == CB_INSERT) {
+        os_undo_save(s, "Insert Bars");
+        rc = seq_insert_bars(sq, s->cb_seq, s->cb_before - 1, s->cb_count);
+        if (rc == 0) snprintf(msg, sizeof msg, "Inserted %d bar%s", s->cb_count, s->cb_count == 1 ? "" : "s");
+        else snprintf(msg, sizeof msg, "Too many bars (999 at most)");
+    } else {
+        pthread_mutex_lock(&sq->lock);
+        int all = n >= sq->sequence[s->cb_seq].bars;
+        pthread_mutex_unlock(&sq->lock);
+        if (all) {
+            os_toast(s, u, "A sequence keeps one bar");
+            return;
+        }
+        os_undo_save(s, "Delete Bars");
+        rc = seq_delete_bars(sq, s->cb_seq, s->cb_first - 1, s->cb_last - 1);
+        snprintf(msg, sizeof msg, rc == 0 ? "Deleted %d bar%s" : "Could not delete", n, n == 1 ? "" : "s");
+    }
+    // The bar numbers stay within the sequences as they are now.
+    pthread_mutex_lock(&sq->lock);
+    int bars = sq->sequence[s->cb_seq].bars;
+    s->cb_first = clampi(s->cb_first, 1, bars), s->cb_last = clampi(s->cb_last, 1, bars);
+    s->cb_before = clampi(s->cb_before, 1, sq->sequence[s->cb_mode == CB_COPY ? s->cb_to_seq : s->cb_seq].bars + 1);
+    pthread_mutex_unlock(&sq->lock);
+    os_toast(s, u, msg);
+}
+
+void seq_copybars_frame(struct os *s, struct ui *u, const struct input *in) {
+    struct seq *sq = &s->seq;
+    if (input_down(in, IN_B1)) { // <Back>: Copy Events
+        s->screen = OS_COPYEV;
+        ui_wake(u, 1);
+        return;
+    }
+    if (input_down(in, IN_B2)) s->cb_mode = (s->cb_mode + 1) % CB_MODES, s->cursor_cb = 0; // <Mode>
+    if (input_down(in, IN_B3)) copybars_do(s, u);                                         // <Do It>
+    pthread_mutex_lock(&sq->lock);
+    edit_fields(s, in, CB_FIELDS, COUNT(CB_FIELDS), &s->cursor_cb);
+    lcd_text(u, 0, KEY_ROW, "<Back>");
+    lcd_text(u, 9, KEY_ROW, "<Mode>");
+    lcd_text(u, 19, KEY_ROW, "<Do It>");
+    static const char *const TITLE[CB_MODES] = {"Copy Bars", "Insert Blank Bars", "Delete Bars"};
+    lcd_rule(u, TITLE_ROW, TITLE[s->cb_mode]);
+    lcd_text(u, 0, 3, "Mode:");
+    lcd_text(u, 0, 5, s->cb_mode == CB_COPY ? "From Sq:" : "Sequence:");
+    if (s->cb_mode != CB_INSERT) lcd_text(u, 0, 6, "First bar:"), lcd_text(u, 0, 7, "Last bar:");
+    if (s->cb_mode == CB_COPY) lcd_text(u, 0, 8, "To   Sq:"), lcd_text(u, 0, 10, "Copies:");
+    if (s->cb_mode != CB_DELETE) lcd_text(u, 0, 9, "Before bar:");
+    if (s->cb_mode == CB_INSERT) lcd_text(u, 0, 10, "Bars:");
+    draw_fields(s, u, CB_FIELDS, COUNT(CB_FIELDS), s->cursor_cb);
+    lcd_rule(u, BOTTOM_ROW, 0);
+    pthread_mutex_unlock(&sq->lock);
+}
+
 void seq_metro_frame(struct os *s, struct ui *u, const struct input *in) {
     struct seq *sq = &s->seq;
     if (input_down(in, IN_B1)) {
@@ -1541,6 +1831,7 @@ void seq_transport(struct os *s, struct ui *u, const struct input *in) {
         os_undo_save(s, "Record");
     if (input_down(in, IN_PLAY) && s->screen == OS_SONG) // the Song page: the song, from the selected step
         seq_song_play(sq, s->song_sel, s->song_step_sel);
+    else if (input_down(in, IN_PLAY) && playing && !in->shift) seq_restart(sq); // pressed again: from the start
     else if (input_down(in, IN_PLAY)) seq_play(sq, !in->shift); // Shift + PLAY continues from where it stopped
     if (input_down(in, IN_STOP)) seq_stop(sq, in->shift);
     if (input_down(in, IN_SEQ_REC)) {
@@ -1680,11 +1971,12 @@ void seq_lights(struct ui *u, struct os *s) {
 void seq_copy_open(struct os *s) {
     struct seq *sq = &s->seq;
     pthread_mutex_lock(&sq->lock);
+    if (s->screen != OS_SEQCOPY) s->copy_return = s->screen == OS_COPYEV ? OS_COPYEV : OS_MAIN;
     s->screen = OS_SEQCOPY;
-    s->copy_from = sq->current;
-    s->copy_to = (sq->current + 1) % SEQ_COUNT;
+    s->copy_from = s->copy_return == OS_COPYEV ? s->ce_seq : sq->current;
+    s->copy_to = (s->copy_from + 1) % SEQ_COUNT;
     for (int i = 1; i < SEQ_COUNT; i++) {
-        int n = (sq->current + i) % SEQ_COUNT;
+        int n = (s->copy_from + i) % SEQ_COUNT;
         if (!seq_used(&sq->sequence[n])) {
             s->copy_to = n;
             break;
@@ -1713,7 +2005,7 @@ void seq_copy_frame(struct os *s, struct ui *u, const struct input *in) {
         if (input_down(in, IN_B1)) s->copy_ask = 0;
         else if (input_down(in, IN_B3)) s->copy_ask = 0, copy_do(s, u);
     } else if (input_down(in, IN_B1)) { // <Back>
-        s->screen = OS_MAIN;
+        s->screen = s->copy_return;
         ui_wake(u, 1);
         return;
     } else if (input_down(in, IN_B3) && s->copy_from != s->copy_to) { // <Copy>

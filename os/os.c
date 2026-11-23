@@ -664,26 +664,6 @@ static void set_page(struct os *s, int page) {
 
 static void active_track(struct os *s, int *type, int *channel);
 
-// SHIFT + ERASE (COPY): Program Config on the pad pressed last, its Copy started: the next pad
-// pressed takes a copy of it.
-static void copy_pad_open(struct os *s, struct ui *u) {
-    int type, channel;
-    active_track(s, &type, &channel);
-    if (type == TRACK_MIDI) {
-        toast(s, u, "MIDI track: no program");
-        return;
-    }
-    s->screen = OS_PROGRAM;
-    s->pgm_ask = 0;
-    s->bank = s->selected / 16; // the list shows the pad's bank
-    if (s->pads[s->selected].s) {
-        s->pgm_mode = PGM_COPY;
-    } else {
-        s->pgm_mode = PGM_NONE;
-        toast(s, u, "Pad is empty");
-    }
-}
-
 // The Trim page, from anywhere (the S600's, on an S600 program).
 static void open_trim(struct os *s) {
     if (os_plays_s600(s)) {
@@ -1274,6 +1254,7 @@ static void pad_down(struct os *s, struct ui *u, const struct input *in, int i) 
     }
     if (s->screen == OS_TC) seq_tc_pad(s, note);
     if (s->screen == OS_ERASE) seq_erase_pad(s, note);
+    if (s->screen == OS_COPYEV) seq_copyev_pad(s, note);
     if (padnotes_pad(s, u, slot)) return; // Pad Notes: a pad picks the one to set
     infx_pad_pressed(s, slot);            // Pad Effects: the chain goes to the pad pressed
     multi_pad(s, slot);                   // MULTI, the cursor on a Zone: that pad is the zone
@@ -1281,9 +1262,13 @@ static void pad_down(struct os *s, struct ui *u, const struct input *in, int i) 
         select_pad(s, type == TRACK_MIDI ? slot : note);
         return;
     }
-    if (s->screen == OS_STEP) step_pad(s, note, tune, vel); // Step Edit: a note at Now
+    // Step Edit: the Grid's pads select a row only; the list's put a note in at Now, while
+    // stopped (running, a pad plays and records as anywhere, so one press is one note).
+    int stepped = s->screen == OS_STEP && !s->step_grid && s->seq.mode == SEQ_STOPPED;
+    if (s->screen == OS_STEP && s->step_grid) step_grid_pad(s, note, tune, vel);
+    else if (stepped) step_pad(s, note, tune, vel);
     int midi = type == TRACK_MIDI && s->screen != OS_SAMPLE && s->screen != OS_LOOP && s->screen != OS_S600;
-    int record = 1; // (SAMPLE + pad, which only selects, has returned above)
+    int record = !stepped; // (SAMPLE + pad, which only selects, has returned above)
     seq_wait_start(&s->seq); // waiting for a key: this hit starts the recording
     if (!s->midi.local && type != TRACK_MIDI && !s->seq.repeat) { // Local Mode off: MIDI out, no sound here
         int ch = channel > 0 ? channel : s->midi.base, out = s->levels_on || os_plays_s600(s) ? 60 + tune : seq_pad_note(note);
@@ -2923,7 +2908,8 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         s->screen == OS_PRINT || s->screen == OS_INFX || s->screen == OS_MUTE || s->screen == OS_HELP ||
         s->screen == OS_MASTER || s->screen == OS_SENDS || s->screen == OS_SONG || s->screen == OS_STEP ||
         s->screen == OS_WARP || s->screen == OS_PREFS || s->screen == OS_DISK || s->screen == OS_SEQCOPY ||
-        s->screen == OS_ARPEDIT || s->screen == OS_MULTI || s->screen == OS_INSERT) {
+        s->screen == OS_ARPEDIT || s->screen == OS_MULTI || s->screen == OS_INSERT || s->screen == OS_COPYEV ||
+        s->screen == OS_COPYBARS) {
         if (input_down(in, IN_MUTE) && !in->shift) mute_open(s); // the Track Mute page
         if (input_down(in, IN_MUTE) && in->shift) mute_unmute_all(s, u); // UNMUTE ALL
         if (input_down(in, IN_SAMPLE_REC) && in->shift) { // the main page: back a bar. Elsewhere: help
@@ -2999,7 +2985,9 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
     if (input_down(in, IN_ERASE) && naming) s->erase_used = 1;
     if (input_down(in, IN_ERASE) && in->shift && !naming && s->screen != OS_TITLE && s->screen != OS_SHUTDOWN) {
         s->erase_used = 1; // COPY, not a tap of ERASE
-        copy_pad_open(s, u);
+        if (s->screen == OS_COPYEV) s->screen = s->ce_return; // pressed again: back
+        else seq_copyev_open(s);
+        ui_wake(u, 1);
     }
     // Note Repeat works while NOTE REPEAT is held. Shift + NOTE REPEAT: the page for its rate.
     if (input_down(in, IN_NOTE_REPEAT) && in->shift && s->screen != OS_TITLE) seq_repeat_open(s);
@@ -3063,6 +3051,12 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         break;
     case OS_SEQCOPY:
         seq_copy_frame(s, u, in);
+        break;
+    case OS_COPYEV:
+        seq_copyev_frame(s, u, in);
+        break;
+    case OS_COPYBARS:
+        seq_copybars_frame(s, u, in);
         break;
     case OS_ARPEDIT:
         arpedit_frame(s, u, in);

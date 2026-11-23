@@ -201,6 +201,7 @@ void seq_audio_block(void *seq, struct engine *e, int frames);
 
 // UI thread. Each takes the lock itself.
 void seq_play(struct seq *s, int from_start);
+void seq_restart(struct seq *s); // PLAY again while playing: from the start
 void seq_stop(struct seq *s, int to_start);
 // Plays from the start after `bars` of count-in (0: at once), whatever REC is armed: for
 // audio track and resample takes, which need the frame where the sequence starts.
@@ -246,6 +247,24 @@ int seq_erase_range(struct seq *s, int sequence, int track, uint32_t from, uint3
 // Bars: longer, the new bars empty or (dup) repeating the old ones from bar 1 round again;
 // shorter, everything past the new end goes. 0, or -1 when memory ran out.
 int seq_set_bars(struct seq *s, int sequence, int bars, int dup);
+// Copy Events: notes and fader moves in [from, to) of a track (from_track -1: every track, each
+// onto its own number) copied to start at `at` in to_seq's to_track, `copies` times end to end.
+// replace: what was there in that span goes first. notes NULL: all. Past to_seq's end is left
+// out (*dropped counts it). How many went in, or -1.
+struct seq_copy_ev {
+    int from_seq, from_track;
+    uint32_t from, to;
+    const unsigned char *notes;
+    int to_seq, to_track;
+    uint32_t at;
+    int replace, copies;
+};
+int seq_copy_events(struct seq *s, const struct seq_copy_ev *c, int *dropped);
+// Bars, 0 the first: blank bars before bar `before`; bars first..last taken out (a sequence keeps
+// one); first..last of one sequence copied in before `before` of another, `copies` times. 0, or -1.
+int seq_insert_bars(struct seq *s, int sequence, int before, int count);
+int seq_delete_bars(struct seq *s, int sequence, int first, int last);
+int seq_copy_bars(struct seq *s, int from_seq, int first, int last, int to_seq, int before, int copies);
 // BPM doubled (twice) or halved. comp, note-value compensation: the music keeps its speed
 // (doubled: every event twice as far along and the bars doubled; halved: squeezed into the
 // first half and repeated in the second). Without it only the BPM changes. -1 out of range.

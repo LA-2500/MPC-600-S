@@ -1053,6 +1053,18 @@ void seq_play(struct seq *s, int from_start) {
     pthread_mutex_unlock(&s->lock);
 }
 
+// PLAY again while playing: back to the start, the notes sounding let go first.
+void seq_restart(struct seq *s) {
+    pthread_mutex_lock(&s->lock);
+    if (s->mode == SEQ_PLAYING && !s->song_on) {
+        s->stop_flush = 1;
+        s->pos = 0;
+        if (s->sync_send) send1(s, 0xfc), send1(s, 0xfa); // Stop, then Start
+        send_programs(s);
+    }
+    pthread_mutex_unlock(&s->lock);
+}
+
 void seq_play_count_in(struct seq *s, int bars) {
     pthread_mutex_lock(&s->lock);
     const struct seq_sequence *q = &s->sequence[s->current];
@@ -1469,6 +1481,223 @@ int seq_set_bars(struct seq *s, int sequence, int bars, int dup) {
     q->bars = bars;
     if (q->loop_bar > bars) q->loop_bar = bars;
     if (s->pos >= (double)len) s->pos = 0;
+    pthread_mutex_unlock(&s->lock);
+    return rc;
+}
+
+// ---- Copy Events, and bars inserted, deleted or copied (after the MPC3000's Edit 5 and 6) ----
+
+// A track's events gathered to be put somewhere else: notes in [from, to) whose note is picked
+// (notes NULL: all), and fader moves on those pads.
+struct gathered {
+    struct seq_note *n;
+    struct seq_auto *a;
+    int nn, na;
+};
+
+static int gather(const struct seq_track *k, uint32_t from, uint32_t to, const unsigned char *notes, struct gathered *g) {
+    memset(g, 0, sizeof *g);
+    int nn = 0, na = 0;
+    for (int i = 0; i < k->count; i++) nn += k->notes[i].tick >= from && k->notes[i].tick < to && (!notes || notes[k->notes[i].note]);
+    for (int i = 0; i < k->nauto; i++) na += k->autos[i].tick >= from && k->autos[i].tick < to && (!notes || notes[k->autos[i].pad]);
+    g->n = nn ? malloc((size_t)nn * sizeof *g->n) : 0;
+    g->a = na ? malloc((size_t)na * sizeof *g->a) : 0;
+    if ((nn && !g->n) || (na && !g->a)) return free(g->n), free(g->a), -1;
+    for (int i = 0; i < k->count; i++)
+        if (k->notes[i].tick >= from && k->notes[i].tick < to && (!notes || notes[k->notes[i].note])) g->n[g->nn++] = k->notes[i];
+    for (int i = 0; i < k->nauto; i++)
+        if (k->autos[i].tick >= from && k->autos[i].tick < to && (!notes || notes[k->autos[i].pad])) g->a[g->na++] = k->autos[i];
+    return 0;
+}
+
+// Puts gathered events in, `shift` ticks on from where they were, all but those at or past `end`.
+// How many went in, or -1 when memory runs out.
+static int put(struct seq_track *k, const struct gathered *g, long shift, uint32_t end) {
+    if (k->count + g->nn > k->cap) {
+        int cap = k->count + g->nn + 16;
+        struct seq_note *x = realloc(k->notes, (size_t)cap * sizeof *x);
+        if (!x) return -1;
+        k->notes = x, k->cap = cap;
+    }
+    if (k->nauto + g->na > k->capauto) {
+        int cap = k->nauto + g->na + 16;
+        struct seq_auto *x = realloc(k->autos, (size_t)cap * sizeof *x);
+        if (!x) return -1;
+        k->autos = x, k->capauto = cap;
+    }
+    int in = 0;
+    for (int i = 0; i < g->nn; i++) {
+        long t = (long)g->n[i].tick + shift;
+        if (t < 0 || t >= (long)end) continue;
+        struct seq_note c = g->n[i];
+        c.tick = (uint32_t)t, c.fresh = 0;
+        k->notes[k->count++] = c, in++;
+    }
+    for (int i = 0; i < g->na; i++) {
+        long t = (long)g->a[i].tick + shift;
+        if (t < 0 || t >= (long)end) continue;
+        struct seq_auto c = g->a[i];
+        c.tick = (uint32_t)t;
+        k->autos[k->nauto++] = c;
+    }
+    qsort(k->notes, (size_t)k->count, sizeof k->notes[0], by_tick);
+    qsort(k->autos, (size_t)k->nauto, sizeof k->autos[0], auto_by_tick);
+    return in;
+}
+
+// Takes out a track's events in [from, to) (notes NULL: all of them).
+static void cut_span(struct seq_track *k, uint32_t from, uint32_t to) {
+    int w = 0;
+    for (int i = 0; i < k->count; i++)
+        if (!(k->notes[i].tick >= from && k->notes[i].tick < to)) k->notes[w++] = k->notes[i];
+    k->count = w;
+    w = 0;
+    for (int i = 0; i < k->nauto; i++)
+        if (!(k->autos[i].tick >= from && k->autos[i].tick < to)) k->autos[w++] = k->autos[i];
+    k->nauto = w;
+}
+
+int seq_copy_events(struct seq *s, const struct seq_copy_ev *c, int *dropped) {
+    if (dropped) *dropped = 0;
+    if (c->from_seq < 0 || c->from_seq >= SEQ_COUNT || c->to_seq < 0 || c->to_seq >= SEQ_COUNT) return -1;
+    if (c->from_track >= SEQ_TRACKS || c->to_track < 0 || c->to_track >= SEQ_TRACKS) return -1;
+    uint32_t from = c->from < c->to ? c->from : c->to, to = c->from < c->to ? c->to : c->from;
+    if (to == from) return 0;
+    int copies = c->copies < 1 ? 1 : c->copies > 999 ? 999 : c->copies, total = 0;
+    pthread_mutex_lock(&s->lock);
+    struct seq_sequence *dq = &s->sequence[c->to_seq];
+    uint32_t end = (uint32_t)seq_length(dq), span = to - from;
+    for (int t = 0; t < SEQ_TRACKS && total >= 0; t++) {
+        if (c->from_track >= 0 && t != c->from_track) continue;
+        int dt = c->from_track < 0 ? t : c->to_track;
+        struct gathered g;
+        if (gather(&s->sequence[c->from_seq].track[t], from, to, c->notes, &g) != 0) {
+            total = -1;
+            break;
+        }
+        struct seq_track *k = &dq->track[dt];
+        if (c->replace) cut_span(k, c->at, (uint32_t)((uint64_t)c->at + (uint64_t)span * copies > end ? end : c->at + span * copies));
+        for (int n = 0; n < copies; n++) {
+            long shift = (long)c->at + (long)span * n - (long)from;
+            int in = put(k, &g, shift, end);
+            if (in < 0) {
+                total = -1;
+                break;
+            }
+            total += in;
+            if (dropped) *dropped += g.nn - in;
+        }
+        free(g.n), free(g.a);
+    }
+    pthread_mutex_unlock(&s->lock);
+    return total;
+}
+
+// Moves events at or after `at` by `d` ticks (negative: earlier). Caller holds the lock.
+static void shift_from(struct seq_track *k, uint32_t at, long d) {
+    for (int i = 0; i < k->count; i++)
+        if (k->notes[i].tick >= at) k->notes[i].tick = (uint32_t)((long)k->notes[i].tick + d);
+    for (int i = 0; i < k->nauto; i++)
+        if (k->autos[i].tick >= at) k->autos[i].tick = (uint32_t)((long)k->autos[i].tick + d);
+}
+
+// Caller holds the lock.
+static int insert_bars_locked(struct seq *s, int sequence, int before, int count) {
+    struct seq_sequence *q = &s->sequence[sequence];
+    if (count < 1 || q->bars + count > SEQ_MAX_BARS) return -1;
+    if (before < 0) before = 0;
+    if (before > q->bars) before = q->bars;
+    uint32_t bar = (uint32_t)seq_bar_ticks(q), at = (uint32_t)before * bar;
+    for (int t = 0; t < SEQ_TRACKS; t++) shift_from(&q->track[t], at, (long)count * bar);
+    q->bars += count;
+    if (q->loop_bar > before) q->loop_bar += count;
+    return 0;
+}
+
+int seq_insert_bars(struct seq *s, int sequence, int before, int count) {
+    if (sequence < 0 || sequence >= SEQ_COUNT) return -1;
+    pthread_mutex_lock(&s->lock);
+    int rc = insert_bars_locked(s, sequence, before, count);
+    pthread_mutex_unlock(&s->lock);
+    return rc;
+}
+
+int seq_delete_bars(struct seq *s, int sequence, int first, int last) {
+    if (sequence < 0 || sequence >= SEQ_COUNT) return -1;
+    pthread_mutex_lock(&s->lock);
+    struct seq_sequence *q = &s->sequence[sequence];
+    if (first > last) { int x = first; first = last, last = x; }
+    if (first < 0) first = 0;
+    if (last >= q->bars) last = q->bars - 1;
+    int n = last - first + 1;
+    if (n < 1 || n >= q->bars) { // a sequence keeps at least one bar
+        pthread_mutex_unlock(&s->lock);
+        return -1;
+    }
+    uint32_t bar = (uint32_t)seq_bar_ticks(q), from = (uint32_t)first * bar, to = (uint32_t)(last + 1) * bar;
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        cut_span(&q->track[t], from, to);
+        shift_from(&q->track[t], to, -(long)(to - from));
+    }
+    q->bars -= n;
+    if (q->loop_bar > last + 1) q->loop_bar -= n;
+    else if (q->loop_bar > first + 1) q->loop_bar = first + 1;
+    if (q->loop_bar > q->bars) q->loop_bar = q->bars;
+    if (s->current == sequence && s->pos >= seq_length(q)) s->pos = 0;
+    pthread_mutex_unlock(&s->lock);
+    return 0;
+}
+
+int seq_copy_bars(struct seq *s, int from_seq, int first, int last, int to_seq, int before, int copies) {
+    if (from_seq < 0 || from_seq >= SEQ_COUNT || to_seq < 0 || to_seq >= SEQ_COUNT) return -1;
+    pthread_mutex_lock(&s->lock);
+    struct seq_sequence *fq = &s->sequence[from_seq], *tq = &s->sequence[to_seq];
+    if (first > last) { int x = first; first = last, last = x; }
+    if (first < 0) first = 0;
+    if (last >= fq->bars) last = fq->bars - 1;
+    if (copies < 1) copies = 1;
+    int n = last - first + 1, rc = 0;
+    if (before < 0) before = 0;
+    if (before > tq->bars) before = tq->bars;
+    if (n < 1 || tq->bars + n * copies > SEQ_MAX_BARS) {
+        pthread_mutex_unlock(&s->lock);
+        return -1;
+    }
+    uint32_t fbar = (uint32_t)seq_bar_ticks(fq), tbar = (uint32_t)seq_bar_ticks(tq);
+    // Gathered before the bars open up, so copying a sequence into itself takes the bars as they were.
+    struct gathered g[SEQ_TRACKS];
+    for (int t = 0; t < SEQ_TRACKS; t++)
+        if (gather(&fq->track[t], (uint32_t)first * fbar, (uint32_t)(last + 1) * fbar, NULL, &g[t]) != 0) {
+            for (int u = 0; u < t; u++) free(g[u].n), free(g[u].a);
+            pthread_mutex_unlock(&s->lock);
+            return -1;
+        }
+    insert_bars_locked(s, to_seq, before, n * copies);
+    for (int t = 0; t < SEQ_TRACKS && rc == 0; t++) {
+        struct seq_track *k = &tq->track[t];
+        // Bar by bar, so a bar of another length keeps each event's place in its bar (what
+        // does not fit in a shorter bar is left out).
+        for (int c = 0; c < copies && rc == 0; c++)
+            for (int b = 0; b < n && rc == 0; b++) {
+                struct gathered one = {0};
+                uint32_t sb = (uint32_t)(first + b) * fbar;
+                uint32_t db = (uint32_t)(before + c * n + b) * tbar;
+                for (int i = 0; i < g[t].nn; i++) one.nn += g[t].n[i].tick >= sb && g[t].n[i].tick < sb + fbar && g[t].n[i].tick - sb < tbar;
+                for (int i = 0; i < g[t].na; i++) one.na += g[t].a[i].tick >= sb && g[t].a[i].tick < sb + fbar && g[t].a[i].tick - sb < tbar;
+                if (!one.nn && !one.na) continue;
+                one.n = one.nn ? malloc((size_t)one.nn * sizeof *one.n) : 0;
+                one.a = one.na ? malloc((size_t)one.na * sizeof *one.a) : 0;
+                if ((one.nn && !one.n) || (one.na && !one.a)) rc = -1;
+                int x = 0, y = 0;
+                for (int i = 0; rc == 0 && i < g[t].nn; i++)
+                    if (g[t].n[i].tick >= sb && g[t].n[i].tick < sb + fbar && g[t].n[i].tick - sb < tbar) one.n[x++] = g[t].n[i];
+                for (int i = 0; rc == 0 && i < g[t].na; i++)
+                    if (g[t].a[i].tick >= sb && g[t].a[i].tick < sb + fbar && g[t].a[i].tick - sb < tbar) one.a[y++] = g[t].a[i];
+                if (rc == 0 && put(k, &one, (long)db - (long)sb, (uint32_t)seq_length(tq)) < 0) rc = -1;
+                free(one.n), free(one.a);
+            }
+    }
+    for (int t = 0; t < SEQ_TRACKS; t++) free(g[t].n), free(g[t].a);
     pthread_mutex_unlock(&s->lock);
     return rc;
 }

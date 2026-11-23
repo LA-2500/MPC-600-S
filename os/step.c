@@ -121,12 +121,18 @@ static void grid_midi_open(struct os *s) {
 }
 
 // A pad on this page: a note at Now, a Step long (or its velocity, if that pad is already there).
-void step_pad(struct os *s, int note, int tune, int vel) {
+// The Grid: a pad selects its row, nothing more (B1 puts notes in).
+void step_grid_pad(struct os *s, int note, int tune, int vel) {
     if (s->screen != OS_STEP) return;
-    struct seq *sq = &s->seq;
     int mode = grid_mode(s), r = note_row(s, mode, note, tune, vel);
     if (mode == G_MIDI) midi_select(s, note);
     else if (r >= 0) s->step_row = r;
+}
+
+void step_pad(struct os *s, int note, int tune, int vel) {
+    if (s->screen != OS_STEP) return;
+    struct seq *sq = &s->seq;
+    step_grid_pad(s, note, tune, vel);
     os_undo_save(s, "Step Edit");
     pthread_mutex_lock(&sq->lock);
     struct seq_track *k = &sq->sequence[sq->current].track[sq->track];
@@ -348,21 +354,49 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
         if (t >= 0 && t < len) s->step_tick = (uint32_t)t, moved = 1;
     }
     pthread_mutex_unlock(&sq->lock);
-    if (in->encoder) {
+    if (in->encoder && !in->shift) {
         if (mode == G_MIDI) midi_select(s, s->step_mnote + in->encoder);
         else s->step_row = clampi(s->step_row + in->encoder, 0, G_ROWS - 1);
     }
     int row = mode == G_MIDI ? s->step_mnote - s->step_mtop : s->step_row;
-    if (input_down(in, IN_B1)) { // <Dot>: the selected row's note at Now, in or out (all of them, if several)
+    // SHIFT + the wheel moves Now a tick at a time. SHIFT + B1 on a note: <Ghost> makes it a ghost
+    // note (48, a hollow diamond), <Full> puts it back to 127. Not with 16 Levels Velocity, where
+    // the rows are the velocities.
+    int on_note = 0, ghost = 0;
+    pthread_mutex_lock(&sq->lock);
+    for (int i = 0; i < k->count; i++)
+        if (k->notes[i].tick == s->step_tick && note_row(s, mode, k->notes[i].note, k->notes[i].tune, k->notes[i].vel) == row)
+            on_note = 1, ghost = k->notes[i].vel < 64;
+    pthread_mutex_unlock(&sq->lock);
+    if (in->shift && in->encoder) {
+        pthread_mutex_lock(&sq->lock);
+        s->step_tick = (uint32_t)clampi((int)s->step_tick + in->encoder, 0, len - 1);
+        pthread_mutex_unlock(&sq->lock);
+        moved = 1;
+    } else if (in->shift && input_down(in, IN_B1) && on_note && mode != G_VEL) {
+        os_undo_save(s, "Grid Velocity");
+        pthread_mutex_lock(&sq->lock);
+        for (int i = 0; i < k->count; i++) {
+            struct seq_note *nt = &k->notes[i];
+            if (nt->tick != s->step_tick || note_row(s, mode, nt->note, nt->tune, nt->vel) != row) continue;
+            nt->vel = (uint8_t)(ghost ? 127 : 48);
+        }
+        pthread_mutex_unlock(&sq->lock);
+    } else if (in->shift && input_down(in, IN_B1)) {
+        os_toast(s, u, mode == G_VEL ? "16 Levels Velocity: rows are velocities" : "No note here");
+    }
+    // B1: the selected row's note at Now: <Insert> it, or where there is one, <Delete> it (all, if several).
+    if (input_down(in, IN_B1) && !in->shift) {
         int note, tune, vel, found = 0;
         row_key(s, mode, row, &note, &tune, &vel);
         pthread_mutex_lock(&sq->lock);
         for (int i = 0; i < k->count; i++)
             found += k->notes[i].tick == s->step_tick && note_row(s, mode, k->notes[i].note, k->notes[i].tune, k->notes[i].vel) == row;
         pthread_mutex_unlock(&sq->lock);
-        os_undo_save(s, found ? "Grid Remove" : "Grid Note");
+        int del = found > 0;
+        os_undo_save(s, del ? "Grid Delete" : "Grid Insert");
         pthread_mutex_lock(&sq->lock);
-        if (found) {
+        if (del && found) {
             int j = 0;
             for (int i = 0; i < k->count; i++)
                 if (!(k->notes[i].tick == s->step_tick && note_row(s, mode, k->notes[i].note, k->notes[i].tune, k->notes[i].vel) == row))
@@ -370,8 +404,8 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
             k->count = j;
         }
         pthread_mutex_unlock(&sq->lock);
-        if (!found) {
-            if (!vel) vel = s->full_level ? 127 : 100;
+        if (!del && !found) {
+            if (!vel) vel = 127; // full level; SHIFT + B1 <Ghost> makes it soft
             seq_add_note(sq, sq->current, sq->track, s->step_tick, note, vel, step * 9 / 10 > 0 ? step * 9 / 10 : 1);
             pthread_mutex_lock(&sq->lock); // its tuning (16 Levels Tune) goes with it
             for (int i = k->count - 1; tune && i >= 0; i--) // the one just put in: the last on this tick
@@ -386,7 +420,6 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
     if (moved) audition(s);
 
     // ---- Drawing ----
-    lcd_text(u, 0, KEY_ROW, "<Dot>");
     lcd_text(u, 9, KEY_ROW, "<<Page");
     lcd_text(u, 18, KEY_ROW, "Page>>");
     pthread_mutex_lock(&sq->lock);
@@ -412,6 +445,8 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
              (int)(shown % (uint32_t)bar / (uint32_t)beat) + 1, (int)(shown % (uint32_t)beat), STEPS[sq->tc]);
     lcd_small_text(u, 4, 34, line, LCD_FG);
     if (!now_here) here = 0; // Now is on another page: nothing under it shown here
+    // What B1 does to the cell under the cursor; with SHIFT, soften it or put it back.
+    lcd_text(u, 0, KEY_ROW, in->shift && here && mode != G_VEL ? (vel < 64 ? "<Full>" : "<Ghost>") : here ? "<Delete>" : "<Insert>");
     if (here > 1) snprintf(line, sizeof line, "%2d notes", here);
     else if (here) snprintf(line, sizeof line, " Vel %3d", vel);
     else snprintf(line, sizeof line, " Vel ---");
@@ -443,21 +478,6 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
             for (int y = G_Y; y < G_Y + G_ROWS * G_H; y += 2)
                 for (int xx = x + 1 + (y / 2 & 1); xx < x + G_W; xx += 2) lcd_fill(u, xx, y, 1, 1, LCD_FG);
     }
-    // Playing: the rows with a note sounding now, lit (a short note stays lit for a step).
-    int active[G_ROWS] = {0};
-    for (int i = 0; playing && i < k->count; i++) {
-        const struct seq_note *nt = &k->notes[i];
-        uint32_t held = nt->dur > (uint32_t)step ? nt->dur : (uint32_t)step;
-        if (nt->tick > play || play >= nt->tick + held) continue;
-        int r = note_row(s, mode, nt->note, nt->tune, nt->vel);
-        if (r >= 0 && r < G_ROWS) active[r] = 1;
-    }
-    for (int r = 0; r < G_ROWS; r++) // across the steps: a solid line above and below the row
-        if (active[r]) {
-            int y = G_Y + r * G_H;
-            hline(u, G_X, y, UI_W - G_X, 0), hline(u, G_X, y + 1, UI_W - G_X, 0);
-            hline(u, G_X, y + G_H - 2, UI_W - G_X, 0), hline(u, G_X, y + G_H - 1, UI_W - G_X, 0);
-        }
     // The rows' names: the pad and its sound; the level; the note.
     for (int r = 0; r < G_ROWS; r++) {
         int y = G_Y + r * G_H, slot = s->bank * 16 + r, sel = r == row, note, tune, v;
@@ -469,10 +489,8 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
         } else if (mode == G_TUNE) snprintf(line, sizeof line, "%c%02d %+d", 'A' + note / 16, note % 16 + 1, tune);
         else if (mode == G_VEL) snprintf(line, sizeof line, "%c%02d v%d", 'A' + note / 16, note % 16 + 1, v);
         else snprintf(line, sizeof line, "%c%02d %.6s", 'A' + slot / 16, slot % 16 + 1, s->pads[slot].s ? s->pads[slot].name : "");
-        int lit = sel || active[r];
-        if (lit) lcd_fill(u, 0, y, G_X - 1, G_H - 1, LCD_FG);
-        if (sel && active[r]) lcd_fill(u, 1, y + 1, G_X - 3, G_H - 3, LCD_BG), lit = 0; // the selected row sounding: a box
-        lcd_small_text(u, 2, y + 2, line, lit ? LCD_BG : LCD_FG);
+        if (sel) lcd_fill(u, 0, y, G_X - 1, G_H - 1, LCD_FG);
+        lcd_small_text(u, 2, y + 2, line, sel ? LCD_BG : LCD_FG);
         if (r < G_ROWS - 1) hline(u, 0, y + G_H - 1, G_X - 1, 1);
     }
     if (mode == G_MIDI) { // more above, more below: arrows by the names
@@ -509,5 +527,5 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
     }
     pthread_mutex_unlock(&sq->lock);
     hline(u, 0, G_Y + G_ROWS * G_H, UI_W, 0);
-    if (playing || sq->mode != SEQ_STOPPED) ui_wake(u, 40); // the play line, the page and the lit rows keep moving
+    if (playing || sq->mode != SEQ_STOPPED) ui_wake(u, 40); // the play line and the page keep moving
 }

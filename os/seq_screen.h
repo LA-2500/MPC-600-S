@@ -19,6 +19,11 @@ void seq_erase_pad(struct os *s, int note); // a pad hit picks the notes to eras
 void seq_copy_open(struct os *s);
 void seq_copy_frame(struct os *s, struct ui *u, const struct input *in);
 void seq_copy_pad(struct os *s, int pad); // a pad picks the sequence to copy to
+void seq_copyev_open(struct os *s); // SHIFT + ERASE: Copy Events
+void seq_copyev_frame(struct os *s, struct ui *u, const struct input *in);
+void seq_copyev_pad(struct os *s, int note); // a pad hit picks the notes copied
+void seq_copybars_open(struct os *s);
+void seq_copybars_frame(struct os *s, struct ui *u, const struct input *in);
 void seq_mixer_open(struct os *s);
 void seq_mixer_frame(struct os *s, struct ui *u, const struct input *in);
 void seq_mixer_pad(struct os *s, int pad); // a pad hit picks the channel: pad bank * 16 + pad

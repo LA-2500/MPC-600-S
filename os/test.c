@@ -3209,6 +3209,36 @@ static void test_snd_and_name_erase(void) {
     const struct os_pad *q = &os.pads[1];
     CHECK(q->s && q->s->frames == 1000 && q->p.start == 10 && q->p.end == 900 && q->p.loop == 500 && q->p.loop_on);
     CHECK(q->p.semi == -2 && q->p.fine == -50 && strcmp(q->name, "BASS1") == 0);
+    // The MPC 3000's .SND: version 2, a 38-byte header. This one's header as the MPC 3000 (OS 3.12,
+    // in MAME) saved it: TESTV0, level 100, tune -17, 441 frames, bytes 34-37 d0 07 01 00.
+    {
+        static const unsigned char H3000[38] = {1, 2, 'T', 'E', 'S', 'T', 'V', '0', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
+                                               0, 100, 0xef, 0, 0, 0, 0, 0, 0xb9, 1, 0, 0, 0xb9, 1, 0, 0, 0xd0, 0x07, 1, 0};
+        size_t len = 38 + 441 * 2;
+        unsigned char *b3 = calloc(1, len);
+        memcpy(b3, H3000, 38);
+        b3[38] = 0x10, b3[39] = 0x27; // the first sample, 10000
+        struct snd_info i3;
+        struct sample *z = snd_parse(b3, len, &i3);
+        CHECK(z && z->frames == 441 && z->channels == 1 && z->rate == 44100 && i3.mpc3000 && i3.tune == -17 && i3.end == 441);
+        CHECK(z && fabsf(z->data[0] - 10000 / 32768.0f) < 0.0001f && strcmp(i3.name, "TESTV0") == 0 && !i3.loop_on);
+        if (z) free(z->data), free(z);
+        // and saved for the MPC 3000: the same header, byte for byte
+        struct sample *w3 = sample_new(441, 1, 44100);
+        char p3[700];
+        snprintf(p3, sizeof p3, "%s/t3000.snd", dir);
+        struct snd_info o3 = {.name = "TESTV0", .level = 100, .tune = -17, .start = 0, .end = 441, .mpc3000 = 1};
+        CHECK(snd_save(p3, w3, &o3) == 0);
+        FILE *g = fopen(p3, "rb");
+        unsigned char back[40] = {0};
+        long sz = 0;
+        if (g) {
+            CHECK(fread(back, 1, 38, g) == 38);
+            fseek(g, 0, SEEK_END), sz = ftell(g), fclose(g);
+        }
+        CHECK(sz == (long)len && memcmp(back, H3000, 38) == 0);
+        free(w3->data), free(w3), free(b3);
+    }
     // A file that is not a .SND: nothing
     unsigned char junk[60] = {9, 9};
     CHECK(snd_parse(junk, sizeof junk, 0) == 0);
@@ -3234,6 +3264,83 @@ static void test_snd_and_name_erase(void) {
     os.screen = OS_MAIN, os.data_dir = 0;
     memset(os.disk_last_saved, 0, sizeof os.disk_last_saved);
     memset(os.disk_last, 0, sizeof os.disk_last);
+}
+
+// PLAY while playing: back to the start, and what was sounding lets go.
+static void test_play_retrigger(void) {
+    seq_fresh();
+    struct seq *sq = &os.seq;
+    os.screen = OS_MAIN;
+    seq_play(sq, 1);
+    render_until_tick(SEQ_PPQ * 6);
+    CHECK(sq->mode == SEQ_PLAYING && sq->pos >= SEQ_PPQ * 6);
+    tap(IN_PLAY);
+    CHECK(sq->mode == SEQ_PLAYING && sq->pos < SEQ_PPQ); // from the start, still playing
+    struct input in = blank();
+    in.down = in.held = (1u << IN_PLAY) | (1u << IN_SHIFT), in.shift = 1;
+    render_until_tick(SEQ_PPQ * 3);
+    double was = sq->pos;
+    frame(&in); // SHIFT + PLAY while playing: nothing
+    CHECK(sq->mode == SEQ_PLAYING && sq->pos >= was);
+    seq_stop(sq, 1);
+    for (int i = 0; i < 20; i++) render(128);
+}
+
+// Step Edit (and its Grid) while the sequence runs: a pad is not also put in at Now, so one
+// press makes one note (recorded at the play position when recording), never a second, stray one.
+static void test_step_pad_no_ghost(void) {
+    seq_fresh();
+    load_pad(0);
+    struct seq *sq = &os.seq;
+    sq->sequence[0].bars = 2;
+    struct seq_track *k = &sq->sequence[0].track[0];
+    os.screen = OS_MAIN;
+    struct input in = blank();
+    in.down = in.held = (1u << IN_SEQ) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in), frame(&in); // Step Edit, then the Grid
+    CHECK(os.screen == OS_STEP && os.step_grid == 1);
+    os.step_tick = 0, os.step_row = 5;
+    // On the Grid a pad only selects its row: nothing goes in
+    in = blank(), in.pad_hit[0] = 100, in.pad_down[0] = 1;
+    frame(&in);
+    in = blank(), in.pad_release[0] = 1;
+    frame(&in);
+    CHECK(k->count == 0 && os.step_row == 0);
+    // The list, stopped: a pad puts its note in at Now
+    os.step_grid = 0;
+    in = blank(), in.pad_hit[0] = 100, in.pad_down[0] = 1;
+    frame(&in);
+    in = blank(), in.pad_release[0] = 1;
+    frame(&in);
+    CHECK(k->count == 1 && k->notes[0].tick == 0);
+    os.step_grid = 1;
+    // Overdubbing: one note, where the sequence is, none at Now
+    sq->rec_arm = REC_ARM_OVERDUB;
+    seq_play(sq, 1);
+    render_until_tick(SEQ_PPQ * 5 + 10);
+    in = blank(), in.pad_hit[0] = 100, in.pad_down[0] = 1;
+    frame(&in);
+    for (int i = 0; i < 4; i++) render(128);
+    in = blank(), in.pad_release[0] = 1;
+    frame(&in);
+    for (int i = 0; i < 4; i++) render(128);
+    seq_stop(sq, 1);
+    for (int i = 0; i < 20; i++) render(128);
+    seq_drain(sq);
+    int at0 = 0, later = 0;
+    for (int i = 0; i < k->count; i++) at0 += k->notes[i].tick == 0, later += k->notes[i].tick >= SEQ_PPQ * 5;
+    CHECK(k->count == 2 && at0 == 1 && later == 1);
+    // Only playing: nothing goes in at all
+    seq_play(sq, 1);
+    render_until_tick(SEQ_PPQ * 2);
+    in = blank(), in.pad_hit[1] = 100, in.pad_down[1] = 1;
+    frame(&in);
+    in = blank(), in.pad_release[1] = 1;
+    frame(&in);
+    seq_stop(sq, 1);
+    for (int i = 0; i < 20; i++) render(128);
+    CHECK(k->count == 2);
+    os.screen = OS_MAIN;
 }
 
 static void test_master_with_file(void) {
@@ -6231,7 +6338,8 @@ static void test_help_and_locate(const char *shot_dir) {
     CHECK(os.screen == OS_RECORD && os.record_page == 3);
     // Every page with help wraps inside the text area and has at least one page.
     int screens[] = {OS_SAMPLE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_EQ, OS_REPEAT, OS_ZONES, OS_PROGRAM,
-                     OS_TC, OS_METRO, OS_ERASE, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT};
+                     OS_TC, OS_METRO, OS_ERASE, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT,
+                     OS_COPYEV, OS_COPYBARS};
     for (int i = 0; i < (int)(sizeof screens / sizeof screens[0]); i++) {
         os.screen = screens[i];
         CHECK(help_open(&os, 0) == 1);
@@ -6240,7 +6348,7 @@ static void test_help_and_locate(const char *shot_dir) {
     if (getenv("HELP_DUMP")) { // every help page, as laid out
         int all[] = {OS_SAMPLE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_EQ, OS_REPEAT, OS_ZONES, OS_PROGRAM, OS_TC, OS_METRO,
                      OS_ERASE, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_SENDS, OS_MASTER, OS_MUTE, OS_SONG, OS_STEP,
-                     OS_WARP, OS_PREFS, OS_DISK, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT, OS_INSERT};
+                     OS_WARP, OS_PREFS, OS_DISK, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT, OS_INSERT, OS_COPYEV, OS_COPYBARS};
         for (int i = 0; i < (int)(sizeof all / sizeof all[0]); i++) help_dump(&os, all[i]);
         for (int r = 0; r < 7; r++) os.record_page = r, help_dump(&os, OS_RECORD);
         for (int m = 0; m < 3; m++) os.multi_page = m, help_dump(&os, OS_MULTI);
@@ -6249,29 +6357,105 @@ static void test_help_and_locate(const char *shot_dir) {
     CHECK(help_open(&os, 0) == 0); // the main page has none
 }
 
-// SHIFT + ERASE (COPY): Program Config, the pad pressed last, Copy started; the next pad takes it.
-static void test_shift_erase_copy(void) {
+// SHIFT + ERASE: Copy Events (after the MPC3000's Edit 6), with Copy Sequence on B1 and Copy
+// Bars (Edit 5: copy, insert blank, delete) on B2.
+static void test_shift_erase_copy(const char *shot_dir) {
     seq_fresh();
-    load_pad(0);
+    struct seq *sq = &os.seq;
+    struct seq_sequence *q = &sq->sequence[0];
+    q->bars = 4;
+    int bar = seq_bar_ticks(q);
+    sq->track = 0;
+    seq_add_note(sq, 0, 0, 0, 0, 100, 10);                // A01 in bar 1
+    seq_add_note(sq, 0, 0, (uint32_t)bar + 48, 1, 90, 10); // A02 in bar 2
+    seq_add_note(sq, 0, 0, (uint32_t)bar * 3, 2, 80, 10);  // A03 in bar 4
     os.screen = OS_MAIN;
-    os.selected = 0;
     struct input in = blank();
     in.down = in.held = (1u << IN_ERASE) | (1u << IN_SHIFT);
     in.shift = 1;
     frame(&in);
-    CHECK(os.screen == OS_PROGRAM && os.pgm_mode == PGM_COPY);
-    in = blank();
-    in.up = 1u << IN_ERASE;
+    CHECK(os.screen == OS_COPYEV && os.ce_seq == 0 && os.ce_track == 1 && os.ce_from == 0 && os.ce_to == (uint32_t)bar * 4);
+    CHECK(os.ce_to_seq == 0 && os.ce_to_track == 1 && os.ce_at == 0 && os.ce_replace && os.ce_copies == 1);
+    in = blank(), in.up = 1u << IN_ERASE;
     frame(&in);
-    CHECK(os.screen == OS_PROGRAM); // letting go of ERASE does not open the Erase page
+    CHECK(os.screen == OS_COPYEV); // letting go of ERASE does not open the Erase page
+    if (shot_dir) write_shot(shot_dir, "copy_events");
+    os.ce_to_track = 2;
+    tap(IN_B3); // <Do It>: track 1 onto track 2
+    CHECK(q->track[1].count == 3 && q->track[1].notes[1].tick == (uint32_t)bar + 48 && q->track[1].notes[1].vel == 90);
+    // Bars 2-3 only, twice, from bar 3 on: what falls past the end is left out
+    os.ce_from = (uint32_t)bar, os.ce_to = (uint32_t)bar * 3, os.ce_at = (uint32_t)bar * 2, os.ce_copies = 2, os.ce_to_track = 3;
+    tap(IN_B3);
+    CHECK(q->track[2].count == 1 && q->track[2].notes[0].tick == (uint32_t)bar * 2 + 48); // the second copy starts at bar 5: left out
+    // REPLACE: what was in the span goes first; and pads pick the notes
+    os.ce_from = 0, os.ce_to = (uint32_t)bar * 4, os.ce_at = 0, os.ce_copies = 1, os.ce_replace = 1, os.ce_to_track = 3;
+    seq_copyev_pad(&os, 2); // A03 only
+    tap(IN_B3);
+    CHECK(q->track[2].count == 1 && q->track[2].notes[0].note == 2 && q->track[2].notes[0].tick == (uint32_t)bar * 3);
+    seq_copyev_pad(&os, 2);
+    CHECK(os.ce_count == 0);
+    // Every track (0) into sequence 2, each onto its own track; sequence 2 is given 4 bars first
+    sq->sequence[1].bars = 4;
+    os.ce_track = 0, os.ce_to_seq = 1, os.ce_replace = 0;
+    tap(IN_B3);
+    CHECK(sq->sequence[1].track[0].count == 3 && sq->sequence[1].track[1].count == 3 && sq->sequence[1].track[2].count == 1);
+    // K2 the To track (JUMP), K1 the sequence, K3 the end by bars, the slider the From track
+    os.knob_mode = KNOB_JUMP;
+    os.ce_track = 1;
     in = blank();
-    in.pad_hit[4] = 100, in.pad_down[4] = 1;
+    in.knob_moved[1] = 1, in.knob[1] = 127;
     frame(&in);
-    CHECK(os.pgm_mode == PGM_NONE && os.pads[4].s != 0 && os.selected == 4);
+    CHECK(os.ce_to_track == SEQ_TRACKS);
     in = blank();
-    in.pad_release[4] = 1;
+    in.knob_moved[2] = 1, in.knob[2] = 0;
     frame(&in);
-    os.screen = OS_MAIN;
+    CHECK(os.ce_to == (uint32_t)bar * (uint32_t)sq->sequence[os.ce_seq].bars || os.ce_to == (uint32_t)bar);
+    in = blank();
+    in.fader_moved = 1, in.fader = 127;
+    frame(&in);
+    CHECK(os.ce_track == SEQ_TRACKS);
+    os.knob_mode = KNOB_CATCH;
+    // SHIFT shows <Back>; SHIFT + B1 leaves
+    in = blank();
+    in.held = 1u << IN_SHIFT, in.shift = 1;
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "copy_events_shift");
+    // B1: Copy Sequence, to the first empty after; its Back comes back here
+    tap(IN_B1);
+    CHECK(os.screen == OS_SEQCOPY && os.copy_from == os.ce_seq && os.copy_to == 2);
+    tap(IN_B1);
+    CHECK(os.screen == OS_COPYEV);
+    // B2: Copy Bars, COPY to start: bars 1-4 of sequence 1 after its end, then twice
+    tap(IN_B2);
+    CHECK(os.screen == OS_COPYBARS && os.cb_mode == 0 && os.cb_first == 1 && os.cb_last == 4 && os.cb_before == 5);
+    in = blank();
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "copy_bars");
+    os.cb_first = 2, os.cb_last = 2, os.cb_before = 1, os.cb_copies = 2; // bar 2, twice, before bar 1
+    tap(IN_B3);
+    CHECK(q->bars == 6 && q->track[0].count == 5);
+    CHECK(q->track[0].notes[0].tick == 48 && q->track[0].notes[1].tick == (uint32_t)bar + 48); // the copies first
+    CHECK(q->track[0].notes[2].tick == (uint32_t)bar * 2 && q->track[0].notes[4].tick == (uint32_t)bar * 5); // the old bars after
+    // INSERT BLANK: 2 bars before bar 1; DELETE: them again
+    tap(IN_B2);
+    CHECK(os.cb_mode == 1);
+    os.cb_before = 1, os.cb_count = 2;
+    tap(IN_B3);
+    CHECK(q->bars == 8 && q->track[0].notes[0].tick == (uint32_t)bar * 2 + 48);
+    tap(IN_B2);
+    CHECK(os.cb_mode == 2);
+    os.cb_first = 1, os.cb_last = 2;
+    tap(IN_B3);
+    CHECK(q->bars == 6 && q->track[0].notes[0].tick == 48);
+    os.cb_first = 1, os.cb_last = 6;
+    tap(IN_B3); // all of them: refused
+    CHECK(q->bars == 6);
+    tap(IN_B1);
+    CHECK(os.screen == OS_COPYEV);
+    in = blank();
+    in.down = in.held = (1u << IN_B1) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in);
+    CHECK(os.screen == OS_MAIN);
 }
 
 // Knob Mode: CATCH waits for the knob to reach the value, JUMP takes it at once, SCALE moves it
@@ -7735,7 +7919,7 @@ static void test_step_edit(const char *shot_dir) {
     CHECK(k->count == 1 && k->notes[0].tick == 24);
     tap(IN_B3); // Note>>
     CHECK(os.step_tick == 24);
-    // Shift + SEQ again: the Grid. The wheel picks a row, <Dot> puts its note in at Now and takes it out.
+    // Shift + SEQ again: the Grid. The wheel picks a row, B1 <Insert> puts its note in at Now; on a note it reads <Delete> and takes it out.
     in = blank();
     in.down = in.held = (1u << IN_SEQ) | (1u << IN_SHIFT), in.shift = 1;
     frame(&in);
@@ -7745,23 +7929,45 @@ static void test_step_edit(const char *shot_dir) {
     in.encoder = 3; // row 4
     frame(&in);
     CHECK(os.step_row == 3);
-    tap(IN_B1); // <Dot>
+    tap(IN_B1); // <Insert>
     CHECK(k->count == 2);
     int found = 0;
     for (int i = 0; i < k->count; i++) found += k->notes[i].tick == 24 && k->notes[i].note == 3;
     CHECK(found == 1);
-    tap(IN_B1); // again: out
+    // Inserted at full level. SHIFT + B1 <Ghost>: 48 (a hollow diamond); again <Full>: 127.
+    // SHIFT + wheel: Now a tick at a time.
+    {
+        int at = -1;
+        for (int i = 0; i < k->count; i++)
+            if (k->notes[i].tick == 24 && k->notes[i].note == 3) at = i;
+        CHECK(at >= 0 && k->notes[at].vel == 127);
+        struct input sh = blank();
+        sh.down = sh.held = (1u << IN_B1) | (1u << IN_SHIFT), sh.shift = 1;
+        frame(&sh);
+        CHECK(k->notes[at].vel == 48);
+        frame(&sh);
+        CHECK(k->notes[at].vel == 127);
+        sh = blank(), sh.held = 1u << IN_SHIFT, sh.shift = 1, sh.encoder = -7;
+        frame(&sh);
+        CHECK(os.step_tick == 17 && k->notes[at].vel == 127 && os.step_row == 3); // Now a tick at a time, on a note too
+        sh.encoder = 7;
+        frame(&sh);
+        CHECK(os.step_tick == 24);
+    }
+    tap(IN_B1); // again: a note there, so <Delete>: out
     CHECK(k->count == 1);
     in = blank();
-    in.pad_hit[0] = 70; // a pad: its row, and a note at Now
+    in.pad_hit[0] = 70; // a pad on the Grid: its row only, no note
     frame(&in);
-    CHECK(os.step_row == 0 && k->count == 2);
+    CHECK(os.step_row == 0 && k->count == 1);
+    os.step_grid = 0; // the list puts pads' notes in at Now
     for (int st = 0; st < 16; st += 4) { // a beat to show
         os.step_tick = (uint32_t)(st * 24);
         in = blank(), in.pad_hit[0] = 110, frame(&in);
         os.step_tick = (uint32_t)(st * 24 + 48);
         in = blank(), in.pad_hit[1] = 50, frame(&in);
     }
+    os.step_grid = 1;
     os.step_tick = 24 * 6, os.step_row = 1;
     in = blank();
     frame(&in);
@@ -7771,9 +7977,11 @@ static void test_step_edit(const char *shot_dir) {
     // 16 Levels Tune: a chord on pad A01 (+0 +4 +7) is three rows of the Grid, each its own note.
     os.levels_on = 1, os.levels_type = LEVELS_TUNE, os.levels_pad = 0, os.levels_root = 0;
     os.step_tick = 24 * 8;
+    os.step_grid = 0; // entered on the list
     in = blank();
     in.pad_hit[0] = 100, in.pad_hit[4] = 100, in.pad_hit[7] = 100;
     frame(&in);
+    os.step_grid = 1;
     int chord = 0;
     for (int i = 0; i < k->count; i++) chord += k->notes[i].tick == 24 * 8 && k->notes[i].note == 0;
     CHECK(chord == 3 && os.step_row == 7);
@@ -7784,7 +7992,7 @@ static void test_step_edit(const char *shot_dir) {
     os.step_row = 4;
     in = blank();
     if (shot_dir) frame(&in), write_shot(shot_dir, "step_grid_levels");
-    tap(IN_B1); // <Dot> on +4: that one out
+    tap(IN_B1); // <Delete> on +4: that one out
     chord = 0;
     for (int i = 0; i < k->count; i++) chord += k->notes[i].tick == 24 * 8 && k->notes[i].note == 0 && k->notes[i].tune != 4;
     CHECK(chord == 2 && k->count >= 2);
@@ -7792,7 +8000,7 @@ static void test_step_edit(const char *shot_dir) {
     chord = 0;
     for (int i = 0; i < k->count; i++) chord += k->notes[i].tick == 24 * 8 && k->notes[i].note == 0 && k->notes[i].tune == 4;
     CHECK(chord == 1);
-    // 16 Levels off: the three share A01's row, a music note there, and <Dot> takes them all out.
+    // 16 Levels off: the three share A01's row, a music note there, and <Delete> takes them all out.
     os.levels_on = 0, os.step_row = 0;
     if (shot_dir) frame(&in), write_shot(shot_dir, "step_grid_chord");
     tap(IN_B1);
@@ -7817,7 +8025,7 @@ static void test_step_edit(const char *shot_dir) {
     frame(&in);
     CHECK(os.step_mnote == 67 && os.step_mtop == 52);
     if (shot_dir) write_shot(shot_dir, "step_grid_midi");
-    tap(IN_B1); // <Dot>: 67 out of the chord
+    tap(IN_B1); // <Delete>: 67 out of the chord
     const struct seq_track *m = &sq->sequence[0].track[1];
     CHECK(m->count == 3);
     sq->track = 0;
@@ -7829,7 +8037,7 @@ static void test_step_edit(const char *shot_dir) {
     sq->sequence[0].bars = 2;
     os.step_tick = 0;
     os.step_row = 0;
-    seq_add_note(sq, 0, 0, SEQ_PPQ * 4 + SEQ_PPQ, 2, 100, SEQ_PPQ / 2); // sounding as the play line passes: row A03 lit
+    seq_add_note(sq, 0, 0, SEQ_PPQ * 4 + SEQ_PPQ, 2, 100, SEQ_PPQ / 2); // notes on the page the play line is on
     seq_add_note(sq, 0, 0, SEQ_PPQ * 4 + SEQ_PPQ * 3, 5, 100, SEQ_PPQ / 4);
     seq_play(sq, 1);
     render_until_tick(SEQ_PPQ * 4 + SEQ_PPQ + 30); // bar 2, past beat 2
@@ -8279,14 +8487,14 @@ static void test_disk(const char *shot_dir) {
     CHECK(os.disk_clear == 0);
     {
         struct input w = blank();
-        os.disk_cursor = 3; // DF_CLEAR
+        os.disk_cursor = 4; // DF_CLEAR
         w.encoder = 1;
         frame(&w);
         CHECK(os.disk_clear == 1);
         if (shot_dir) write_shot(shot_dir, "disk_clear");
         disk_open(&os, DISK_LOAD, DISK_PROGRAM); // opened again: still YES
         CHECK(os.disk_clear == 1);
-        os.disk_cursor = 3;
+        os.disk_cursor = 4;
         w.encoder = -1;
         frame(&w);
         CHECK(os.disk_clear == 0);
@@ -8970,6 +9178,8 @@ int main(int argc, char **argv) {
     test_master_with_file();
     test_save_name_next();
     test_snd_and_name_erase();
+    test_play_retrigger();
+    test_step_pad_no_ghost();
     test_levels_s600_no_held();
     test_levels_s600_seq_no_held();
     test_levels_s600_wild();
@@ -9027,7 +9237,7 @@ int main(int argc, char **argv) {
     test_knob_modes();
     test_tc_knobs();
     test_seq_files(argc > 1 ? argv[1] : 0);
-    test_shift_erase_copy();
+    test_shift_erase_copy(argc > 1 ? argv[1] : 0);
     test_arpeggiator(argc > 1 ? argv[1] : 0);
     test_s600_lpf();
     test_seq_bars_and_tempo(argc > 1 ? argv[1] : 0);
