@@ -3033,6 +3033,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         toast(s, u, "USB audio not found");
     }
     if (s->arpedit_play && s->screen != OS_ARPEDIT) arpedit_leave(s); // left Pattern Edit: its preview stops
+    if (s->rename_what == RENAME_SOUND && s->screen != OS_SAMPLE) s->rename_what = RENAME_NONE; // left the page: closed
     switch (s->screen) {
     case OS_MAIN:
         seq_screen_frame(s, u, in);
@@ -3118,11 +3119,32 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
     case OS_SENDS:
         sends_frame(s, u, in);
         break;
-    case OS_SAMPLE:
+    case OS_SAMPLE: {
+        // ERASE on Sample: renames the sound (not the Erase page); the box takes the keys while open.
+        struct input none;
+        input_begin(&none, 0);
+        if (s->rename_what == RENAME_SOUND) {
+            draw_sample_screen(u, s, &none);
+            seq_rename_overlay(s, u, in);
+            break;
+        }
+        if ((in->up & (1u << IN_ERASE)) && !s->erase_used && s->frame_slot < 0 && !s->erase_ask && !s->extract) {
+            s->erase_used = 1; // not the Erase page
+            if (s->pads[s->selected].s) {
+                seq_rename_sound(s);
+                draw_sample_screen(u, s, &none);
+                seq_rename_overlay(s, u, &none);
+            } else {
+                toast(s, u, "Pad is empty");
+                draw_sample_screen(u, s, &none);
+            }
+            break;
+        }
         handle_sample_screen(s, u, in);
         if (s->screen == OS_SAMPLE) draw_sample_screen(u, s, in);
         else ui_clear(u, LCD_BG);
         break;
+    }
     case OS_S600:
         s600_frame(s, u, in);
         break;

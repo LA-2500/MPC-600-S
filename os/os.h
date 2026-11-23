@@ -14,7 +14,7 @@
 #define OS_BANKS 8
 
 #define OS_NAME "MPC 600 S"
-enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM };
+enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM, RENAME_SOUND };
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)

@@ -3343,6 +3343,46 @@ static void test_step_pad_no_ghost(void) {
     os.screen = OS_MAIN;
 }
 
+// The Sample page, the cursor on Sample: a tap of ERASE renames the sound (every pad playing it),
+// not the Erase page. ERASE in the box takes a letter out; B3 keeps the name, B1 cancels.
+static void test_sample_erase_rename(void) {
+    seq_fresh();
+    load_pad(0);
+    os.selected = 0;
+    os.screen = OS_SAMPLE;
+    os.frame_slot = -1;
+    snprintf(os.pads[0].name, sizeof os.pads[0].name, "Kick");
+    os.pads[5].s = os.pads[0].s, os.pads[0].s->refs++; // another pad, the same sound
+    snprintf(os.pads[5].name, sizeof os.pads[5].name, "Kick");
+    struct input in = blank();
+    in.down = in.held = 1u << IN_ERASE;
+    frame(&in);
+    in = blank(), in.up = 1u << IN_ERASE;
+    frame(&in);
+    CHECK(os.screen == OS_SAMPLE && os.rename_what == RENAME_SOUND && strncmp(os.rename_buf, "Kick ", 5) == 0);
+    os.rename_pos = 4;
+    in = blank(), in.encoder = 1; // ' ' to 'A'
+    frame(&in);
+    os.rename_pos = 0;
+    tap(IN_ERASE); // the K out
+    CHECK(strncmp(os.rename_buf, "ickA", 4) == 0 && os.screen == OS_SAMPLE);
+    tap(IN_B3); // <OK>
+    CHECK(os.rename_what == RENAME_NONE && strcmp(os.pads[0].name, "ickA") == 0 && strcmp(os.pads[5].name, "ickA") == 0);
+    // B1 cancels: the name stays
+    in = blank(), in.down = in.held = 1u << IN_ERASE, frame(&in);
+    in = blank(), in.up = 1u << IN_ERASE, frame(&in);
+    CHECK(os.rename_what == RENAME_SOUND);
+    tap(IN_B1);
+    CHECK(os.rename_what == RENAME_NONE && strcmp(os.pads[0].name, "ickA") == 0 && os.screen == OS_SAMPLE);
+    // On another field ERASE is as before (not a rename)
+    os.frame_slot = 0;
+    in = blank(), in.down = in.held = 1u << IN_ERASE, frame(&in);
+    in = blank(), in.up = 1u << IN_ERASE, frame(&in);
+    CHECK(os.rename_what == RENAME_NONE);
+    os.pads[5].s = 0, os.pads[0].s->refs--;
+    os.screen = OS_MAIN;
+}
+
 static void test_master_with_file(void) {
     seq_fresh();
     char dir[] = "/tmp/claude-mpc-master-XXXXXX";
@@ -9180,6 +9220,7 @@ int main(int argc, char **argv) {
     test_snd_and_name_erase();
     test_play_retrigger();
     test_step_pad_no_ghost();
+    test_sample_erase_rename();
     test_levels_s600_no_held();
     test_levels_s600_seq_no_held();
     test_levels_s600_wild();

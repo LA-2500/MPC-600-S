@@ -805,6 +805,12 @@ static int rename_start(struct os *s, struct ui *u) {
     return 1;
 }
 
+void seq_rename_sound(struct os *s) {
+    s->rename_what = RENAME_SOUND;
+    snprintf(s->rename_buf, sizeof s->rename_buf, "%-16.16s", s->pads[s->selected].name);
+    s->rename_pos = 0;
+}
+
 static void rename_finish(struct os *s, struct ui *u) {
     struct seq *sq = &s->seq;
     char name[17];
@@ -819,6 +825,17 @@ static void rename_finish(struct os *s, struct ui *u) {
     if (s->rename_what == RENAME_SEQ) snprintf(q->name, sizeof q->name, "%s", name);
     else if (s->rename_what == RENAME_TRACK) snprintf(k->name, sizeof k->name, "%s", name);
     else if (s->rename_what == RENAME_PROGRAM) snprintf(s->programs[k->kit].name, sizeof s->programs[k->kit].name, "%s", name);
+    else if (s->rename_what == RENAME_SOUND) { // every pad playing this sound, in every program
+        const struct os_pad *sel = &s->pads[s->selected];
+        const struct sample *x = sel->s;
+        char old[sizeof sel->name];
+        snprintf(old, sizeof old, "%s", sel->name);
+        for (int g = 0; g < OS_PROGRAMS; g++)
+            for (int i = 0; i < OS_PADS; i++) {
+                struct os_pad *p = &s->programs[g].pads[i];
+                if (x && p->s == x && strcmp(p->name, old) == 0) snprintf(p->name, sizeof p->name, "%s", name);
+            }
+    }
     s->rename_what = RENAME_NONE;
     os_toast(s, u, "Renamed");
 }
@@ -848,13 +865,15 @@ static void rename_frame(struct os *s, struct ui *u, const struct input *in) {
         int i = at ? (int)(at - NAME_CHARS) : 0, n = (int)strlen(NAME_CHARS);
         s->rename_buf[s->rename_pos] = NAME_CHARS[((i + in->encoder) % n + n) % n];
     }
-    static const char *const WHAT[] = {"", "Sequence", "Track", "Program"};
+    static const char *const WHAT[] = {"", "Sequence", "Track", "Program", "Sound"};
     char title[32];
     pthread_mutex_lock(&sq->lock);
     int n = s->rename_what == RENAME_SEQ ? sq->current + 1 : s->rename_what == RENAME_TRACK ? sq->track + 1
           : sq->sequence[sq->current].track[sq->track].kit + 1;
     pthread_mutex_unlock(&sq->lock);
-    snprintf(title, sizeof title, "Rename %s %02d", WHAT[s->rename_what], n);
+    if (s->rename_what == RENAME_SOUND)
+        snprintf(title, sizeof title, "Rename Sound %c%02d", 'A' + s->selected / 16, s->selected % 16 + 1);
+    else snprintf(title, sizeof title, "Rename %s %02d", WHAT[s->rename_what], n);
     lcd_fill(u, LCD_X, 5 * CELL_H, UI_W - 2 * LCD_X, 6 * CELL_H, LCD_BG);
     lcd_rule(u, 5, title);
     lcd_text(u, 0, 7, "Name:");
@@ -866,6 +885,10 @@ static void rename_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_fill(u, LCD_X, KEY_ROW * CELL_H, UI_W - 2 * LCD_X, CELL_H, LCD_BG);
     lcd_text(u, 0, KEY_ROW, "<Cancel>");
     lcd_text(u, 22, KEY_ROW, "<OK>");
+}
+
+void seq_rename_overlay(struct os *s, struct ui *u, const struct input *in) {
+    if (s->rename_what) rename_frame(s, u, in);
 }
 
 void seq_screen_frame(struct os *s, struct ui *u, const struct input *in) {
