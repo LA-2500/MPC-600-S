@@ -524,6 +524,17 @@ int os_sounds(const struct os *s, struct sample **list, const char **names, int 
     return sounds_except(s, list, names, max, -1, -1);
 }
 
+void os_name_erase(char *b, int *pos, int all) {
+    if (all) {
+        b[0] = 0, *pos = 0;
+        return;
+    }
+    int len = (int)strlen(b), used = len;
+    while (used > 0 && b[used - 1] == ' ') used--;
+    if (*pos >= used && *pos > 0) (*pos)--; // past the end of the name: the letter before
+    if (*pos < len) memmove(b + *pos, b + *pos + 1, (size_t)(len - *pos));
+}
+
 void os_pad_assign(struct os *s, int slot, struct sample *n, const char *name) {
     struct os_pad *pad = &s->pads[slot];
     if (!n || pad->s == n) return;
@@ -2745,6 +2756,66 @@ static void follow_track(struct os *s) {
     if (kit >= 0) os_set_program(s, kit);
 }
 
+// STOP pressed while a note still sounds with no pad or key held: a record of it, written to
+// held-note-log.txt on the card (each time, over the last), to find out why a note was left on.
+// The voices sounding, the releases the sequencer still has waiting, the pads' held notes, and
+// the engine's last note events.
+static void held_note_log(struct os *s, const struct input *in) {
+    if (!s->data_dir) return;
+    struct engine *e = s->engine;
+    int stuck = 0;
+    for (int i = 0; i < ENGINE_VOICES; i++) {
+        const struct voice *v = &e->voice[i];
+        stuck += v->stage != 0 && v->stage != 4 && !v->fading && (v->p.gate || v->p.loop_on); // 4: releasing
+    }
+    for (int i = 0; i < 16; i++) stuck = in->pad_down[i] ? 0 : stuck;
+    for (int k = 0; k < 128; k++) stuck = s->midi_held[k] ? 0 : stuck;
+    if (!stuck) return;
+    char path[600];
+    snprintf(path, sizeof path, "%s/held-note-log.txt", s->data_dir);
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+    long long now = atomic_load(&e->clock);
+    fprintf(f, "%s\nSTOP pressed with %d note(s) sounding and no pad held.\n", OS_VERSION, stuck);
+    fprintf(f, "Program %d (type %d), 16 Levels %s type %d pad %d root %d, bank %c, screen %d\n", s->program + 1,
+            s->programs[s->program].s600, s->levels_on ? "ON" : "off", s->levels_type, s->levels_pad, s->levels_root,
+            'A' + s->bank, s->screen);
+    pthread_mutex_lock(&s->seq.lock);
+    struct seq *sq = &s->seq;
+    fprintf(f, "Sequencer mode %d, pos %.1f, abs %.1f, tempo %.1f, TC %d, track %d\n", sq->mode, sq->pos, sq->abs,
+            sq->sequence[sq->current].tempo10 / 10.0, sq->tc, sq->track + 1);
+    fprintf(f, "\nReleases waiting (%d): slot key, ticks from now\n", sq->npending);
+    for (int i = 0; i < sq->npending && i < 200; i++)
+        fprintf(f, "  %s slot %d key %d in %.1f\n", sq->pending[i].midi ? "MIDI" : "pad", sq->pending[i].note, sq->pending[i].key,
+                sq->pending[i].at - sq->abs);
+    pthread_mutex_unlock(&s->seq.lock);
+    fprintf(f, "\nPads holding notes: ");
+    for (int i = 0; i < 16; i++)
+        if (s->sounding[i] >= 0) fprintf(f, "pad %d slot %d key %d; ", i + 1, s->sounding[i], s->sounding_key[i]);
+    fprintf(f, "\nNotes the pads started since all were last up: %d\n", s->nlive_on);
+    fprintf(f, "\nVoices (stage 1 attack, 2 hold, 3 decay, 4 release):\n");
+    for (int i = 0; i < ENGINE_VOICES; i++) {
+        const struct voice *v = &e->voice[i];
+        if (!v->stage) continue;
+        fprintf(f, "  voice %d: slot %d key %d layer %d stage %d gate %d synth %d mono %d legato %d loop %d fading %d age %u\n", i,
+                v->pad, v->key, v->layer, v->stage, v->p.gate, v->p.synth, v->p.mono, v->p.legato, v->p.loop_on, v->fading, v->age);
+    }
+    static const char *const KIND[] = {"", "PAD ON", "SEQ ON", "PAD OFF", "SEQ OFF", "LEGATO", "STEAL", "MONO CUT", "KILL"};
+    unsigned n = atomic_load(&e->log_n), from = n > ENGINE_LOG ? n - ENGINE_LOG : 0;
+    fprintf(f, "\nLast %u note events, oldest first (ms before STOP):\n", n - from);
+    for (unsigned i = from; i < n; i++) {
+        const struct engine_log *l = &e->log[i % ENGINE_LOG];
+        int k = l->kind >= 0 && l->kind <= ELOG_KILL ? l->kind : 0;
+        fprintf(f, "  %8.1f  %-8s slot %d key %d", (now - l->frame) * 1000.0 / ENGINE_RATE, KIND[k], l->pad, l->key);
+        if (k == ELOG_LIVE_ON || k == ELOG_SEQ_ON) fprintf(f, "  voice %d offset %d", l->a, l->b);
+        else if (k == ELOG_LIVE_OFF || k == ELOG_SEQ_OFF) fprintf(f, "  released %d", l->a);
+        else if (k == ELOG_LEGATO) fprintf(f, "  voice %d from key %d", l->a, l->b);
+        else fprintf(f, "  voice %d stage %d", l->a, l->b);
+        fputc('\n', f);
+    }
+    fclose(f);
+}
+
 int os_frame(struct ui *u, const struct input *in, void *state) {
     struct os *s = state;
     engine_reap(s->engine);
@@ -2829,6 +2900,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         preview_schedule(s, u);
     }
     if (input_down(in, IN_STOP)) {
+        held_note_log(s, in);
         int64_t now = now_ms(u);
         if (now - s->last_stop_ms < STOP_DOUBLE_MS) engine_kill_all(s->engine);
         s->last_stop_ms = now;
@@ -2923,7 +2995,9 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
     if (s->screen == OS_BROWSER && input_down(in, IN_SAMPLE_REC) && in->shift) help_open(s, 0); // its help too
     seq_transport(s, u, in);
     if (input_down(in, IN_ERASE)) s->erase_used = 0; // set again if a pad is hit with ERASE held
-    if (input_down(in, IN_ERASE) && in->shift && s->screen != OS_TITLE && s->screen != OS_SHUTDOWN) {
+    int naming = s->rename_what != RENAME_NONE || disk_naming(s); // ERASE takes letters off the name instead
+    if (input_down(in, IN_ERASE) && naming) s->erase_used = 1;
+    if (input_down(in, IN_ERASE) && in->shift && !naming && s->screen != OS_TITLE && s->screen != OS_SHUTDOWN) {
         s->erase_used = 1; // COPY, not a tap of ERASE
         copy_pad_open(s, u);
     }

@@ -13,6 +13,12 @@
 
 enum { V_FREE, V_ATTACK, V_HOLD, V_DECAY, V_RELEASE };
 
+static void elog(struct engine *e, int kind, int pad, int key, int a, int b) {
+    unsigned n = atomic_load_explicit(&e->log_n, memory_order_relaxed);
+    e->log[n % ENGINE_LOG] = (struct engine_log){atomic_load_explicit(&e->clock, memory_order_relaxed), kind, pad, key, a, b};
+    atomic_store_explicit(&e->log_n, n + 1, memory_order_release);
+}
+
 struct sample *sample_new(int32_t frames, int channels, int rate) {
     if (frames <= 0 || channels < 1 || channels > 2 || rate <= 0) return 0;
     struct sample *s = calloc(1, sizeof *s);
@@ -302,13 +308,14 @@ static struct voice *start_voice(struct engine *e, const struct event *ev, int o
                 v->glide = p->porta_ms > 0 ? v->glide + (float)(v->key - ev->key) : 0;
                 if (ev->pad < ENGINE_SLOTS) e->last_key[ev->pad] = (float)ev->key, e->has_last[ev->pad] = 1;
             }
+            elog(e, ELOG_LEGATO, ev->pad, ev->key, i, v->key);
             v->key = ev->key;
             return v;
         }
     for (int i = 0; i < ENGINE_VOICES && !layer; i++) {
         struct voice *v = &e->voice[i];
         if (v->stage == V_FREE) continue;
-        if (p->mono && v->pad == ev->pad) start_fade(v);
+        if (p->mono && v->pad == ev->pad) elog(e, ELOG_MONO_CUT, v->pad, v->key, i, v->stage), start_fade(v);
         // Mute groups work within one program, so two tracks' kits do not cut each other.
         if (p->mute_group > 0 && v->pad != ev->pad && v->p.mute_group == p->mute_group && v->pad >= 0 && ev->pad >= 0 &&
             v->pad / ENGINE_PROGRAM_PADS == ev->pad / ENGINE_PROGRAM_PADS)
@@ -321,6 +328,7 @@ static struct voice *start_voice(struct engine *e, const struct event *ev, int o
         v = &e->voice[0];
         for (int i = 1; i < ENGINE_VOICES; i++)
             if ((int32_t)(e->voice[i].age - v->age) < 0) v = &e->voice[i];
+        elog(e, ELOG_STEAL, v->pad, v->key, (int)(v - e->voice), v->stage);
     }
     memset(v, 0, sizeof *v);
     v->pad = ev->pad;
@@ -416,6 +424,7 @@ static void note_on(struct engine *e, const struct event *ev, int offset) {
         ev = &multi;
     }
     struct voice *first = start_voice(e, ev, offset, 0);
+    elog(e, ev->restart ? ELOG_SEQ_ON : ELOG_LIVE_ON, ev->pad, ev->key, first ? (int)(first - e->voice) : -1, offset);
     if (first && ev->p.synth && ev->p.layers == 2 && ev->s2) { // the S600's second layer
         struct event two = *ev;
         two.s = ev->s2;
@@ -459,14 +468,17 @@ static void process_events(struct engine *e) {
             }
             if (ev->km) atomic_store_explicit(&e->km_ack, ev->seq, memory_order_release);
             break;
-        case EV_OFF:
+        case EV_OFF: {
+            int hit = 0;
             for (int i = 0; i < ENGINE_VOICES; i++) {
                 struct voice *v = &e->voice[i];
                 if (v->stage != V_FREE && v->pad == ev->pad && v->p.gate &&
                     (ev->key == ENGINE_KEY_ANY || ev->key == v->key))
-                    start_release(v);
+                    hit += v->stage != V_RELEASE, start_release(v);
             }
+            elog(e, ELOG_LIVE_OFF, ev->pad, ev->key, hit, 0);
             break;
+        }
         case EV_UPDATE:
             for (int i = 0; i < ENGINE_VOICES; i++) {
                 struct voice *v = &e->voice[i];
@@ -587,11 +599,13 @@ void engine_release_pad(struct engine *e, int pad) {
 }
 
 void engine_release_pad_key(struct engine *e, int pad, int key) {
+    int hit = 0;
     for (int i = 0; i < ENGINE_VOICES; i++) {
         struct voice *v = &e->voice[i];
         if (v->stage != V_FREE && v->pad == pad && v->p.gate && (key == ENGINE_KEY_ANY || key == v->key))
-            start_release(v);
+            hit += v->stage != V_RELEASE, start_release(v);
     }
+    elog(e, ELOG_SEQ_OFF, pad, key, hit, 0);
 }
 
 void engine_click(struct engine *e, int accent, int offset, int volume) {

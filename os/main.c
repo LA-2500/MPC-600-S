@@ -116,7 +116,7 @@ int main(int argc, char **argv) {
         static char data_dir[600]; // Save/Load's folders, and the project loaded at power-on
         snprintf(data_dir, sizeof data_dir, "%s/../MPC600S", app_dir);
         os.data_dir = data_dir;
-        disk_install_waves(&os); // the S600 waveforms, on the card for Save/Load's S600 WAVE
+        disk_install_waves(&os); // the S600 waveforms, on the card for Save/Load's S600 OSC
         disk_autoload(&os);
         infx_power_on(&os); // Input Effects start off and as new, not as last used or as autoloaded
         static char stems_dir[600]; // the Stems models, copied to the card once

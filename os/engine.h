@@ -156,6 +156,15 @@ struct voice {
     float lad_y[2][4], lad_x[2][4]; // S600 LPF: the ladder's four stages, outputs and last inputs, a channel each
 };
 
+// A record of what happened to notes, kept by the audio thread, for finding a note left on:
+// the last ENGINE_LOG note starts and releases, legato pitch changes, steals and mono cuts.
+#define ENGINE_LOG 400
+enum { ELOG_LIVE_ON = 1, ELOG_SEQ_ON, ELOG_LIVE_OFF, ELOG_SEQ_OFF, ELOG_LEGATO, ELOG_STEAL, ELOG_MONO_CUT, ELOG_KILL };
+struct engine_log {
+    long long frame;
+    int kind, pad, key, a, b; // a, b: the voice and more, by kind
+};
+
 struct engine {
     struct event ring[ENGINE_RING];
     atomic_uint head, tail; // head: UI thread writes. tail: audio thread writes.
@@ -179,6 +188,8 @@ struct engine {
     float last_key[ENGINE_SLOTS]; // audio thread: each slot's last note, for portamento
     unsigned char has_last[ENGINE_SLOTS];
     atomic_llong clock; // frames rendered before the current block: one clock for input and output
+    struct engine_log log[ENGINE_LOG];
+    atomic_uint log_n; // entries written (the audio thread writes, anyone may read)
     // Track EQ (audio thread): each bus is a track (1 + its number, 0 free) whose notes mix
     // there, then run through its three bands into the outputs.
     struct {

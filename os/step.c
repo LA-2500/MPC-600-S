@@ -391,7 +391,11 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_text(u, 18, KEY_ROW, "Page>>");
     pthread_mutex_lock(&sq->lock);
     int bar = seq_bar_ticks(q), beat = seq_beat_ticks(q);
-    uint32_t start = s->step_tick / (uint32_t)page * (uint32_t)page;
+    // Playing: the page the play position is on, turning as it goes, and a line where it is.
+    int playing = sq->mode != SEQ_STOPPED && sq->mode != SEQ_COUNT_IN && sq->mode != SEQ_WAITING && sq->pos >= 0;
+    uint32_t play = playing ? (uint32_t)sq->pos : 0;
+    uint32_t start = (playing ? play : s->step_tick) / (uint32_t)page * (uint32_t)page;
+    int now_here = s->step_tick >= start && s->step_tick < start + (uint32_t)page;
     char line[64], tl[40];
     static const char *const WHAT[4] = {"", "16 LEVELS TUNE", "16 LEVELS VEL", "MIDI"};
     if (mode == G_PADS) snprintf(tl, sizeof tl, "GRID: TRACK %02d", sq->track + 1);
@@ -403,9 +407,11 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
     for (int i = 0; i < k->count; i++)
         if (k->notes[i].tick == s->step_tick && note_row(s, mode, k->notes[i].note, k->notes[i].tune, k->notes[i].vel) == row)
             here++, vel = k->notes[i].vel;
-    snprintf(line, sizeof line, "Now %03d.%02d.%02d  Step %-5s", (int)(s->step_tick / (uint32_t)bar) + 1,
-             (int)(s->step_tick % (uint32_t)bar / (uint32_t)beat) + 1, (int)(s->step_tick % (uint32_t)beat), STEPS[sq->tc]);
+    uint32_t shown = playing ? play : s->step_tick;
+    snprintf(line, sizeof line, "%s %03d.%02d.%02d  Step %-5s", playing ? "Play" : "Now ", (int)(shown / (uint32_t)bar) + 1,
+             (int)(shown % (uint32_t)bar / (uint32_t)beat) + 1, (int)(shown % (uint32_t)beat), STEPS[sq->tc]);
     lcd_small_text(u, 4, 34, line, LCD_FG);
+    if (!now_here) here = 0; // Now is on another page: nothing under it shown here
     if (here > 1) snprintf(line, sizeof line, "%2d notes", here);
     else if (here) snprintf(line, sizeof line, " Vel %3d", vel);
     else snprintf(line, sizeof line, " Vel ---");
@@ -415,7 +421,7 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_small_text(u, 4, 47, mode == G_MIDI ? "Note" : mode == G_PADS ? "Sound" : "Level", LCD_FG);
     int cx = G_X + (int)(s->step_tick - start) * G_W / step, ry = G_Y + row * G_H;
     uint32_t now_col = start + (s->step_tick - start) / (uint32_t)step * (uint32_t)step;
-    lcd_fill(u, cx + 1, 45, G_W - 1, G_Y - 46, LCD_FG);
+    if (now_here) lcd_fill(u, cx + 1, 45, G_W - 1, G_Y - 46, LCD_FG);
     for (int c = 0; c < G_COLS; c++) {
         uint32_t t = start + (uint32_t)(c * step);
         int x = G_X + c * G_W;
@@ -423,7 +429,7 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
         else if (t % (uint32_t)beat == 0) snprintf(line, sizeof line, ".%d", (int)(t % (uint32_t)bar / (uint32_t)beat) + 1);
         else line[0] = 0;
         if (t >= (uint32_t)len) line[0] = 0;
-        if (line[0]) lcd_small_text(u, x + 2, 47, line, t == now_col ? LCD_BG : LCD_FG);
+        if (line[0]) lcd_small_text(u, x + 2, 47, line, now_here && t == now_col ? LCD_BG : LCD_FG);
     }
     hline(u, 0, G_Y - 1, UI_W, 0);
     vline(u, G_X - 1, 44, G_Y + G_ROWS * G_H - 44, 0);
@@ -437,6 +443,21 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
             for (int y = G_Y; y < G_Y + G_ROWS * G_H; y += 2)
                 for (int xx = x + 1 + (y / 2 & 1); xx < x + G_W; xx += 2) lcd_fill(u, xx, y, 1, 1, LCD_FG);
     }
+    // Playing: the rows with a note sounding now, lit (a short note stays lit for a step).
+    int active[G_ROWS] = {0};
+    for (int i = 0; playing && i < k->count; i++) {
+        const struct seq_note *nt = &k->notes[i];
+        uint32_t held = nt->dur > (uint32_t)step ? nt->dur : (uint32_t)step;
+        if (nt->tick > play || play >= nt->tick + held) continue;
+        int r = note_row(s, mode, nt->note, nt->tune, nt->vel);
+        if (r >= 0 && r < G_ROWS) active[r] = 1;
+    }
+    for (int r = 0; r < G_ROWS; r++) // across the steps: a solid line above and below the row
+        if (active[r]) {
+            int y = G_Y + r * G_H;
+            hline(u, G_X, y, UI_W - G_X, 0), hline(u, G_X, y + 1, UI_W - G_X, 0);
+            hline(u, G_X, y + G_H - 2, UI_W - G_X, 0), hline(u, G_X, y + G_H - 1, UI_W - G_X, 0);
+        }
     // The rows' names: the pad and its sound; the level; the note.
     for (int r = 0; r < G_ROWS; r++) {
         int y = G_Y + r * G_H, slot = s->bank * 16 + r, sel = r == row, note, tune, v;
@@ -448,8 +469,10 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
         } else if (mode == G_TUNE) snprintf(line, sizeof line, "%c%02d %+d", 'A' + note / 16, note % 16 + 1, tune);
         else if (mode == G_VEL) snprintf(line, sizeof line, "%c%02d v%d", 'A' + note / 16, note % 16 + 1, v);
         else snprintf(line, sizeof line, "%c%02d %.6s", 'A' + slot / 16, slot % 16 + 1, s->pads[slot].s ? s->pads[slot].name : "");
-        if (sel) lcd_fill(u, 0, y, G_X - 1, G_H - 1, LCD_FG);
-        lcd_small_text(u, 2, y + 2, line, sel ? LCD_BG : LCD_FG);
+        int lit = sel || active[r];
+        if (lit) lcd_fill(u, 0, y, G_X - 1, G_H - 1, LCD_FG);
+        if (sel && active[r]) lcd_fill(u, 1, y + 1, G_X - 3, G_H - 3, LCD_BG), lit = 0; // the selected row sounding: a box
+        lcd_small_text(u, 2, y + 2, line, lit ? LCD_BG : LCD_FG);
         if (r < G_ROWS - 1) hline(u, 0, y + G_H - 1, G_X - 1, 1);
     }
     if (mode == G_MIDI) { // more above, more below: arrows by the names
@@ -473,8 +496,18 @@ static void grid_frame(struct os *s, struct ui *u, const struct input *in) {
         else diamond(u, x, y, nt->vel < 64);
     }
     // The selected row's cell under Now: a box.
-    hline(u, cx + 1, ry, G_W - 1, 0), hline(u, cx + 1, ry + G_H - 1, G_W - 1, 0);
-    for (int i = 0; i < 2; i++) vline(u, cx + 1 + i, ry, G_H, 0), vline(u, cx + G_W - 1 - i, ry, G_H, 0);
+    if (now_here) {
+        hline(u, cx + 1, ry, G_W - 1, 0), hline(u, cx + 1, ry + G_H - 1, G_W - 1, 0);
+        for (int i = 0; i < 2; i++) vline(u, cx + 1 + i, ry, G_H, 0), vline(u, cx + G_W - 1 - i, ry, G_H, 0);
+    }
+    // The play position: a line down the steps, a marker on the ruler.
+    if (playing) {
+        int px = G_X + (int)((double)(play - start) * G_W / step);
+        if (px >= UI_W - 1) px = UI_W - 2;
+        vline(u, px, G_Y, G_ROWS * G_H, 0), vline(u, px + 1, G_Y, G_ROWS * G_H, 0);
+        for (int i = 0; i < 4; i++) lcd_fill(u, px - 3 + i, 45 + i, 8 - 2 * i, 1, LCD_FG); // a small triangle, pointing down
+    }
     pthread_mutex_unlock(&sq->lock);
     hline(u, 0, G_Y + G_ROWS * G_H, UI_W, 0);
+    if (playing || sq->mode != SEQ_STOPPED) ui_wake(u, 40); // the play line, the page and the lit rows keep moving
 }

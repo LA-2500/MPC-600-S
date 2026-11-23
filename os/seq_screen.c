@@ -736,6 +736,12 @@ static void rename_frame(struct os *s, struct ui *u, const struct input *in) {
         pthread_mutex_unlock(&sq->lock);
         if (s->rename_what == RENAME_NONE) return;
     }
+    if (input_down(in, IN_ERASE)) { // a letter; with Shift, the whole name
+        os_name_erase(s->rename_buf, &s->rename_pos, in->shift);
+        char b[17];
+        snprintf(b, sizeof b, "%s", s->rename_buf);
+        snprintf(s->rename_buf, sizeof s->rename_buf, "%-16.16s", b);
+    }
     s->rename_pos = clampi(s->rename_pos + input_down(in, IN_PLUS) - input_down(in, IN_MINUS), 0, 15);
     if (in->encoder) {
         const char *at = strchr(NAME_CHARS, s->rename_buf[s->rename_pos]);
@@ -755,7 +761,7 @@ static void rename_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_text(u, 6, 7, s->rename_buf);
     char one[2] = {s->rename_buf[s->rename_pos], 0};
     lcd_inverse(u, 6 + s->rename_pos, 7, one);
-    lcd_text(u, 0, 9, "Wheel: letter  -/+: move");
+    lcd_text(u, 0, 9, "Wheel letter -/+ move ERASE");
     lcd_rule(u, 10, 0);
     lcd_fill(u, LCD_X, KEY_ROW * CELL_H, UI_W - 2 * LCD_X, CELL_H, LCD_BG);
     lcd_text(u, 0, KEY_ROW, "<Cancel>");

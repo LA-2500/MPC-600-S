@@ -71,7 +71,7 @@ static const struct {
      "Tips: Templates on Env1/Env2 give a starting shape. All On (the default): full level from "
      "the start of the note until it is let go, the sound as it is. Then MPC Bass, Piano, Brass ...\n"
      "S600 waveforms: SINE, SAW, SQUARE, PULSE, single cycles in MPC600S/s600 on the card. "
-     "Load one onto a pad with Save/Load, type S600 WAVE, then turn Loop on (LOOP) so it "
+     "Load one onto a pad with Save/Load, type S600 OSC, then turn Loop on (LOOP) so it "
      "plays as a held note.\f"
      "MIDI keys play the selected pad chromatically."},
     {OS_LEVELS, -1, "16 Levels",
@@ -500,7 +500,7 @@ static const struct {
     {OS_DISK, -1, "Save/Load",
      "SAVE, LOAD or EXPORT. Types: project (everything), program, sample, settings, autoload "
      "(loaded at power-on), FX chain (the input chain), arp pattern (a USER step pattern), "
-     "track FX (the Track/Mixer send effects), S600 wave (the S600 waveforms), sequence (one "
+     "track FX (the Track/Mixer send effects), S600 osc (the S600 waveforms), sequence (one "
      "sequence and all its tracks; Seq: which).\f"
      "LOAD only: MIDI FILE (.mid), MPC 2500 SEQUENCE (an MPC 2500 .ALL or .SEQ; MPC 1000 and 500 "
      "ones too) and MPC 2500 PROGRAM (its .PGM, with its WAVs beside it). MPC 2500 PROJECT (also SAVE: a folder an MPC 2500 loads, with its .PRJ, .ALL, programs and WAVs. LOAD: an MPC 2500 .PRJ; MPC 1000 and 500 ones too: every program into the next empty program, then every sequence into the next empty sequence). Into: the sequence or program they go into.\f"

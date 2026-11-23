@@ -6,6 +6,7 @@
 #include "lcd.h"
 #include "seq_screen.h"
 #include "wav.h"
+#include "snd.h"
 #include "seqimport.h"
 #include <math.h>
 #include <stdio.h>
@@ -3160,6 +3161,81 @@ static void test_save_name_next(void) {
     memset(os.disk_last, 0, sizeof os.disk_last);
 }
 
+// .SND: saved from a pad with its trim, loop and tune, read back the same; and
+// ERASE while naming takes a letter off (Shift + ERASE, the whole name).
+static void test_snd_and_name_erase(void) {
+    seq_fresh();
+    char dir[] = "/tmp/claude-mpc-snd-XXXXXX";
+    CHECK(mkdtemp(dir) != 0);
+    os.data_dir = dir;
+    memset(os.disk_last_saved, 0, sizeof os.disk_last_saved);
+    memset(os.disk_last, 0, sizeof os.disk_last);
+    struct sample *x = sample_new(1000, 2, 44100);
+    for (int i = 0; i < 1000; i++) x->data[2 * i] = (i % 100) / 100.0f - 0.5f, x->data[2 * i + 1] = -0.25f;
+    os.selected = 0;
+    os_pad_load(&os, 0, x, "Bass");
+    struct pad_params *p = &os.pads[0].p;
+    p->start = 10, p->end = 900, p->loop = 500, p->loop_on = 1, p->semi = -3, p->fine = 50;
+    struct input idle = blank();
+    disk_open(&os, DISK_SAVE, DISK_SND);
+    snprintf(os.disk_name, sizeof os.disk_name, "BASS1");
+    tap(IN_B3), frame(&idle); // <Save>
+    char path[700];
+    snprintf(path, sizeof path, "%s/samples/BASS1.snd", dir);
+    FILE *f = fopen(path, "rb");
+    unsigned char h[42] = {0};
+    long size = 0;
+    if (f) {
+        CHECK(fread(h, 1, 42, f) == 42);
+        fseek(f, 0, SEEK_END), size = ftell(f), fclose(f);
+    }
+    CHECK(f && size == 42 + 1000 * 2 * 2);
+    CHECK(h[0] == 1 && h[1] == 4 && memcmp(h + 2, "BASS1           ", 16) == 0 && h[21] == 1);
+    CHECK((int8_t)h[20] == -25 && h[38] == 1 && (h[40] | h[41] << 8) == 44100);
+    struct snd_info in;
+    struct sample *y = snd_load(path, &in);
+    CHECK(y && y->frames == 1000 && y->channels == 2 && y->rate == 44100);
+    CHECK(in.start == 10 && in.end == 900 && in.loop_len == 400 && in.loop_on && in.tune == -25 && strcmp(in.name, "BASS1") == 0);
+    CHECK(y && fabsf(y->data[2 * 50] - x->data[2 * 50]) < 0.001f && fabsf(y->data[2 * 50 + 1] + 0.25f) < 0.001f);
+    free(y ? y->data : 0), free(y);
+    // LOAD onto pad 2: its trim, loop and tune with it
+    os.selected = 1;
+    disk_open(&os, DISK_LOAD, DISK_SND);
+    CHECK(os.disk_nfiles >= 1);
+    for (int i = 0; i < os.disk_nfiles; i++)
+        if (strcmp(os.disk_files[i], "BASS1") == 0) os.disk_file = i;
+    os.disk_page = 1; // the folder's items
+    tap(IN_B3), frame(&idle); // <Load>
+    const struct os_pad *q = &os.pads[1];
+    CHECK(q->s && q->s->frames == 1000 && q->p.start == 10 && q->p.end == 900 && q->p.loop == 500 && q->p.loop_on);
+    CHECK(q->p.semi == -2 && q->p.fine == -50 && strcmp(q->name, "BASS1") == 0);
+    // A file that is not a .SND: nothing
+    unsigned char junk[60] = {9, 9};
+    CHECK(snd_parse(junk, sizeof junk, 0) == 0);
+    // ERASE while naming
+    disk_open(&os, DISK_SAVE, DISK_ARP);
+    snprintf(os.disk_name, sizeof os.disk_name, "PROJECT01");
+    os.disk_pos = 8;
+    struct input e = blank();
+    e.down = e.held = 1u << IN_ERASE;
+    frame(&e);
+    e = blank(), e.up = 1u << IN_ERASE;
+    frame(&e);
+    CHECK(strncmp(os.disk_name, "PROJECT0 ", 9) == 0 && os.screen == OS_DISK); // the 1 at the cursor; not the Erase screen
+    tap(IN_ERASE); // the cursor is past the end now: the letter before it
+    CHECK(strncmp(os.disk_name, "PROJECT ", 8) == 0 && os.disk_pos == 7);
+    os.disk_pos = 0;
+    tap(IN_ERASE);
+    CHECK(strncmp(os.disk_name, "ROJECT ", 7) == 0 && os.disk_pos == 0);
+    e = blank();
+    e.down = e.held = (1u << IN_ERASE) | (1u << IN_SHIFT), e.shift = 1;
+    frame(&e);
+    CHECK(strspn(os.disk_name, " ") == strlen(os.disk_name) && os.disk_pos == 0 && os.screen == OS_DISK); // all of it, and not Copy
+    os.screen = OS_MAIN, os.data_dir = 0;
+    memset(os.disk_last_saved, 0, sizeof os.disk_last_saved);
+    memset(os.disk_last, 0, sizeof os.disk_last);
+}
+
 static void test_master_with_file(void) {
     seq_fresh();
     char dir[] = "/tmp/claude-mpc-master-XXXXXX";
@@ -3219,6 +3295,211 @@ static void test_levels_s600_no_held(void) {
         os.levels_on = 0;
         os_program_set_s600(&os, 0, 0);
     }
+}
+
+// The same, with the sequencer playing and overdubbing what is pressed, several passes, then
+// playing it back with the pads up: a looping sound never left on after Stop.
+static void test_levels_s600_seq_no_held(void) {
+    unsigned rnd = 777;
+    for (int mode = 0; mode < 4; mode++) { // POLY, MONO, MONO + Legato, POLY with Note On off
+        seq_fresh();
+        os.seq.metronome = METRO_OFF;
+        os.seq.sequence[0].bars = 1;
+        os_pad_load(&os, 0, constant(44100), "Held");
+        os_program_set_s600(&os, 0, 1);
+        os.pads[0].p.loop_on = 1, os.pads[0].sp.mono = mode == 1 || mode == 2, os.pads[0].sp.legato = mode == 2;
+        if (mode == 3) os.pads[0].sp.note_on = 0;
+        os_pad_push(&os, 0);
+        os.levels_on = 1, os.levels_type = LEVELS_TUNE, os.levels_pad = 0, os.levels_root = 4;
+        os.screen = OS_MAIN;
+        seq_play(&os.seq, 1);
+        seq_rec_button(&os.seq); // overdub
+        int down[16] = {0};
+        for (int step = 0; step < 900; step++) {
+            struct input in = blank();
+            for (int k = 0; k < 2; k++) {
+                rnd = rnd * 1103515245u + 12345u;
+                int p = (int)(rnd >> 16) % 6, what = (int)(rnd >> 8) % 6;
+                if (!down[p] && what < 2) {
+                    in.pad_hit[p] = 90, down[p] = 1;
+                    if (what == 1) in.pad_release[p] = 1, down[p] = 0;
+                } else if (down[p] && what >= 3) {
+                    in.pad_release[p] = 1, down[p] = 0;
+                }
+            }
+            for (int p = 0; p < 16; p++) in.pad_down[p] = down[p];
+            frame(&in);
+            render(256);
+        }
+        struct input in = blank();
+        for (int p = 0; p < 16; p++) if (down[p]) in.pad_release[p] = 1;
+        frame(&in);
+        seq_rec_button(&os.seq); // punch out: it keeps playing what was recorded
+        for (int pass = 0; pass < 3; pass++) render_until_wrap();
+        seq_stop(&os.seq, 1);
+        for (int b = 0; b < 600; b++) render(128); // past any release
+        CHECK(voices() == 0);
+        if (voices()) printf("  16 Levels S600 with the sequencer, mode %d: %d notes left on\n", mode, voices());
+        os.levels_on = 0;
+        os_program_set_s600(&os, 0, 0);
+    }
+}
+
+// Everything a player does around 16 Levels, at random, with a looping S600 sound: banks and
+// the root changed under held pads, the Levels page, NOTE REPEAT held, the sequencer overdubbing
+// or not. Once every pad is up and it stops, nothing is left sounding.
+static void test_levels_s600_wild(void) {
+    unsigned rnd = 4242;
+    for (int run = 0; run < 8; run++) {
+        int mode = run % 4, playing = run >= 4;
+        seq_fresh();
+        os.seq.metronome = METRO_OFF;
+        os.seq.sequence[0].bars = 1;
+        os_pad_load(&os, 0, constant(44100), "Held");
+        os_program_set_s600(&os, 0, 1);
+        os.pads[0].p.loop_on = 1, os.pads[0].sp.mono = mode == 1 || mode == 2, os.pads[0].sp.legato = mode == 2;
+        if (mode == 3) os.pads[0].sp.note_on = 0;
+        os_pad_push(&os, 0);
+        os.levels_on = 1, os.levels_type = LEVELS_TUNE, os.levels_pad = 0, os.levels_root = 4;
+        os.screen = OS_MAIN;
+        if (playing) seq_play(&os.seq, 1), seq_rec_button(&os.seq);
+        int down[16] = {0}, rep = 0;
+        for (int step = 0; step < 1500; step++) {
+            struct input in = blank();
+            rnd = rnd * 1103515245u + 12345u;
+            int ev = (int)(rnd >> 20) % 100;
+            if (ev < 3) in.down |= 1u << IN_PAD_BANK;                             // another bank under held pads
+            else if (ev < 5) os.levels_root = (int)(rnd >> 8) % 32;                // the root moved
+            else if (ev < 7) os.screen = os.screen == OS_MAIN ? OS_LEVELS : OS_MAIN; // the Levels page: a hit sets the root
+            else if (ev < 9) rep = !rep;                                           // NOTE REPEAT held, or let go
+            if (rep) in.held |= 1u << IN_NOTE_REPEAT;
+            if (ev == 9 && rep) in.down |= 1u << IN_NOTE_REPEAT;
+            for (int k = 0; k < 2; k++) {
+                rnd = rnd * 1103515245u + 12345u;
+                int p = (int)(rnd >> 16) % 8, what = (int)(rnd >> 8) % 6;
+                if (!down[p] && what < 2) {
+                    in.pad_hit[p] = 30 + (int)(rnd >> 4) % 97, down[p] = 1;
+                    if (what == 1) in.pad_release[p] = 1, down[p] = 0;
+                } else if (down[p] && what >= 3) {
+                    in.pad_release[p] = 1, down[p] = 0;
+                }
+            }
+            for (int p = 0; p < 16; p++) in.pad_down[p] = down[p];
+            frame(&in);
+            render(256);
+        }
+        struct input in = blank();
+        for (int p = 0; p < 16; p++) if (down[p]) in.pad_release[p] = 1;
+        frame(&in);
+        in = blank();
+        frame(&in);
+        if (playing) {
+            seq_rec_button(&os.seq);
+            for (int pass = 0; pass < 2; pass++) render_until_wrap();
+            seq_stop(&os.seq, 1);
+        }
+        for (int b = 0; b < 600; b++) render(128);
+        CHECK(voices() == 0);
+        if (voices()) printf("  16 Levels S600 at random, mode %d%s: %d notes left on\n", mode, playing ? ", overdubbing" : "", voices());
+        os.levels_on = 0, os.screen = OS_MAIN, os.bank = 0;
+        os_program_set_s600(&os, 0, 0);
+    }
+}
+
+// A bassline recorded the way it is played: Mono, Legato, Note On and Portamento, one pad at a
+// time but quickly (the next often pressed before the last is let go), REC with Timing Correct,
+// pass after pass. Checked while the sequencer still plays: with the track cleared, once its
+// last notes have had time to end, nothing may still sound (Stop would hide a note left on).
+static void test_levels_s600_bassline(void) {
+    unsigned rnd = 99;
+    for (int run = 0; run < 6; run++) {
+        seq_fresh();
+        os.seq.metronome = METRO_OFF;
+        os.seq.sequence[0].bars = 1;
+        os_pad_load(&os, 0, constant(44100), "Bass");
+        os_program_set_s600(&os, 0, 1);
+        os.pads[0].p.loop_on = 1;
+        os.pads[0].sp.mono = 1, os.pads[0].sp.legato = 1, os.pads[0].sp.note_on = 1, os.pads[0].sp.porta = 60;
+        os_pad_push(&os, 0);
+        os.levels_on = run < 4, os.levels_type = LEVELS_TUNE, os.levels_pad = 0, os.levels_root = 4;
+        os.screen = OS_MAIN;
+        seq_play(&os.seq, 1);
+        seq_rec_button(&os.seq); // OVERDUB
+        if (run & 1) os.seq.mode = SEQ_RECORDING; // REC: what is played over replaces what was there
+        int held = -1, left = 0;
+        for (int step = 0; step < 2500; step++) {
+            struct input in = blank();
+            rnd = rnd * 1103515245u + 12345u;
+            if (held >= 0 && --left <= 0) in.pad_release[held] = 1, held = -1;
+            if ((rnd >> 24) % 3 == 0) {
+                int p = (int)(rnd >> 8) % 8;
+                if (p != held) {
+                    in.pad_hit[p] = 60 + (int)(rnd >> 4) % 60;
+                    if (held >= 0 && (rnd >> 16) % 2) in.pad_release[held] = 1; // let go as the next goes down, or just after
+                    else if (held >= 0) { // let go a moment later: the two overlap
+                        frame(&in);
+                        render(128);
+                        in = blank();
+                        in.pad_release[held] = 1;
+                    }
+                    held = p, left = 1 + (int)(rnd >> 12) % 6;
+                }
+            }
+            for (int p = 0; p < 16; p++) in.pad_down[p] = p == held;
+            frame(&in);
+            render(256);
+        }
+        struct input in = blank();
+        if (held >= 0) in.pad_release[held] = 1;
+        frame(&in);
+        in = blank();
+        frame(&in);
+        os.seq.mode = SEQ_PLAYING;
+        render_until_wrap();
+        pthread_mutex_lock(&os.seq.lock); // the track cleared, still playing
+        os.seq.sequence[0].track[0].count = 0;
+        pthread_mutex_unlock(&os.seq.lock);
+        render_until_wrap();
+        render_until_wrap();
+        for (int b = 0; b < 400; b++) render(128);
+        CHECK(voices() == 0);
+        if (voices()) printf("  bassline run %d (%s, %s): %d notes still on while playing\n", run, os.levels_on ? "16 Levels" : "one pad",
+                             run & 1 ? "REC" : "OVERDUB", voices());
+        seq_stop(&os.seq, 1);
+        for (int b = 0; b < 400; b++) render(128);
+        os.levels_on = 0;
+        os_program_set_s600(&os, 0, 0);
+    }
+}
+
+// STOP with a note still sounding and no pad held: held-note-log.txt on the card says what
+// sounds, what the sequencer still means to release, and the last note events.
+static void test_held_note_log(void) {
+    seq_fresh();
+    char dir[] = "/tmp/claude-mpc-held-XXXXXX";
+    CHECK(mkdtemp(dir) != 0);
+    os.data_dir = dir;
+    os_pad_load(&os, 0, constant(44100), "Bass");
+    os_program_set_s600(&os, 0, 1);
+    os.pads[0].p.loop_on = 1, os.pads[0].sp.note_on = 1;
+    os_pad_push(&os, 0);
+    render(16);
+    engine_play_pad_mix(&e, ENGINE_S600 + 0, 100, 3, 0, 1, 100, 0); // a note nothing will release
+    render(128);
+    tap(IN_STOP);
+    char p[700];
+    snprintf(p, sizeof p, "%s/held-note-log.txt", dir);
+    FILE *f = fopen(p, "r");
+    CHECK(f != 0);
+    char buf[8192] = {0};
+    if (f) fread(buf, 1, sizeof buf - 1, f), fclose(f);
+    CHECK(strstr(buf, "SEQ ON") && strstr(buf, "key 3") && strstr(buf, "Voices"));
+    engine_kill_all(&e);
+    for (int b = 0; b < 400; b++) render(128);
+    remove(p);
+    tap(IN_STOP); // nothing sounding: nothing written
+    CHECK(access(p, F_OK) != 0);
+    os.data_dir = 0;
 }
 
 static void test_record_page(const char *shot_dir) {
@@ -7052,7 +7333,7 @@ static void test_disk_folders(const char *shot_dir) {
     char *real = realpath(root, 0);
     CHECK(real && strcmp(os.disk_at, real) == 0 && (os.disk_nfiles == 0 || os.disk_isdir[0] != 2));
     free(real);
-    // The S600 waveforms: written to MPC600S/s600 at power-on; LOAD's S600 WAVE opens there.
+    // The S600 waveforms: written to MPC600S/s600 at power-on; LOAD's S600 OSC opens there.
     disk_install_waves(&os);
     disk_open(&os, DISK_LOAD, DISK_WAVE);
     {
@@ -7543,6 +7824,26 @@ static void test_step_edit(const char *shot_dir) {
     in = blank();
     in.down = in.held = (1u << IN_SEQ) | (1u << IN_SHIFT), in.shift = 1;
     frame(&in), frame(&in);
+    // Playing, the Grid follows: the page the play position is on, with a line there.
+    CHECK(os.step_grid == 1);
+    sq->sequence[0].bars = 2;
+    os.step_tick = 0;
+    os.step_row = 0;
+    seq_add_note(sq, 0, 0, SEQ_PPQ * 4 + SEQ_PPQ, 2, 100, SEQ_PPQ / 2); // sounding as the play line passes: row A03 lit
+    seq_add_note(sq, 0, 0, SEQ_PPQ * 4 + SEQ_PPQ * 3, 5, 100, SEQ_PPQ / 4);
+    seq_play(sq, 1);
+    render_until_tick(SEQ_PPQ * 4 + SEQ_PPQ + 30); // bar 2, past beat 2
+    in = blank();
+    {
+        struct ui w = {.px = px, .now_ms = 1000, .track_led = -1};
+        os_frame(&w, &in, &os);
+        CHECK(w.wake_ms > 0 && w.wake_ms <= 40); // drawn again as it plays: the page turns by itself
+    }
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "step_grid_play");
+    seq_stop(sq, 1);
+    for (int i = 0; i < 40; i++) render(128);
+    sq->sequence[0].bars = 1;
     in = blank();
     in.down = in.held = (1u << IN_SEQ) | (1u << IN_SHIFT), in.shift = 1;
     frame(&in);
@@ -8668,7 +8969,12 @@ int main(int argc, char **argv) {
     test_record_other_program();
     test_master_with_file();
     test_save_name_next();
+    test_snd_and_name_erase();
     test_levels_s600_no_held();
+    test_levels_s600_seq_no_held();
+    test_levels_s600_wild();
+    test_levels_s600_bassline();
+    test_held_note_log();
     test_program_type();
     test_zones(argc > 1 ? argv[1] : 0);
     test_zones_transient(argc > 1 ? argv[1] : 0);

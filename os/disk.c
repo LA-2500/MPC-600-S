@@ -7,7 +7,7 @@
 //   settings/NAME.txt  the MPC's settings and preferences
 //   fx/NAME.fxc      an Input Effects chain (INPUT, or PAD while in use)
 //   trackfx/NAME.tfx the Track/Mixer chain: the nine send effects
-//   s600/NAME.wav    the S600 waveforms (put there at power-on), and sounds saved as S600 WAVE
+//   s600/NAME.wav    the S600 waveforms (put there at power-on), and sounds saved as S600 OSC
 //   arp/NAME.arp     a USER step pattern of the arpeggiator
 //   autoload/        a project loaded at power-on
 //   exports/NAME/    a sequence or song as WAVs: each track, and the stereo mix (with Master FX)
@@ -21,6 +21,7 @@
 #include "os.h"
 #include "s600_waves.h"
 #include "wav.h"
+#include "snd.h"
 #include <dirent.h>
 #include <pthread.h>
 #include <errno.h>
@@ -35,17 +36,17 @@
 static const char CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 static const char *const MODES[DISK_MODES] = {"SAVE", "LOAD", "EXPORT", "USB DATA"};
 static const char *const TYPES[DISK_TYPES] = {"PROJECT", "PROGRAM", "SAMPLE", "SETTINGS", "AUTOLOAD", "FX CHAIN", "ARP PATTERN",
-                                              "TRACK FX", "S600 WAVE", "SEQUENCE", "MIDI FILE", "MPC 2500 SEQUENCE", "MPC 2500 PROGRAM", "MPC 2500 PROJECT", "SEQUENCE", "SONG",
+                                              "TRACK FX", "S600 OSC", ".SND", "SEQUENCE", "MIDI FILE", "MPC 2500 SEQUENCE", "MPC 2500 PROGRAM", "MPC 2500 PROJECT", "SEQUENCE", "SONG",
                                               "MIXDOWN SEQ", "MIXDOWN SONG"};
 static const char *const DIRS[DISK_TYPES] = {"projects", "programs", "samples", "settings", "autoload", "fx", "arp", "trackfx",
-                                             "s600", "sequences", "sequences", "sequences", "programs", "projects", "exports", "exports", "exports", "exports"};
-static const char *const EXT[DISK_TYPES] = {"", "", ".wav", ".txt", "", ".fxc", ".arp", ".tfx", ".wav", ".sq6", ".mid", "",
+                                             "s600", "samples", "sequences", "sequences", "sequences", "programs", "projects", "exports", "exports", "exports", "exports"};
+static const char *const EXT[DISK_TYPES] = {"", "", ".wav", ".txt", "", ".fxc", ".arp", ".tfx", ".wav", ".snd", ".sq6", ".mid", "",
                                             ".pgm", ".prj", "", "", ".wav", ".wav"};
 // Inside a saved project or program's folder, the file that makes it one (not a folder of yours).
-static const char *const MARK[DISK_TYPES] = {"project.bin", "program.bin", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""};
+static const char *const MARK[DISK_TYPES] = {"project.bin", "program.bin", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""};
 
-static int is_sound(int type) { // a sound on the selected pad, as a WAV
-    return type == DISK_SAMPLE || type == DISK_WAVE;
+static int is_sound(int type) { // a sound on the selected pad, as a WAV (or an Akai .SND)
+    return type == DISK_SAMPLE || type == DISK_WAVE || type == DISK_SND;
 }
 
 static int is_prog(int type) { // into or from a program
@@ -156,6 +157,35 @@ static void clean_path(const char *in, char *b, size_t n) {
     char *real = realpath(in, 0);
     snprintf(b, n, "%s", real ? real : in);
     free(real);
+}
+
+// An Akai .SND's trim, loop and tune on a pad (its level stays the pad's own).
+static void snd_to_pad(struct pad_params *p, const struct sample *x, const struct snd_info *in) {
+    p->start = in->start, p->end = in->end > p->start ? in->end : x->frames;
+    p->loop = in->loop_len > 0 ? p->end - in->loop_len : p->start;
+    p->loop_on = in->loop_on;
+    p->semi = in->tune / 10, p->fine = in->tune % 10 * 10;
+}
+
+// The selected pad's sound as an Akai .SND, named name (16 characters at most).
+static int snd_save_pad(struct os *s, int slot, const char *name, const char *path) {
+    const struct os_pad *pad = &s->pads[slot];
+    if (!pad->s) return -1;
+    struct snd_info in = {0};
+    snprintf(in.name, sizeof in.name, "%.16s", name);
+    in.level = 100, in.beats = 4;
+    in.start = pad->p.start, in.end = pad->p.end > 0 ? pad->p.end : pad->s->frames;
+    in.loop_len = pad->p.loop_on && pad->p.loop < in.end ? in.end - pad->p.loop : 0;
+    in.loop_on = pad->p.loop_on;
+    int t = pad->p.semi * 10 + pad->p.fine / 10;
+    in.tune = t < -120 ? -120 : t > 120 ? 120 : t;
+    return snd_save(path, pad->s, &in);
+}
+
+// A sound file by its extension: .SND an Akai sound, else a WAV.
+static struct sample *sound_load(const char *path) {
+    size_t n = strlen(path);
+    return n > 4 && strcasecmp(path + n - 4, ".snd") == 0 ? snd_load(path, NULL) : wav_load(path);
 }
 
 static void item_path(const struct os *s, int type, const char *name, char *b, size_t n) {
@@ -645,9 +675,13 @@ int disk_program_load(struct os *s, int program, const char *dir) {
 // +0x90 pan (50 the middle). The samples are WAVs of those names, in the same folder.
 
 // A sample's WAV, any case: in the program's folder, else a folder inside it, else the one above.
-static int find_wav(const char *dir, const char *name, char *out, size_t n) {
+static int find_wav1(const char *dir, const char *name, const char *ext, char *out, size_t n);
+static int find_wav(const char *dir, const char *name, char *out, size_t n) { // a WAV, else an Akai .SND
+    return find_wav1(dir, name, ".WAV", out, n) || find_wav1(dir, name, ".SND", out, n);
+}
+static int find_wav1(const char *dir, const char *name, const char *ext, char *out, size_t n) {
     char want[40];
-    snprintf(want, sizeof want, "%s.WAV", name);
+    snprintf(want, sizeof want, "%s%s", name, ext);
     char up[700], sub[900];
     snprintf(up, sizeof up, "%s/..", dir);
     const char *tries[2] = {dir, up};
@@ -758,7 +792,7 @@ int disk_mpc_program_load(struct os *s, int to, const char *path, int *layers) {
         if (!name[0]) continue;
         if (o[0x18] || o[0x30] || o[0x48]) (*layers)++; // more layers: only the first is loaded
         char file[900] = "";
-        struct sample *x = find_wav(dir, name, file, sizeof file) ? wav_load(file) : 0;
+        struct sample *x = find_wav(dir, name, file, sizeof file) ? sound_load(file) : 0;
         if (!x) {
             s->mpc_missing++;
             continue;
@@ -1145,6 +1179,10 @@ void disk_autoload(struct os *s) {
 
 enum { DF_MODE, DF_TYPE, DF_WHICH, DF_CLEAR, DF_TRACKS, DF_MIX, DF_NAME, DF_FILE, DF_FIELDS };
 
+int disk_naming(const struct os *s) {
+    return s->screen == OS_DISK && s->disk_cursor == DF_NAME && !s->disk_ask;
+}
+
 static int clear_ok(int t) { // a load that adds to what is in memory: Clear all can come first
     return t == DISK_PROJECT || is_prog(t) || is_sound(t) || is_seqtype(t) || t == DISK_MPCPRJ;
 }
@@ -1384,6 +1422,7 @@ static void perform(struct os *s, struct ui *u, int action) {
         case DISK_PROJECT: case DISK_AUTOLOAD: rc = disk_project_save(s, path); break;
         case DISK_PROGRAM: rc = disk_program_save(s, s->disk_which, path); break;
         case DISK_SAMPLE: case DISK_WAVE: rc = s->pads[s->selected].s ? wav_save(path, s->pads[s->selected].s, 24) : -1; break;
+        case DISK_SND: rc = snd_save_pad(s, s->selected, name, path); break;
         case DISK_SETTINGS: {
             const char *keep = s->settings_path;
             s->settings_path = path;
@@ -1427,6 +1466,18 @@ static void perform(struct os *s, struct ui *u, int action) {
                 os_undo_save(s, "Load Sample");
                 os_pad_assign(s, s->selected, x, file);
                 if (s->disk_type == DISK_SAMPLE) os_auto_root(s, s->selected);
+                rc = 0;
+            }
+            break;
+        }
+        case DISK_SND: { // onto the selected pad, with its trim, loop and tune
+            struct snd_info in;
+            struct sample *x = snd_load(path, &in);
+            if (x) {
+                os_undo_save(s, "Load Sample");
+                os_pad_assign(s, s->selected, x, in.name[0] ? in.name : file);
+                snd_to_pad(&s->pads[s->selected].p, x, &in);
+                os_pad_push(s, s->selected);
                 rc = 0;
             }
             break;
@@ -1842,7 +1893,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         }
     int d = in->encoder, pm = input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
     if (s->disk_cursor != DF_NAME) d += pm;
-    if (d || pm) {
+    if (d || pm || (s->disk_cursor == DF_NAME && input_down(in, IN_ERASE))) {
         switch (s->disk_cursor) {
         case DF_MODE:
             s->disk_mode = clampi(m + d, 0, DISK_MODES - 1);
@@ -1872,7 +1923,8 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         case DF_TRACKS: s->disk_tracks = clampi(s->disk_tracks + d, 0, 2); break;
         case DF_MIX: s->disk_mix = d > 0; break;
         case DF_FILE: s->disk_file = clampi(s->disk_file + d, 0, s->disk_nfiles > 0 ? s->disk_nfiles - 1 : 0), disk_keep_bar(s); break;
-        case DF_NAME: { // the wheel the character, - and + the place in the name
+        case DF_NAME: { // the wheel the character, - and + the place in the name; ERASE a letter, Shift + ERASE all
+            if (input_down(in, IN_ERASE)) os_name_erase(s->disk_name, &s->disk_pos, in->shift);
             s->disk_pos = clampi(s->disk_pos + pm, 0, NAME_MAX_LEN - 1);
             int len = (int)strlen(s->disk_name);
             while (len <= s->disk_pos) s->disk_name[len++] = ' ', s->disk_name[len] = 0;
@@ -1983,7 +2035,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         if (s->disk_cursor == DF_NAME) {
             char one[2] = {nm[s->disk_pos], 0};
             lcd_inverse(u, col + s->disk_pos, row, one);
-            lcd_text(u, 0, row + 1, "Wheel: letter  -/+: move");
+            lcd_text(u, 0, row + 1, "Wheel letter -/+ move ERASE");
         }
     } else if (m == DISK_SAVE && s->disk_type == DISK_AUTOLOAD) {
         lcd_text(u, 0, 8, "Saves this project to");
@@ -2025,7 +2077,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     lcd_rule(u, BOTTOM_ROW, 0);
     if (s->disk_pending) { // what is about to happen, plainly, while it does
         static const char *const WHAT[DISK_TYPES] = {"project", "program", "sample", "settings", "autoload", "FX chain", "arp pattern",
-                                                     "track FX", "S600 wave", "sequence", "MIDI file", "MPC file", "MPC program", "MPC project", "", "", "", ""};
+                                                     "track FX", "S600 osc", ".SND", "sequence", "MIDI file", "MPC file", "MPC program", "MPC project", "", "", "", ""};
         char a[40];
         int act = s->disk_pending;
         if (act == 'E') snprintf(a, sizeof a, "Starting export");

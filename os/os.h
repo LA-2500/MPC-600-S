@@ -18,7 +18,7 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM };
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "1.7B"
+#define OS_NUMBER "1.7C"
 #define OS_VERSION "LA Version " OS_NUMBER " (11/21/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
@@ -27,6 +27,7 @@ enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where s
 enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI, OS_INSERT, OS_USBMODE };
 enum { DISK_SAVE, DISK_LOAD, DISK_EXPORT, DISK_USB, DISK_MODES }; // DISK_USB: USB DATA MODE
 enum { DISK_PROJECT, DISK_PROGRAM, DISK_SAMPLE, DISK_SETTINGS, DISK_AUTOLOAD, DISK_FX, DISK_ARP, DISK_TRACKFX, DISK_WAVE,
+       DISK_SND,                                       // an Akai .SND: the sound on the selected pad
        DISK_SEQFILE, DISK_MIDI, DISK_MPC, DISK_MPCPGM, DISK_MPCPRJ, // a sequence on its own; LOAD only: a MIDI file,
                                                        // an MPC .ALL/.SEQ, an MPC .PGM, an MPC .PRJ
        DISK_SEQUENCE, DISK_SONG,
@@ -596,6 +597,9 @@ void disk_open(struct os *s, int mode, int type);
 void usbmode_open(struct os *s, struct ui *u); // USB DATA MODE (usbmode.c)
 void usbmode_frame(struct ui *u, struct os *s, const struct input *in);
 void disk_frame(struct os *s, struct ui *u, const struct input *in);
+int disk_naming(const struct os *s); // the Save/Load name field is being set
+// ERASE while naming: the letter at the cursor (past the name's end, the one before it); all, the whole name.
+void os_name_erase(char *name, int *pos, int all);
 void disk_autoload(struct os *s); // power-on: the autoload project, if one was saved
 void disk_install_waves(struct os *s); // power-on: the S600 waveforms into MPC600S/s600, any missing
 int disk_project_save(struct os *s, const char *dir);
