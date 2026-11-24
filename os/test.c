@@ -7007,6 +7007,30 @@ static void test_seq_files(const char *shot_dir) {
 
 // Purge Unused (the Sample page's last <Do>): the sounds kept in memory that no pad plays go; a
 // sound on any program's pad stays; Undo brings them back.
+// KNOB FX (note 0) as the panel sends it: each packet's message has its status byte, then zeros.
+// The zeros are not note 0 at velocity 0 (a release a moment after the press, which threw every
+// real press away as too short): a press, padding, and its release 30 ms later is a whole press.
+static void test_knob_fx_padding(void) {
+    unsigned char m[16][3];
+    const unsigned char press[] = {0x90, 0x00, 0x7f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, release[] = {0x90, 0x00, 0x00, 0, 0, 0, 0, 0, 0},
+                        wheel[] = {0x90, 0x6f, 0x7f, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(panel_parse(wheel, sizeof wheel, m, 16) == 1 && m[0][1] == 0x6f); // no KNOB FX after it
+    struct input_dev dev = {0};
+    struct input in;
+    input_begin(&in, &dev);
+    int n = panel_parse(press, sizeof press, m, 16);
+    CHECK(n == 1);
+    for (int i = 0; i < n; i++) input_push(&dev, &in, m[i]);
+    CHECK(!input_down(&in, IN_KNOB_FX)); // not yet: a page button acts on its release
+    struct timespec ts = {0, 30 * 1000000};
+    nanosleep(&ts, 0);
+    input_begin(&in, &dev);
+    n = panel_parse(release, sizeof release, m, 16);
+    CHECK(n == 1);
+    for (int i = 0; i < n; i++) input_push(&dev, &in, m[i]);
+    CHECK(input_down(&in, IN_KNOB_FX) && dev.ghosts == 0);
+}
+
 static void test_disk_type_order(void) {
     CHECK(DISK_MIDI + 1 == DISK_XLSEQ && DISK_XLSEQ + 1 == DISK_XLPGM && DISK_XLPGM + 1 == DISK_XLPRJ && DISK_XLPRJ + 1 == DISK_MPC && DISK_MPC + 1 == DISK_MPCPGM &&
           DISK_MPCPGM + 1 == DISK_MPCPRJ && DISK_MPCPRJ + 1 == DISK_SEQUENCE);
@@ -9620,6 +9644,7 @@ int main(int argc, char **argv) {
     test_xl_files();
     test_purge_unused();
     test_disk_type_order();
+    test_knob_fx_padding();
     test_levels_s600_no_held();
     test_levels_s600_seq_no_held();
     test_levels_s600_wild();

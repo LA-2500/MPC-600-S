@@ -108,6 +108,7 @@ int panel_run(ui_frame frame, void *state);
 void panel_set_bicolour_style(int style);
 unsigned panel_pad_bounces(void); // pad bounces ignored so far, for the log
 unsigned panel_rejected(void);    // knob jumps and ghost pad hits ignored so far, for the log
-int panel_take_note(char *out, size_t n); // a KNOB FX press and the raw bytes before it, once, for the log
+int panel_take_note(char *out, size_t n);
+int panel_parse(const unsigned char *b, int n, unsigned char out[][3], int max); // bytes to messages (tests) // a KNOB FX press and the raw bytes before it, once, for the log
 // The lightest pad hit that counts (velocity 1..60; default 12).
 void panel_set_pad_threshold(int velocity);

@@ -332,7 +332,7 @@ void input_push(struct input_dev *dev, struct input *in, const unsigned char m[3
 // MIDI bytes into whole messages: running status kept, SysEx and real-time bytes passed over.
 struct reader {
     unsigned char status, data[2];
-    int have, sysex;
+    int have, sysex, running; // running: the status is carried over from the last message
 };
 
 static int reader_byte(struct reader *r, unsigned char c, unsigned char out[3]) {
@@ -346,16 +346,31 @@ static int reader_byte(struct reader *r, unsigned char c, unsigned char out[3]) 
         return 0;
     }
     if (c & 0x80) {
-        r->sysex = 0, r->status = c, r->have = 0;
+        r->sysex = 0, r->status = c, r->have = 0, r->running = 0;
         return 0;
     }
     if (r->sysex || !r->status) return 0;
     r->data[r->have++] = c;
     int need = (r->status & 0xE0) == 0xC0 ? 1 : 2; // program change and channel pressure: one byte
     if (r->have < need) return 0;
+    int was_running = r->running;
+    r->have = 0, r->running = 1; // running status: the next data bytes are another of the same
+    // The panel pads its packets with zeros after each message, and gives every real message its
+    // own status byte. Zeros under running status are that padding: after a note, they read as
+    // note 0 (KNOB FX) at velocity 0, a release a moment after every press, so KNOB FX never
+    // made a whole press (and opened Input Effects by itself before page buttons waited for one).
+    if (was_running && !r->data[0] && (need == 1 || !r->data[1])) return 0;
     out[0] = r->status, out[1] = r->data[0], out[2] = need == 2 ? r->data[1] : 0;
-    r->have = 0; // running status: the next data bytes are another of the same
     return 1;
+}
+
+// For the tests: bytes as they come from the panel, into messages (a reader kept between calls).
+int panel_parse(const unsigned char *b, int n, unsigned char out[][3], int max) {
+    static struct reader r;
+    int k = 0;
+    for (int i = 0; i < n && k < max; i++)
+        if (reader_byte(&r, b[i], out[k])) k++;
+    return k;
 }
 
 // ---- Drawing ----
