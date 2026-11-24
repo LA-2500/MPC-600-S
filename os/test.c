@@ -7058,6 +7058,41 @@ static void test_stereo_enhancer(void) {
     fx_free(f);
 }
 
+// PAD BANK held, pad 1-8: straight to bank A-H. The pad plays nothing, and letting PAD BANK go
+// steps no bank on top of the jump. On the mixer the banks stop at G.
+static void test_bank_jump(void) {
+    struct input_dev dev = {0};
+    struct input in;
+    const unsigned char bank_on[3] = {0x90, 35, 127}, bank_off[3] = {0x80, 35, 0};
+    const unsigned char pad2_on[3] = {0x99, INPUT_PAD_NOTE[1], 100}, pad2_off[3] = {0x89, INPUT_PAD_NOTE[1], 0};
+    input_begin(&in, &dev), input_push(&dev, &in, bank_on);
+    CHECK(!input_down(&in, IN_PAD_BANK));
+    input_begin(&in, &dev), input_push(&dev, &in, pad2_on);
+    CHECK(in.bank_jump == 2 && in.pad_hit[1] < 0); // bank B, and no pad hit
+    input_begin(&in, &dev), input_push(&dev, &in, pad2_off);
+    CHECK(!in.pad_release[1]);
+    struct timespec ts = {0, 30 * 1000000};
+    nanosleep(&ts, 0);
+    input_begin(&in, &dev), input_push(&dev, &in, bank_off);
+    CHECK(!input_down(&in, IN_PAD_BANK) && dev.ghosts == 0); // no step after the jump
+    input_begin(&in, &dev), input_push(&dev, &in, pad2_on);
+    CHECK(in.pad_hit[1] == 100 && !in.bank_jump); // PAD BANK let go: a pad again
+    // The OS: to the bank
+    seq_fresh();
+    struct input f = blank();
+    f.bank_jump = 2;
+    frame(&f);
+    CHECK(os.bank == 1);
+    f = blank(), f.bank_jump = 8;
+    frame(&f);
+    CHECK(os.bank == 7);
+    os.screen = OS_MIXER;
+    f = blank(), f.bank_jump = 8;
+    frame(&f);
+    CHECK(os.bank == 6); // the mixer's last bank: G
+    seq_fresh();
+}
+
 static void test_disk_type_order(void) {
     CHECK(DISK_MIDI + 1 == DISK_XLSEQ && DISK_XLSEQ + 1 == DISK_XLPGM && DISK_XLPGM + 1 == DISK_XLPRJ && DISK_XLPRJ + 1 == DISK_MPC && DISK_MPC + 1 == DISK_MPCPGM &&
           DISK_MPCPGM + 1 == DISK_MPCPRJ && DISK_MPCPRJ + 1 == DISK_SEQUENCE);
@@ -9697,6 +9732,7 @@ int main(int argc, char **argv) {
     test_xl_files();
     test_purge_unused();
     test_disk_type_order();
+    test_bank_jump();
     test_stereo_enhancer();
     test_knob_fx_padding();
     test_levels_s600_no_held();

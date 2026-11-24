@@ -119,6 +119,17 @@ static void pad_message(struct input_dev *dev, struct input *in, int kind, int n
         if (dev) dev->rejected++;
         return;
     }
+    // PAD BANK held: pads 1-8 jump to banks A-H, and play nothing; 9-16 do nothing.
+    if (dev && kind == 0x90 && value > 0 && (dev->confirm_pending >> IN_PAD_BANK & 1)) {
+        if (p < 8) in->bank_jump = p + 1, dev->bank_jumped = 1;
+        dev->pad_eaten[p] = 1;
+        return;
+    }
+    if (dev && dev->pad_eaten[p] && kind != 0x90) return; // its pressure
+    if (dev && dev->pad_eaten[p] && kind == 0x90 && value == 0) {
+        dev->pad_eaten[p] = 0;
+        return;
+    }
     if (kind == 0x90 && value > 0) { // pressed
         long long now = clock_ms();
         if (dev && dev->pad_down[p] && now - dev->pad_on_ms[p] < 100) { // sent again, still held
@@ -139,6 +150,10 @@ static void pad_message(struct input_dev *dev, struct input *in, int kind, int n
         if (dev) dev->pad_down[p] = 1, dev->pad_on_ms[p] = now, dev->pad_hit_ms = now;
         in->pad_hit[p] = value, in->pad_down[p] = 1;
     } else if (kind == 0x80 || (kind == 0x90 && value == 0)) {
+        if (dev && dev->pad_eaten[p]) { // the release of a pad pressed for a bank jump
+            dev->pad_eaten[p] = 0;
+            return;
+        }
         if (dev) dev->pad_down[p] = 0;
         in->pad_release[p] = 1, in->pad_down[p] = 0;
     }
@@ -192,11 +207,16 @@ static void button_message(struct input_dev *dev, struct input *in, int kind, in
             if (dev->confirm_pending & bit) dev->ghosts++; // the last one never released: not a press
             dev->confirm_pending |= bit;
             dev->confirm_ms[b] = now;
+            if (b == IN_PAD_BANK) dev->bank_jumped = 0;
             if (in->shift) dev->confirm_shift |= bit;
             else dev->confirm_shift &= ~bit;
         } else if (kind == 0x80 || (kind == 0x90 && value == 0)) {
             if (!(dev->confirm_pending & bit)) return; // a release with no press: nothing
             dev->confirm_pending &= ~bit;
+            if (b == IN_PAD_BANK && dev->bank_jumped) { // it was held for a jump: no step on top of it
+                dev->bank_jumped = 0;
+                return;
+            }
             long long held = now - dev->confirm_ms[b];
             if (held < CONFIRM_MIN_MS || held > CONFIRM_MAX_MS) {
                 dev->ghosts++;

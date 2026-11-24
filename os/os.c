@@ -3074,6 +3074,11 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
             int banks = tracks ? (SEQ_TRACKS + 15) / 16 : OS_BANKS;
             s->bank = (s->bank + (in->shift ? banks - 1 : 1)) % banks;
         }
+        if (in->bank_jump) { // PAD BANK held, pad 1-8: straight to bank A-H (the mixer's last is G)
+            int tracks = s->screen == OS_MIXER || (s->screen == OS_MUTE && s->mute_type != MUTE_PAD && s->mute_type != MUTE_PAD_SOLO);
+            int banks = tracks ? (SEQ_TRACKS + 15) / 16 : OS_BANKS;
+            s->bank = in->bank_jump - 1 < banks ? in->bank_jump - 1 : banks - 1;
+        }
     }
     if (s->screen == OS_BROWSER && input_down(in, IN_SAMPLE_REC) && in->shift) help_open(s, 0); // its help too
     seq_transport(s, u, in);

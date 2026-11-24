@@ -36,11 +36,14 @@ struct input {
     int pad_pressure[16]; // pressure on a held pad this frame, else -1
     int pad_release[16];  // let go this frame
     int pad_down[16];     // held now
+    int bank_jump;        // PAD BANK held and pad 1-8 pressed: bank A-H (1..8) to go to; 0 none
 };
 
 // What the panel holds between frames.
 struct input_dev {
     unsigned held;
+    int bank_jumped;            // a jump made while PAD BANK was held: its release steps no bank
+    unsigned char pad_eaten[16]; // pads pressed for a jump: their release is not a pad's
     int pad_down[16];
     long long pad_on_ms[16]; // when each pad last went down, to tell a bounce from a press
     unsigned pad_bounces;    // repeated note-ons for a pad still held, ignored
