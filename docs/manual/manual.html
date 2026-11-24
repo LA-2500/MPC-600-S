@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 2.0A &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 2.0B &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -106,7 +106,7 @@
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
-<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0A.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0B.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
 <ol>
   <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
   <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
@@ -1003,7 +1003,7 @@
   <tr><th>Field</th><th>Does</th></tr>
   <tr><td>USB Outs</td><td><strong>ON</strong> makes the MPC&rsquo;s USB audio device (<strong>MPC Sample</strong>) eight channels to the computer instead of two. USB audio and MIDI stop for a couple of seconds while the port changes. The setting is kept, and the eight come back at power-on; off (or leaving the MPC 600 S), it is stereo again. <span class="lcd">ON (no USB)</span>: the port could not be changed.</td></tr>
   <tr><td>Src</td><td><strong>TRACKS</strong> (to start): each sequence track has its own output. <strong>PADS</strong>: each pad has one.</td></tr>
-  <tr><td>Note / Trk</td><td>The pad (or track) shown. Pads pick it.</td></tr>
+  <tr><td>Note / Trk</td><td>The pad (or track) shown. Pads pick it: by pad, the pad plays as you press it; by track, a pad only picks its track and plays nothing, as on the mixer.</td></tr>
   <tr><td>Stereo Out: Volume, Pan</td><td>(Pads) the pad&rsquo;s own Volume and Pan, as on its Vol page: what goes to the main mix. <strong>Volume 0</strong> leaves the pad on its output only. (Tracks: the track&rsquo;s Level and Pan, the same as on the mixer.)</td></tr>
   <tr><td>Indiv Out: Output</td><td><strong>OFF</strong>, a channel (mono: the sound summed to one channel), or a stereo pair of channels side by side, which keeps the pan. Any mix of mono and stereo fits the channels the Layout leaves; several pads (or tracks) can share an output.</td></tr>
   <tr><td>Indiv Out: Volume</td><td>Its level on the output. (Pads: setting it turns Follow to NO. Tracks: the track&rsquo;s level on its output only, after its fader; the main mix keeps the fader&rsquo;s.)</td></tr>
@@ -1338,7 +1338,7 @@
 <p><strong>Layout: 2000XL</strong> (Additional Settings) gives every page the look of the MPC2000XL&rsquo;s screen, at the MPC 600 S&rsquo;s size: the XL&rsquo;s letters, the key labels drawn as tabs, and dotted lines. With <strong>Screen: MPC2000</strong> it takes the XL&rsquo;s colour too. What the pages do stays the same; a few are laid out as on the XL. <strong>DEFAULT</strong> is the MPC 600 S&rsquo;s own look.</p>
 {{shot:prefs_layout|Additional Settings: Layout}}
 <ul>
-  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0A</span> in the middle of the screen, nothing else.</li>
+  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0B</span> in the middle of the screen, nothing else.</li>
   <li><strong>The main page</strong>: the sequence and <span class="lcd">Now:</span> on top; under them tempo, time signature, Timing, Count, Loop and Bars; the track under the dotted line. <span class="key">B1</span>&ndash;<span class="key">B3</span> read TrMUTE, Tr &minus; and Tr + (the same keys as on DEFAULT), and the knobs are listed along the bottom: <span class="lcd">K1:Track K2:BPM K3:Pgm</span>. Pick another sequence while one plays and <span class="lcd">Next:</span> shows beside the counter, with its number and name, until it starts.</li>
   <li><strong>Track Mute</strong>: the XL&rsquo;s grid of track names, 16 at a time. A playing track sits on a bar; a muted one is plain; a track with nothing on it reads <span class="lcd">(Unused)</span>.</li>
   <li><strong>Save and Load</strong>: the XL&rsquo;s pictures. SAVE: the MPC, an arrow marked SAVE, and the card (marked SD). LOAD: the card, an arrow marked LOAD, and the MPC.</li>

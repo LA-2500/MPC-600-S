@@ -1330,7 +1330,11 @@ static void pad_down(struct os *s, struct ui *u, const struct input *in, int i) 
     if (s->screen == OS_TC) seq_tc_pad(s, note);
     if (s->screen == OS_ERASE) seq_erase_pad(s, note);
     if (s->screen == OS_COPYEV) seq_copyev_pad(s, note);
-    if (s->screen == OS_OUTS) seq_outs_pad(s, slot);
+    if (s->screen == OS_OUTS && s->outs_by_track) { // Source TRACKS: a pad only picks its track, as on the mixer
+        if (!os_ctl_busy(s)) seq_outs_pad(s, slot);
+        return;
+    }
+    if (s->screen == OS_OUTS) seq_outs_pad(s, slot); // Source PADS: the pad picked, and heard
     if (padnotes_pad(s, u, slot)) return; // Pad Notes: a pad picks the one to set
     infx_pad_pressed(s, slot);            // Pad Effects: the chain goes to the pad pressed
     multi_pad(s, slot);                   // MULTI, the cursor on a Zone: that pad is the zone

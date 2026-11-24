@@ -3512,8 +3512,22 @@ static void test_usb_outs(const char *shot_dir) {
     os.cursor_outs = 1; // Src: TRACKS
     in = blank(), in.encoder = 1, frame(&in);
     CHECK(os.outs_by_track == 1);
-    in = blank(), in.pad_hit[3] = 100, in.pad_down[3] = 1, frame(&in); // a pad picks track 4
+    load_pad(3);
+    for (int v = 0; v < ENGINE_VOICES; v++) e.voice[v].stage = 0; // nothing sounding from before
+    in = blank(), in.pad_hit[3] = 100, in.pad_down[3] = 1, frame(&in); // a pad picks track 4, and is not heard
+    render(16);
+    int heard = 0;
+    for (int v = 0; v < ENGINE_VOICES; v++) heard += e.voice[v].stage != 0;
+    CHECK(heard == 0);
     in = blank(), in.pad_release[3] = 1, frame(&in);
+    os.outs_by_track = 0; // Source PADS: the press is heard
+    in = blank(), in.pad_hit[3] = 100, in.pad_down[3] = 1, frame(&in);
+    render(16);
+    heard = 0;
+    for (int v = 0; v < ENGINE_VOICES; v++) heard += e.voice[v].stage != 0;
+    CHECK(heard > 0);
+    in = blank(), in.pad_release[3] = 1, frame(&in);
+    os.outs_by_track = 1, os.cursor_outs = 8, os.outs_sel = 3;
     CHECK(os.outs_sel == 3 && os.cursor_outs == 8);
     os.cursor_outs = 4; // Level: the track's mixer level
     in = blank(), in.encoder = -10, frame(&in);
