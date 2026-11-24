@@ -24,7 +24,7 @@ enum { F_FRAMES, F_NUM, F_PCT, F_PAN, F_MS, F_SEMI, F_CENTS, F_MONO, F_GROUP, F_
 
 static const char *const DO_NAMES[DO_COUNT] = {
     "Discard", "Normalize", "Extract", "Silence Zone", "Reverse Zone", "Delete Zone",
-    "Copy Zone->Temp", "Ins Tmp->Zon St", "Ins Tmp->Zn End", "Convert 44.1k",
+    "Copy Zone->Temp", "Ins Tmp->Zon St", "Ins Tmp->Zn End", "Convert 44.1k", "Purge Unused",
 };
 
 struct param {
@@ -320,6 +320,48 @@ static void keep_if_last(struct os *s, struct sample *sm, const char *name, int 
 
 // A sound loaded, recorded, extracted or zoned onto a pad over another: the old one, if no
 // other pad has it, stays in memory (Sample: and Snd: still find it), as on the MPC2000XL.
+// A pad's trim for the sound it is letting go of, kept: put that sound back on that pad (the
+// Sample: field, Snd:, a load) and its start, end and loop come back, so a chopped pad (a zone of a
+// longer sound) is not lost when another sound goes on it by mistake. The last TRIM_MEMO kept.
+#define TRIM_MEMO 128
+static struct trim_memo {
+    int prog, slot;
+    const struct sample *s;
+    int32_t frames, start, end, loop, loop_on, loop_lock;
+    char name[sizeof ((struct os_pad *)0)->name];
+} trim_memo[TRIM_MEMO];
+static unsigned trim_n;
+
+static void trim_remember(const struct os *s, int slot) {
+    const struct os_pad *pad = &s->pads[slot];
+    if (!pad->s) return;
+    for (unsigned i = 0; i < TRIM_MEMO; i++) { // this pad and sound again: its newest trim, in place
+        struct trim_memo *m = &trim_memo[i];
+        if (m->s == pad->s && m->prog == s->program && m->slot == slot) {
+            m->start = pad->p.start, m->end = pad->p.end, m->loop = pad->p.loop, m->loop_on = pad->p.loop_on;
+            m->loop_lock = pad->p.loop_lock;
+            snprintf(m->name, sizeof m->name, "%s", pad->name);
+            return;
+        }
+    }
+    trim_memo[trim_n++ % TRIM_MEMO] = (struct trim_memo){s->program, slot, pad->s, pad->s->frames, pad->p.start, pad->p.end,
+                                                       pad->p.loop, pad->p.loop_on, pad->p.loop_lock, ""};
+    snprintf(trim_memo[(trim_n - 1) % TRIM_MEMO].name, sizeof trim_memo[0].name, "%s", pad->name);
+}
+
+static const char *trim_recall(struct os *s, int slot) { // the chop's name, when one came back
+    struct os_pad *pad = &s->pads[slot];
+    for (unsigned i = 0; i < TRIM_MEMO && pad->s; i++) {
+        const struct trim_memo *m = &trim_memo[i];
+        if (m->s != pad->s || m->prog != s->program || m->slot != slot || m->frames != pad->s->frames) continue;
+        if (m->end <= m->start || m->end > pad->s->frames) return 0;
+        pad->p.start = m->start, pad->p.end = m->end, pad->p.loop = m->loop, pad->p.loop_on = m->loop_on;
+        pad->p.loop_lock = m->loop_lock; // a loop point set by hand stays where it was
+        return m->name;
+    }
+    return 0;
+}
+
 void os_pad_load_over(struct os *s, int slot, struct sample *n, const char *name) {
     struct os_pad *pad = &s->pads[slot];
     if (pad->s != n) keep_if_last(s, pad->s, pad->name, s->program, slot);
@@ -329,11 +371,13 @@ void os_pad_load_over(struct os *s, int slot, struct sample *n, const char *name
 void os_pad_load(struct os *s, int slot, struct sample *n, const char *name) {
     if (slot == s->temp_pad) clear_temp(s);
     struct os_pad *pad = &s->pads[slot];
+    if (pad->s != n) trim_remember(s, slot);
     replace_sample(s, pad, n);
     default_params(&pad->p, n->frames);
+    const char *was = trim_recall(s, slot); // this sound on this pad before: its chop back
     s600_defaults(&pad->sp);
     os_pad_push(s, slot);
-    snprintf(pad->name, sizeof pad->name, "%s", name);
+    snprintf(pad->name, sizeof pad->name, "%s", was && was[0] ? was : name);
 }
 
 void os_init(struct os *s, struct engine *e) {
@@ -547,9 +591,11 @@ void os_pad_assign(struct os *s, int slot, struct sample *n, const char *name) {
     }
     if (slot == s->temp_pad) clear_temp(s);
     keep_if_last(s, pad->s, pad->name, s->program, slot); // its last place: kept, not lost
+    trim_remember(s, slot);
     replace_sample(s, pad, n);
     pad->p.start = 0, pad->p.end = n->frames, pad->p.loop = 0;
-    snprintf(pad->name, sizeof pad->name, "%s", keep);
+    const char *was = trim_recall(s, slot); // this sound on this pad before: its chop back, and its name
+    snprintf(pad->name, sizeof pad->name, "%s", was && was[0] ? was : keep);
     pad_changed(s, slot);
 }
 
@@ -745,6 +791,14 @@ static void append(struct sample *dst, int32_t *at, const struct sample *src, in
 // swaps it in, so a voice still playing the old one is never cut up under it.
 static void zone_op(struct os *s, const struct ui *u) {
     struct os_pad *pad = &s->pads[s->selected];
+    if (s->do_op == DO_PURGE) { // not the zone: memory, every program
+        char msg[32];
+        int n = os_purge_unused(s);
+        if (n) snprintf(msg, sizeof msg, "Purged %d sound%s", n, n == 1 ? "" : "s");
+        else snprintf(msg, sizeof msg, "No unused sounds");
+        toast(s, u, msg);
+        return;
+    }
     if (!pad->s) return;
     const struct sample *o = pad->s;
     if (s->do_op != DO_COPY && s->do_op != DO_EXTRACT) os_undo_save(s, DO_NAMES[s->do_op]); // Extract: when it lands
@@ -921,6 +975,25 @@ void os_program_set_s600(struct os *s, int program, int on) {
     s->seq.kit_s600[program] = (unsigned char)(on != 0);
     pthread_mutex_unlock(&s->seq.lock);
     os_multi_refresh(s, program); // MULTI on or off: the instrument's keygroups played or not
+}
+
+// Purge: the sounds kept in memory that no pad of any program plays, gone (Undo brings them back).
+int os_purge_unused(struct os *s) {
+    int unused = 0;
+    for (int m = 0; m < s->nmemory; m++) unused += !on_a_pad(s, s->memory[m].s, -1, -1);
+    if (!unused) return 0;
+    os_undo_save(s, "Purge Unused");
+    int k = 0, gone = 0;
+    for (int m = 0; m < s->nmemory; m++) {
+        if (on_a_pad(s, s->memory[m].s, -1, -1)) {
+            s->memory[k++] = s->memory[m];
+            continue;
+        }
+        os_sample_release(s, s->memory[m].s);
+        gone++;
+    }
+    s->nmemory = k;
+    return gone;
 }
 
 int os_memory_add(struct os *s, struct sample *n, const char *name) {
@@ -2398,7 +2471,9 @@ static void browser_draw(struct ui *u, struct os *s, int shift) {
         int is_file = fb->count > 0 && !fb->entries[fb->cursor].dir;
         lcd_text(u, 20, KEY_ROW, is_file ? "<Load>" : "<Open>");
     }
-    lcd_rule(u, TITLE_ROW, "Load Files");
+    char title[32]; // where a load goes: the program the active track plays, the selected pad
+    snprintf(title, sizeof title, "Load to P%02d %c%02d", s->program + 1, 'A' + s->selected / 16, s->selected % 16 + 1);
+    lcd_rule(u, TITLE_ROW, title);
     const char *where = fb->cwd[0] ? fb->cwd : "Storage";
     size_t len = strlen(where);
     lcd_text(u, 0, 3, len > LCD_COLS ? where + len - LCD_COLS : where);

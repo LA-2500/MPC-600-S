@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #define IMP_TRACKS 64
-enum { IMP_MIDI, IMP_MPC };
+enum { IMP_MIDI, IMP_MPC, IMP_XL }; // IMP_XL: an MPC 2000XL .ALL, or its .MID
 
 struct imp_note {
     uint32_t tick; // at 96 PPQN
@@ -24,6 +24,7 @@ struct imp_track {
     struct imp_note *notes;
     int has_map;              // a drum part's notes to pads: from the MPC's program file beside it
     unsigned char map[128];   // note -> pad (0..63), 255 none
+    int xl, xl_bus, xl_pc, xl_dev; // a 2000XL .MID's TRACK DATA: there; bus (0 MIDI, 1..4 DRUM), program, device
 };
 
 struct imp_seq {
@@ -45,6 +46,8 @@ struct seq_import {
 
 int imp_midi_load(struct seq_import *im, const char *path); // 0, or -1 not a MIDI file / nothing in it
 int imp_mpc_load(struct seq_import *im, const char *path);  // 0, or -1 not an MPC .ALL or .SEQ file / nothing in it
+int imp_xl_all_load(struct seq_import *im, const char *path); // an MPC 2000XL .ALL: 0, or -1
+void imp_xl_mid_fix(struct seq_import *im, const char *path); // a MIDI file read: a 2000XL .MID's drum tracks and pads
 void imp_free(struct seq_import *im);
 void imp_select_all(struct seq_import *im, int on);
 

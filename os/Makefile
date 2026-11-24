@@ -10,7 +10,7 @@ ZIGDEV = zig cc -target aarch64-linux-musl
 ZIGHOST = zig cc
 
 PANEL = os/panel.c os/files.c
-COMMON = os/engine.c os/wav.c os/snd.c os/os.c os/lcd.c os/seq.c os/seq_screen.c os/s600.c os/record.c os/recorder.c os/zones.c os/undo.c os/eq.c os/midi.c os/stems/umx.c os/onset.c os/fx.c os/fxpage.c os/mute.c os/help.c os/master.c os/song.c os/step.c os/warp.c os/prefs.c os/disk.c os/arpedit.c os/multi.c os/seqimport.c os/mpcsave.c
+COMMON = os/engine.c os/wav.c os/snd.c os/os.c os/lcd.c os/seq.c os/seq_screen.c os/s600.c os/record.c os/recorder.c os/zones.c os/undo.c os/eq.c os/midi.c os/stems/umx.c os/onset.c os/fx.c os/fxpage.c os/mute.c os/help.c os/master.c os/song.c os/step.c os/warp.c os/prefs.c os/disk.c os/arpedit.c os/multi.c os/seqimport.c os/mpcsave.c os/xl.c
 OS_HDR = $(wildcard os/*.h) $(wildcard os/stems/*.h)
 DEV_SRC = $(COMMON) os/alsa_out.c os/power_key.c os/midi_out.c os/usbmode_hw.c os/main.c $(PANEL)
 TEST_SRC = $(COMMON) os/test.c $(PANEL)

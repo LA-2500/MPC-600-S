@@ -110,6 +110,18 @@ static int to_level(int ms) { // milliseconds to the MPC's 0..100 (100: three se
     return clampi((int)lround(sqrt(ms / 3.0)), 0, 100);
 }
 
+// Another pad (of any program, A01-D16) plays this sound with another trim: it is chopped.
+static int chopped(const struct os *s, const struct sample *x, int32_t from, int32_t to) {
+    for (int g = 0; g < OS_PROGRAMS; g++)
+        for (int pad = 0; pad < MPC_PADS && pad < OS_PADS; pad++) {
+            const struct os_pad *pd = &s->programs[g].pads[pad];
+            if (pd->s != x) continue;
+            int32_t t = pd->p.end > 0 && pd->p.end <= x->frames ? pd->p.end : x->frames, f = pd->p.start >= 0 && pd->p.start < t ? pd->p.start : 0;
+            if (f != from || t != to) return 1;
+        }
+    return 0;
+}
+
 int disk_mpc_project_save(struct os *s, const char *dir, const char *name, int *programs, int *sequences, int *dropped) {
     *programs = *sequences = *dropped = 0;
     if (mkdir(dir, 0755) != 0) {
@@ -124,6 +136,7 @@ int disk_mpc_project_save(struct os *s, const char *dir, const char *name, int *
     static char pnames[OS_PROGRAMS][17], snames[OS_PROGRAMS * MPC_PADS][17];
     int pnum[OS_PROGRAMS], nprog = 0, nsamp = 0;
     const struct sample *sdone[OS_PROGRAMS * MPC_PADS];
+    int32_t sfrom[OS_PROGRAMS * MPC_PADS], sto[OS_PROGRAMS * MPC_PADS]; // each sound with its trim: a chop is its own WAV
     for (int g = 0; g < OS_PROGRAMS; g++) {
         pnum[g] = -1;
         if (!os_program_sounds(s, g)) continue;
@@ -138,20 +151,29 @@ int disk_mpc_project_save(struct os *s, const char *dir, const char *name, int *
                 (*dropped)++;
                 continue;
             }
+            int32_t to = pd->p.end > 0 && pd->p.end <= pd->s->frames ? pd->p.end : pd->s->frames;
+            int32_t from = pd->p.start >= 0 && pd->p.start < to ? pd->p.start : 0;
             int si = -1;
             for (int i = 0; i < nsamp && si < 0; i++)
-                if (sdone[i] == pd->s) si = i;
-            if (si < 0) {
+                if (sdone[i] == pd->s && sfrom[i] == from && sto[i] == to) si = i;
+            if (si < 0) { // only its part: pads playing zones of one long sound each keep their own
                 char nm[17];
                 mpc_name(pd->name[0] ? pd->name : "SAMPLE", nm);
                 unique(snames, nsamp, nm);
                 snprintf(path, sizeof path, "%s/%s.WAV", dir, nm);
-                if (write_wav(path, pd->s, pd->p.start, pd->p.end) != 0) {
+                struct sample v = *pd->s;
+                int32_t ws = from, we = to; // a sound with one trim: whole, its trim in the WAV (still trimmable there)
+                if (chopped(s, pd->s, from, to)) { // pads playing zones of it: only this part
+                    v.data += (size_t)from * (size_t)v.channels;
+                    v.frames = to - from;
+                    ws = 0, we = v.frames;
+                }
+                if (write_wav(path, &v, ws, we) != 0) {
                     free(b);
                     return -1;
                 }
                 si = nsamp++;
-                sdone[si] = pd->s;
+                sdone[si] = pd->s, sfrom[si] = from, sto[si] = to;
                 snprintf(snames[si], 17, "%s", nm);
             }
             const struct pad_params *p = &pd->p;

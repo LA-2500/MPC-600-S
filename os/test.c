@@ -3529,6 +3529,28 @@ static void test_usb_outs(const char *shot_dir) {
     os.screen = OS_MAIN;
 }
 
+// A chopped pad (a zone of a longer sound) with another sound loaded over it by mistake: put the
+// long sound back on that pad and its chop comes back; on another pad, the whole sound.
+static void test_chop_recall(void) {
+    seq_fresh();
+    struct sample *longs = ramp(20000), *drum = ramp(3000);
+    os_pad_load(&os, 4, longs, "Break");
+    struct pad_params *p = &os.pads[4].p;
+    p->start = 5000, p->end = 9000, p->loop = 6000, p->loop_on = 1, p->loop_lock = 0; // the chop, its loop set by hand
+    snprintf(os.pads[4].name, sizeof os.pads[4].name, "Break-03");
+    os_pad_assign(&os, 5, longs, "Break"); // another pad plays the same sound, so it stays in memory
+    os.pads[5].p.start = 9000, os.pads[5].p.end = 14000;
+    os_pad_load_over(&os, 4, drum, "Kick"); // the mistake
+    CHECK(os.pads[4].s == drum && p->start == 0 && p->end == 3000);
+    os_pad_assign(&os, 4, longs, "Break"); // put back
+    CHECK(os.pads[4].s == longs && p->start == 5000 && p->end == 9000 && p->loop == 6000 && p->loop_on);
+    CHECK(!strcmp(os.pads[4].name, "Break-03")); // and its name
+    os_pad_assign(&os, 7, longs, "Break"); // a pad that never had it: the whole sound
+    CHECK(os.pads[7].p.start == 0 && os.pads[7].p.end == 20000);
+    CHECK(os.pads[5].p.start == 9000 && os.pads[5].p.end == 14000); // the other chop untouched
+    os_program_clear(&os, os.program);
+}
+
 static void test_master_with_file(void) {
     seq_fresh();
     char dir[] = "/tmp/claude-mpc-master-XXXXXX";
@@ -6949,8 +6971,174 @@ static void test_seq_files(const char *shot_dir) {
         snprintf(p, sizeof p, "%s/ALL_SEQS&SONGS.ALL", out);
         CHECK(imp_mpc_load(&im, p) == 0 && im.nseq == 1); // and its index points at sequence 3, not 1
         imp_free(&im);
+        // Two pads on zones of one sound: each its own WAV, only its part, so each keeps its chop
+        seq_fresh();
+        struct sample *brk = ramp(20000);
+        os_pad_load(&os, 0, brk, "BREAK");
+        os_pad_assign(&os, 1, brk, "BREAK");
+        os.pads[0].p.start = 1000, os.pads[0].p.end = 5000, os.pads[1].p.start = 5000, os.pads[1].p.end = 12000;
+        snprintf(out, sizeof out, "%s/CHOPS", dir);
+        CHECK(disk_mpc_project_save(&os, out, "CHOPS", &pg, &nq, &dr) == 0 && pg == 1);
+        snprintf(p, sizeof p, "%s/CHOPS.PRJ", out);
+        seq_fresh();
+        CHECK(disk_mpc_project_load(&os, p, &pg, &nq) == 0 && pg == 1);
+        const struct os_pad *c0 = &os.programs[0].pads[0], *c1 = &os.programs[0].pads[1];
+        CHECK(c0->s && c1->s && c0->s != c1->s && c0->p.end - c0->p.start == 4000 && c1->p.end - c1->p.start == 7000);
         seq_fresh();
     }
+    char cmd[700];
+    snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
+    CHECK(system(cmd) == 0);
+}
+
+// Purge Unused (the Sample page's last <Do>): the sounds kept in memory that no pad plays go; a
+// sound on any program's pad stays; Undo brings them back.
+static void test_disk_type_order(void) {
+    CHECK(DISK_MIDI + 1 == DISK_XLSEQ && DISK_XLSEQ + 1 == DISK_XLPGM && DISK_XLPGM + 1 == DISK_XLPRJ && DISK_XLPRJ + 1 == DISK_MPC && DISK_MPC + 1 == DISK_MPCPGM &&
+          DISK_MPCPGM + 1 == DISK_MPCPRJ && DISK_MPCPRJ + 1 == DISK_SEQUENCE);
+}
+
+static void test_purge_unused(void) {
+    seq_fresh();
+    struct sample *a = ramp(1000), *b = ramp(2000), *c = ramp(3000);
+    os_pad_load(&os, 0, a, "A");
+    os_pad_load_over(&os, 0, b, "B"); // A kept in memory
+    os_set_program(&os, 1);
+    os_pad_load(&os, 5, c, "C");
+    os_memory_add(&os, c, "C");        // in memory and on a pad of another program: stays
+    os_set_program(&os, 0);
+    CHECK(os.nmemory == 2);
+    CHECK(os_purge_unused(&os) == 1 && os.nmemory == 1 && os.memory[0].s == c && os.pads[0].s == b);
+    CHECK(os_purge_unused(&os) == 0);
+    struct input in = blank();
+    in.down = in.held = (1u << IN_MINUS) | (1u << IN_SHIFT), in.shift = 1; // Undo
+    frame(&in);
+    CHECK(os.nmemory == 2);
+    seq_fresh();
+}
+
+// MPC 2000XL files: a chopped program saved as .PGM (each zone its own .SND, trimmed) and all of
+// them as .APS; the sequences as .ALL and one as .MID; each loaded back the same. With XL_DIR set,
+// the user's own 2000XL files there too.
+static void test_xl_files(void) {
+    seq_fresh();
+    char dir[] = "/tmp/xltestXXXXXX", p[700];
+    CHECK(mkdtemp(dir) != 0);
+    struct sample *brk = ramp(20000), *sn = ramp(3000);
+    os_pad_load(&os, 0, brk, "Break Loop");
+    os_pad_assign(&os, 1, brk, "Break Loop");
+    os_pad_load(&os, 2, sn, "Snare");
+    os_pad_load(&os, 70, sn, "Extra"); // bank E: the 2000XL has four banks
+    struct pad_params *a = &os.pads[0].p, *b = &os.pads[1].p;
+    a->start = 5000, a->end = 9000, a->volume = 80, a->pan = -10, a->semi = 2, a->fine = 30;
+    a->filter = FILTER_LP2, a->cutoff = 60, a->reso = 40, a->gate = 1, a->mute_group = 1, a->attack_ms = 300;
+    b->start = 9000, b->end = 14000, b->mute_group = 1;
+    snprintf(os.programs[0].name, sizeof os.programs[0].name, "MY KIT");
+    int dr = -1, pg = 0, n = 0;
+    snprintf(p, sizeof p, "%s/MYKIT.PGM", dir);
+    CHECK(disk_xl_pgm_save(&os, 0, p, &dr) == 0 && dr == 1);
+    char f1[700], f2[700], f3[700];
+    snprintf(f1, sizeof f1, "%s/BREAK_LO.SND", dir), snprintf(f2, sizeof f2, "%s/BREAK_L2.SND", dir), snprintf(f3, sizeof f3, "%s/SNARE.SND", dir);
+    CHECK(access(f1, F_OK) == 0 && access(f2, F_OK) == 0 && access(f3, F_OK) == 0); // each zone its own sound, 8 letters
+    CHECK(disk_xl_program_load(&os, 3, p) == 3 && os.mpc_missing == 0);
+    const struct os_program *g = &os.programs[3];
+    const struct pad_params *x = &g->pads[0].p;
+    CHECK(!strcmp(g->name, "MY KIT") && g->pads[0].s && g->pads[0].s->frames == 4000 && x->start == 0 && x->end == 4000);
+    CHECK(x->volume == 80 && x->pan == -10 && x->semi == 2 && x->fine == 30 && x->filter == FILTER_LP2 && x->cutoff == 60 && x->gate);
+    CHECK(x->attack_ms > 250 && x->attack_ms < 350);                                   // 300 ms, in the 2000XL's steps
+    CHECK(x->mute_group && x->mute_group == g->pads[1].p.mute_group && !g->pads[2].p.mute_group); // the zones cut each other
+    CHECK(g->pads[1].s && g->pads[1].s->frames == 5000 && g->pads[2].s && !g->pads[70].s);
+    // All programs as an .APS, loaded into empty ones
+    snprintf(p, sizeof p, "%s/ALL.APS", dir);
+    CHECK(disk_xl_aps_save(&os, p, "ALL", &pg, &dr) == 0 && pg == 2);
+    os_program_clear(&os, 3);
+    CHECK(disk_xl_aps_load(&os, p, &pg) == 6 && pg == 2); // programs 1 and 4 into the empty 2 and 3
+    CHECK(!strcmp(os.programs[1].name, "MY KIT") && os.programs[1].pads[1].s && os.programs[1].pads[1].s->frames == 5000);
+    // Sequences: a drum track and a MIDI track, and another sequence
+    struct seq *sq = &os.seq;
+    struct seq_sequence *v = &sq->sequence[2];
+    snprintf(v->name, sizeof v->name, "VERSE");
+    v->tempo10 = 935, v->bars = 4;
+    seq_add_note(sq, 2, 0, 96, 0, 110, 24);
+    seq_add_note(sq, 2, 0, 288, 2, 90, 30);
+    v->track[0].kit = 0;
+    snprintf(v->track[0].name, sizeof v->track[0].name, "DRUMS");
+    v->track[1].type = TRACK_MIDI, v->track[1].channel = 3;
+    seq_add_note(sq, 2, 1, 0, 60, 100, 96);
+    snprintf(sq->sequence[5].name, sizeof sq->sequence[5].name, "CHORUS");
+    seq_add_note(sq, 5, 0, 0, 2, 100, 12);
+    sq->song[0].nsteps = 2, sq->song[0].step[0].seq = 2, sq->song[0].step[0].reps = 2, sq->song[0].step[1].seq = 5, sq->song[0].step[1].reps = 1;
+    snprintf(p, sizeof p, "%s/ALL.ALL", dir);
+    CHECK(disk_xl_all_save(&os, p, &n, &dr) == 0 && n == 2 && dr == 0);
+    struct seq_import im;
+    CHECK(imp_xl_all_load(&im, p) == 0 && im.nseq == 2 && im.kind == IMP_XL);
+    const struct imp_seq *q = &im.seq[0];
+    CHECK(!strcmp(q->name, "VERSE") && q->tempo10 == 935 && q->bars == 4 && q->sig_num == 4 && q->sig_den == 4 && q->ntracks == 2);
+    const struct imp_track *t0 = &q->track[0], *t1 = &q->track[1];
+    CHECK(!t0->midi && !strcmp(t0->name, "DRUMS") && t0->count == 2 && t0->notes[0].note == 37 && t0->notes[1].note == 42 &&
+          t0->notes[1].vel == 90 && t0->notes[1].dur == 30 && t0->has_map && t0->map[37] == 0 && t0->map[42] == 2 && !strcmp(t0->prog, "MY KIT"));
+    CHECK(t1->midi && t1->channel == 3 && t1->count == 1 && t1->notes[0].note == 60);
+    CHECK(!strcmp(im.seq[1].name, "CHORUS"));
+    int first, dropped;
+    CHECK(imp_apply(&os, &im, 10, &first, &dropped) == 2 && dropped == 0);
+    CHECK(sq->sequence[10].track[0].notes[1].note == 2 && sq->sequence[10].track[0].type == TRACK_DRUM);
+    imp_free(&im);
+    // One sequence as a 2000XL .MID: its drum track found by its TRACK DATA, on its pads
+    snprintf(p, sizeof p, "%s/VERSE.MID", dir);
+    CHECK(disk_xl_mid_save(&os, 2, p, &dr) == 0);
+    CHECK(imp_midi_load(&im, p) == 0);
+    imp_xl_mid_fix(&im, p);
+    q = &im.seq[0];
+    CHECK(im.kind == IMP_XL && !strcmp(q->name, "VERSE") && q->tempo10 == 935 && q->ntracks == 2);
+    CHECK(!q->track[0].midi && q->track[0].map[42] == 2 && q->track[1].midi && q->track[1].channel == 3);
+    imp_free(&im);
+    // All at once: a folder of ALL_PGMS.APS, ALL_SEQS.ALL and the sounds, every one at 44.1 kHz
+    {
+        struct sample *r48 = ramp(4800);
+        r48->rate = 48000;
+        os_set_program(&os, 4);
+        os_pad_load(&os, 0, r48, "Hi Rate");
+        os.pads[0].p.start = 2400, os.pads[0].p.end = 4800;
+        os_set_program(&os, 0);
+        char prj[700];
+        snprintf(prj, sizeof prj, "%s/PROJECT", dir);
+        int sqn = 0;
+        CHECK(disk_xl_project_save(&os, prj, &pg, &sqn, &dr) == 0 && pg == 4 && sqn == 3 && dr == 1);
+        snprintf(p, sizeof p, "%s/HI_RATE.SND", prj);
+        struct snd_info hi;
+        struct sample *h = snd_load(p, &hi);
+        CHECK(h && h->rate == 44100 && h->frames == 4410 && hi.start == 2205 && hi.end == 4410); // whole, its trim in it, at 44.1
+        sample_free(h);
+        seq_fresh();
+        CHECK(disk_xl_project_load(&os, prj, &pg, &sqn) == 0 && pg == 4 && sqn == 3 && os.mpc_missing == 0);
+        CHECK(!strcmp(os.programs[0].name, "MY KIT") && os.seq.sequence[0].track[0].count == 2 &&
+              !strcmp(os.programs[os.seq.sequence[0].track[0].kit].name, "MY KIT"));
+    }
+    // The user's own files, from a 2000XL
+    const char *real = getenv("XL_DIR");
+    if (real) {
+        seq_fresh();
+        snprintf(p, sizeof p, "%s/ALL_PGMS.APS", real);
+        int pads = disk_xl_aps_load(&os, p, &pg);
+        CHECK(pads == 14 && pg == 1 && os.mpc_missing == 0 && !strcmp(os.programs[0].name, "NewPgm-A")); // notes 43 and 45 have no sound
+        printf("2000XL APS: %d pads, %d missing; A01 %s, A03 %s cutoff %d group %d\n", pads, os.mpc_missing, os.programs[0].pads[0].name,
+               os.programs[0].pads[2].name, os.programs[0].pads[2].p.cutoff, os.programs[0].pads[2].p.mute_group);
+        snprintf(p, sizeof p, "%s/ALL_SEQ_.all", real);
+        CHECK(imp_xl_all_load(&im, p) == 0 && im.nseq == 2);
+        for (int k = 0; k < im.nseq; k++) {
+            int notes = 0;
+            for (int t = 0; t < im.seq[k].ntracks; t++) notes += im.seq[k].track[t].count;
+            printf("2000XL ALL: %s %d.%d BPM %d bars, %d tracks, %d notes\n", im.seq[k].name, im.seq[k].tempo10 / 10, im.seq[k].tempo10 % 10,
+                   im.seq[k].bars, im.seq[k].ntracks, notes);
+        }
+        CHECK(!strcmp(im.seq[0].name, "Sequence01") && !strcmp(im.seq[1].name, "Song01") && im.seq[1].bars == 8);
+        im.pick = 1, imp_select_all(&im, 1);
+        n = imp_apply(&os, &im, 0, &first, &dropped);
+        printf("2000XL Song01 in: %d tracks, %d notes off pads, track 1 plays %s\n", n, dropped, os.programs[os.seq.sequence[0].track[0].kit].name);
+        CHECK(n == 6 && dropped == 0);
+        imp_free(&im);
+    }
+    seq_fresh();
     char cmd[700];
     snprintf(cmd, sizeof cmd, "rm -rf %s", dir);
     CHECK(system(cmd) == 0);
@@ -7703,6 +7891,17 @@ static void test_disk_folders(const char *shot_dir) {
     char *real = realpath(root, 0);
     CHECK(real && strcmp(os.disk_at, real) == 0 && (os.disk_nfiles == 0 || os.disk_isdir[0] != 2));
     free(real);
+    // Loads share their folder: browsed to in one type, the next type opens there too.
+    {
+        char want[700];
+        snprintf(want, sizeof want, "%s", os.disk_at);
+        disk_open(&os, DISK_LOAD, DISK_XLSEQ);
+        CHECK(!strcmp(os.disk_at, want));
+        disk_open(&os, DISK_LOAD, DISK_XLPGM);
+        CHECK(!strcmp(os.disk_at, want));
+        disk_open(&os, DISK_SAVE, DISK_PROGRAM); // saving: its own folder still
+        CHECK(strcmp(os.disk_at, want) != 0);
+    }
     // The S600 waveforms: written to MPC600S/s600 at power-on; LOAD's S600 OSC opens there.
     disk_install_waves(&os);
     disk_open(&os, DISK_LOAD, DISK_WAVE);
@@ -7895,11 +8094,26 @@ static void test_panel_input(void) {
         CHECK(!i2.main_moved || i2.main == 90); // 0 twice is still a dropout: the volume stays
         {
             const unsigned char m2[3] = {0xB0, 19, 2};
-            input_begin(&i2, &d2), input_push(&d2, &i2, m0), input_push(&d2, &i2, m2), input_push(&d2, &i2, m0);
-            CHECK(i2.main_moved && i2.main == 0); // three readings agree: a real, fast turn down
-            input_begin(&i2, &d2), input_push(&d2, &i2, m90); // and back up (far: held)
-            input_push(&d2, &i2, m90), input_push(&d2, &i2, m90);
+            // A stray 0 sent four times at once: held (it must hold MAIN_HOLD_MS), the volume stays
+            input_begin(&i2, &d2), input_push(&d2, &i2, m0), input_push(&d2, &i2, m2), input_push(&d2, &i2, m0), input_push(&d2, &i2, m0);
+            CHECK(!i2.main_moved || i2.main == 90);
+            // ...but the same reading still there a tenth of a second on: taken (a real move)
+            d2.ctl_held_ms[3] -= 150;
+            input_begin(&i2, &d2), input_push(&d2, &i2, m0);
+            CHECK(i2.main_moved && i2.main == 0);
+            char note[400];
+            CHECK(panel_take_note(note, sizeof note) && strstr(note, "MAIN volume jump 90 -> 0"));
+            input_begin(&i2, &d2), input_push(&d2, &i2, m90); // and back up (far: held, then taken)
+            input_push(&d2, &i2, m90), input_push(&d2, &i2, m90), input_push(&d2, &i2, m90);
+            d2.ctl_held_ms[3] -= 150;
+            input_push(&d2, &i2, m90);
             CHECK(i2.main == 90);
+            // A real turn comes in small steps: each taken at once
+            const unsigned char m80[3] = {0xB0, 19, 80}, m70[3] = {0xB0, 19, 70};
+            input_begin(&i2, &d2), input_push(&d2, &i2, m80);
+            CHECK(i2.main_moved && i2.main == 80);
+            input_begin(&i2, &d2), input_push(&d2, &i2, m70);
+            CHECK(i2.main_moved && i2.main == 70);
         }
         // Pads: under the threshold, and a light hit right after a hard one elsewhere, ignored.
         const unsigned char soft[3] = {0x99, INPUT_PAD_NOTE[0], 8}, hard[3] = {0x99, INPUT_PAD_NOTE[0], 120},
@@ -9388,6 +9602,10 @@ int main(int argc, char **argv) {
     test_sample_erase_rename();
     test_mixer_knob_shake();
     test_usb_outs(argc > 1 ? argv[1] : 0);
+    test_chop_recall();
+    test_xl_files();
+    test_purge_unused();
+    test_disk_type_order();
     test_levels_s600_no_held();
     test_levels_s600_seq_no_held();
     test_levels_s600_wild();

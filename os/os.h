@@ -18,7 +18,7 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM, RENAME_SOUND };
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "2.0"
+#define OS_NUMBER "2.0A"
 #define OS_VERSION "LA Version " OS_NUMBER " (11/24/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
@@ -28,7 +28,9 @@ enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC,
 enum { DISK_SAVE, DISK_LOAD, DISK_EXPORT, DISK_USB, DISK_MODES }; // DISK_USB: USB DATA MODE
 enum { DISK_PROJECT, DISK_PROGRAM, DISK_SAMPLE, DISK_SETTINGS, DISK_AUTOLOAD, DISK_FX, DISK_ARP, DISK_TRACKFX, DISK_WAVE,
        DISK_SND,                                       // an Akai .SND: the sound on the selected pad
-       DISK_SEQFILE, DISK_MIDI, DISK_MPC, DISK_MPCPGM, DISK_MPCPRJ, // a sequence on its own; LOAD only: a MIDI file,
+       DISK_SEQFILE, DISK_MIDI,                        // a sequence on its own; LOAD only: a MIDI file,
+       DISK_XLSEQ, DISK_XLPGM, DISK_XLPRJ,             // an MPC 2000XL .ALL or .MID, .PGM or .APS; a folder of both
+       DISK_MPC, DISK_MPCPGM, DISK_MPCPRJ,             // the MPC 2500's, together and last
                                                        // an MPC .ALL/.SEQ, an MPC .PGM, an MPC .PRJ
        DISK_SEQUENCE, DISK_SONG,
        DISK_MIX_SEQ, DISK_MIX_SONG, DISK_TYPES }; // the last four: EXPORT's; the mixdowns write only the stereo mix
@@ -100,7 +102,7 @@ enum { ZP_SETUP, ZP_WAIT, ZP_PLAY, ZP_ASSIGN };
 struct snapshot;
 // What <Do> on the Trim page does to the zone between Zone Start and Zone End.
 enum {
-    DO_DISCARD, DO_NORMALIZE, DO_EXTRACT, DO_SILENCE, DO_REVERSE, DO_DELETE, DO_COPY, DO_INS_START, DO_INS_END, DO_CONVERT,
+    DO_DISCARD, DO_NORMALIZE, DO_EXTRACT, DO_SILENCE, DO_REVERSE, DO_DELETE, DO_COPY, DO_INS_START, DO_INS_END, DO_CONVERT, DO_PURGE,
     DO_COUNT
 };
 // Function 1 steps Trim, Vol. Function 2 Tune, Play, Envel, Vel Mod. Function 3 Filter, Flt Env.
@@ -476,6 +478,7 @@ struct os {
     struct seq_import *imp;       // a MIDI or MPC file read, its tracks being chosen; or NULL
     char disk_files[DISK_FILES_MAX][40];
     unsigned char disk_isdir[DISK_FILES_MAX]; // each entry: 0 a saved item, 1 a folder, 2 ".." (up a folder)
+    char disk_load_at[512]; // the folder last loaded from (or browsed to, loading): every type's loads open there
     char disk_at[512];    // the folder browsed to, anywhere on the card; "" for the type's own: where saves go and loads come from
     int disk_newdir;      // naming a new folder (the name field holds its name)
     char disk_keep[40];   // the item's name, kept while a folder is named
@@ -558,6 +561,7 @@ void record_note_in(struct os *s, int note); // a key played: the note the Auto 
 void os_program_set_s600(struct os *s, int program, int on); // its Type, also told to the sequencer
 // Keeps a sound in memory without a pad. The pool takes a reference. 0, or -1 when full.
 int os_memory_add(struct os *s, struct sample *n, const char *name);
+int os_purge_unused(struct os *s); // the sounds in memory no pad plays, deleted (undoable): how many
 
 // Sample New Sound, in record.c.
 void record_defaults(struct os *s);
@@ -635,6 +639,18 @@ int disk_seq_save(struct os *s, int which, const char *path); // one sequence, a
 // An MPC 1000 / 2500 / 500 program (.PGM) and its samples (WAVs beside it) into `program`.
 // Returns the pads loaded, or -1; *layers: pads whose extra layers were left out.
 int disk_mpc_program_load(struct os *s, int program, const char *path, int *layers);
+int disk_find_sound(const char *dir, const char *name, char *out, size_t n); // NAME.WAV, else NAME.SND, any case
+// MPC 2000XL files (xl.c). Loads: the pads loaded (-1 not one); saves: 0, or -1.
+extern const unsigned char XL_PAD_NOTES[64]; // its pads A01..D16: the notes it gives them
+int disk_xl_program_load(struct os *s, int to, const char *path);
+int disk_xl_aps_load(struct os *s, const char *path, int *programs);
+int disk_xl_pgm_save(struct os *s, int prog, const char *path, int *dropped);
+int disk_xl_aps_save(struct os *s, const char *path, const char *name, int *programs, int *dropped);
+int disk_xl_all_save(struct os *s, const char *path, int *sequences, int *dropped);
+int disk_xl_mid_save(struct os *s, int which, const char *path, int *dropped);
+int disk_xl_project_save(struct os *s, const char *dir, int *programs, int *sequences, int *dropped);
+int disk_xl_project_load(struct os *s, const char *dir, int *programs, int *sequences);
+int os_seq_in_use(struct os *s, int which); // any notes or moves in it
 // An MPC 1000 / 2500 / 500 project (.PRJ: the list of its files): each program into the next empty program, then
 // each sequence of its .ALL into the next empty sequence. Returns 0, or -1; how many of each went in.
 int disk_mpc_project_load(struct os *s, const char *path, int *programs, int *sequences);

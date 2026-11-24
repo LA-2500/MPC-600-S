@@ -269,15 +269,25 @@ int input_late_releases(struct input_dev *dev, struct input *in) {
 // confirming readings, not one: a dropout to 0 sent twice in a row would otherwise silence the output
 // until the knob is touched again. A real turn passes through the values in between.
 #define CTL_JUMP 16
+// The main volume, more so: a jump far from where it is must hold for MAIN_HOLD_MS, over at least
+// three more readings, before it is taken. A real turn, however quick, comes in small steps (each
+// taken at once); a stray reading repeated (0, 0, 0) silenced the MPC until the knob was touched.
+#define MAIN_HOLD_MS 100
 static int control_value(struct input_dev *dev, int c, int value) {
     if (!dev) return value;
-    int need = c == 3 ? 2 : 1;
+    int need = c == 3 ? 3 : 1;
+    long long now = clock_ms();
     if (!dev->ctl_known[c] || abs(value - dev->ctl_last[c]) <= CTL_JUMP) {
         dev->ctl_known[c] = 1, dev->ctl_last[c] = value, dev->ctl_held[c] = -1, dev->ctl_confirms[c] = 0;
         return value;
     }
     if (dev->ctl_held[c] >= 0 && abs(value - dev->ctl_held[c]) <= 6) {
-        if (++dev->ctl_confirms[c] >= need) {
+        if (++dev->ctl_confirms[c] >= need && (c != 3 || now - dev->ctl_held_ms[c] >= MAIN_HOLD_MS)) {
+            if (c == 3) { // for the log: a jump of the main volume taken, and from where
+                if (!raw_start) raw_start = now;
+                snprintf(raw_note, sizeof raw_note, "t=%llds MAIN volume jump %d -> %d taken (held %lld ms, %d readings)",
+                         (now - raw_start) / 1000, dev->ctl_last[c], value, now - dev->ctl_held_ms[c], dev->ctl_confirms[c] + 1);
+            }
             dev->ctl_last[c] = value, dev->ctl_held[c] = -1, dev->ctl_confirms[c] = 0;
             return value;
         }
@@ -285,7 +295,7 @@ static int control_value(struct input_dev *dev, int c, int value) {
         return -1;
     }
     if (dev->ctl_held[c] >= 0) dev->rejected++; // the one held back was not confirmed
-    dev->ctl_held[c] = value, dev->ctl_confirms[c] = 0;
+    dev->ctl_held[c] = value, dev->ctl_confirms[c] = 0, dev->ctl_held_ms[c] = now;
     return -1;
 }
 

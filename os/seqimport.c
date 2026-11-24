@@ -148,6 +148,7 @@ int imp_midi_load(struct seq_import *im, const char *path) {
         long e = p + 8, end = p + 8 + len < n ? p + 8 + len : n;
         p = end;
         char tname[17] = "";
+        int xl = 0, xl_bus = 0, xl_dev = 0; // a 2000XL .MID's TRACK DATA for this track
         // Format 1: this track is one part. Format 0: a part for each channel.
         int part_of[16];
         for (int c = 0; c < 16; c++) part_of[c] = -1;
@@ -175,7 +176,15 @@ int imp_midi_load(struct seq_import *im, const char *path) {
                 int type = b[e++];
                 uint32_t l = varlen(b, end, &e);
                 if (e + (long)l > end) break;
-                if (type == 0x03 && !tname[0]) copy_name(tname, b + e, (int)l);
+                if (type == 0x03 && l > 16 && !memcmp(b + e, "MPC2000XL 1.00  ", 16)) copy_name(q->name, b + e + 16, (int)l - 16 < 16 ? (int)l - 16 : 16);
+                else if (type == 0x03 && !tname[0]) copy_name(tname, b + e, (int)l);
+                if (type == 0x01 && l >= 27 && !memcmp(b + e, "TRACK DATA:", 11)) { // the 2000XL's: track, flags, .., device, bus
+                    unsigned fl = 0, bus = 0;
+                    char hx[3] = {0};
+                    memcpy(hx, b + e + 13, 2), fl = (unsigned)strtoul(hx, 0, 16);
+                    memcpy(hx, b + e + 25, 2), bus = (unsigned)strtoul(hx, 0, 16);
+                    xl = 1, xl_bus = bus <= 4 ? (int)bus : 1, xl_dev = fl & 0x20 ? (int)(fl & 0x1F) + 1 : 0;
+                }
                 if (type == 0x51 && l >= 3 && !got_tempo) {
                     uint32_t us = (uint32_t)b[e] << 16 | b[e + 1] << 8 | b[e + 2];
                     if (us) q->tempo10 = clampi((int)(600000000.0 / us + 0.5), 300, 3000), got_tempo = 1;
@@ -220,6 +229,7 @@ int imp_midi_load(struct seq_import *im, const char *path) {
             if (format == 0 || !tname[0]) snprintf(k->name, sizeof k->name, "%s%sCH %d", tname, tname[0] ? " " : "", k->channel);
             else snprintf(k->name, sizeof k->name, "%s", tname);
             k->midi = !(k->channel == 10 || drum_name(k->name));
+            k->xl = xl, k->xl_bus = xl_bus, k->xl_dev = xl_dev;
             qsort(k->notes, (size_t)k->count, sizeof *k->notes, by_tick);
         }
     }
