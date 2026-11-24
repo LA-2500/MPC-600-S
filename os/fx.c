@@ -11,7 +11,7 @@
 
 // ---- The table: names, controls, defaults ----
 
-enum { V_NUM, V_TIME, V_SLAP, V_JUNO, V_VIBE, V_BIPOLAR, V_DB, V_GATE, V_CAB, V_HZ, V_HZ_CUT, V_Q, V_RAW, V_MFC };
+enum { V_NUM, V_TIME, V_SLAP, V_JUNO, V_VIBE, V_BIPOLAR, V_DB, V_GATE, V_CAB, V_HZ, V_HZ_CUT, V_Q, V_RAW, V_MFC, V_HAAS, V_SIDE };
 
 static const struct {
     const char *name, *shortname;
@@ -67,6 +67,7 @@ static const struct {
     [FX_DC30] = {"DC30", "DC30", {"Gain", "Tone", "Cut"}, {45, 64, 40}, {V_NUM, V_NUM, V_NUM}},
     [FX_MFC42] = {"MFC42 FILTER", "MFC42", {"Cutoff", "Reson", "Mod"}, {70, 50, 96}, {V_NUM, V_NUM, V_MFC}},
     [FX_B15] = {"B-15", "B15", {"Bass", "Treble", "Volume"}, {64, 64, 50}, {V_DB, V_DB, V_NUM}},
+    [FX_STEREO] = {"STEREO ENHANCER", "Wide", {"Time", "Width", "Side"}, {48, 127, 127}, {V_HAAS, V_NUM, V_SIDE}},
 };
 
 // The order the lists scroll in, a category at a time.
@@ -74,11 +75,11 @@ static const int ORDER[FX_COUNT - 1] = {
     FX_ASR_HALL, FX_ROOM, FX_PLATE, FX_SPRING, FX_SNARE, FX_GATED,
     FX_EQ3, FX_PARAM_EQ, FX_EQ_KICK, FX_EQ_SNARE, FX_EQ_HAT, FX_EQ_CLAP, FX_EQ_TOM, FX_EQ_808,
     FX_DUB, FX_DDL, FX_TAPE, FX_ANALOG, FX_PINGPONG, FX_SLAP,
-    FX_JUNO, FX_UNIVIBE, FX_DP4, FX_MXR_PH, FX_SMALLSTONE, FX_FLANGER, FX_RHODES, FX_WAH, FX_AUTOWAH, FX_MFC42,
+    FX_JUNO, FX_UNIVIBE, FX_DP4, FX_MXR_PH, FX_SMALLSTONE, FX_FLANGER, FX_RHODES, FX_WAH, FX_AUTOWAH, FX_MFC42, FX_STEREO,
     FX_KLON, FX_OD1, FX_DS1, FX_FUZZ, FX_DYNACOMP, FX_CS3, FX_VINYL, FX_GATE,
     FX_BASSMAN, FX_AC30, FX_JTM45, FX_DC30, FX_JC, FX_B15, FX_SPEAKER, FX_FENDER_EQ,
 };
-static const int CAT_START[FX_CATS + 1] = {0, 6, 14, 20, 30, 38, FX_COUNT - 1};
+static const int CAT_START[FX_CATS + 1] = {0, 6, 14, 20, 31, 39, FX_COUNT - 1};
 
 static const char *const CABS[4] = {"1x12 OPEN", "2x12 BLUE", "4x10 TWD", "4x12 GB"};
 static int cab_of(int v) {
@@ -131,6 +132,11 @@ int fx_param_default(int type, int i) {
     return type > 0 && type < FX_COUNT && i >= 0 && i < 3 ? INFO[type].def[i] : 0;
 }
 
+static int haas_ms(int v) { // STEREO ENHANCER's Time: 1 to 35 ms, where one sound is heard wide, not as an echo
+    v = v < 0 ? 0 : v > 127 ? 127 : v;
+    return 1 + v * 34 / 127;
+}
+
 static float k01(int v) { // a control, 0..1
     return (v < 0 ? 0 : v > 127 ? 127 : v) / 127.0f;
 }
@@ -175,6 +181,8 @@ void fx_param_text(int type, int i, int v, double bpm, char *b, size_t n) {
     }
     case V_Q: snprintf(b, n, "%.1f", 0.3f * powf(25, k01(v))); break;
     case V_RAW: snprintf(b, n, "%d", v); break;
+    case V_HAAS: snprintf(b, n, "%dms", haas_ms(v)); break;
+    case V_SIDE: snprintf(b, n, "%s", v < 64 ? "LEFT" : "RIGHT"); break;
     case V_MFC: // MFC42's Mod: the envelope below the middle, the LFO above, nothing at the middle
         if (v < 60) snprintf(b, n, "ENV %d", (60 - v) * 100 / 60);
         else if (v > 68) snprintf(b, n, "LFO %d", (v - 68) * 100 / 59);
@@ -524,6 +532,30 @@ static void delay(struct fx *f, float *buf, int frames) {
         }
         buf[i * 2] = l + y[0] * wet;
         buf[i * 2 + 1] = r + y[1] * wet;
+    }
+}
+
+// ---- Stereo Enhancer ----
+
+// The Haas effect: the same sound a few milliseconds later on one side is heard as one sound,
+// spread wide, not as an echo. The delayed side takes Width of the late copy (the rest stays as it
+// came); the other side is untouched. The level stays the same.
+static void stereo(struct fx *f, float *buf, int frames) {
+    struct fx_state *s = f->st;
+    if (!s->inited) {
+        int sizes[2] = {4096, 4096};
+        lay(s, sizes, 2);
+        s->smooth = haas_ms(f->p[0]) * SR / 1000;
+        s->inited = 1;
+    }
+    float target = haas_ms(f->p[0]) * SR / 1000, w = k01(f->p[1]);
+    int side = f->p[2] >= 64; // 1: the right is later
+    for (int i = 0; i < frames; i++) {
+        s->smooth += (target - s->smooth) * 0.001f; // a moved Time glides, without clicks
+        float x = buf[i * 2 + side];
+        dl_write(&s->d[0], x);
+        float late = dl_read(&s->d[0], s->smooth < 1 ? 1 : s->smooth);
+        buf[i * 2 + side] = x * (1 - w) + late * w;
     }
 }
 
@@ -1161,6 +1193,7 @@ void fx_process(struct fx *f, float *buf, int frames) {
     case FX_AUTOWAH: autowah(f, buf, frames); break;
     case FX_WAH: wah(f, buf, frames); break;
     case FX_SPEAKER: speaker(f, buf, frames); break;
+    case FX_STEREO: stereo(f, buf, frames); break;
     case FX_VINYL: vinyl(f, buf, frames); break;
     case FX_PARAM_EQ: case FX_EQ_KICK: case FX_EQ_SNARE: case FX_EQ_HAT: case FX_EQ_CLAP: case FX_EQ_TOM: case FX_EQ_808:
         drum_eq(f, buf, frames);

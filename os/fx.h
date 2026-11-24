@@ -26,6 +26,7 @@ enum {
     FX_PARAM_EQ, FX_EQ_KICK, FX_EQ_SNARE, FX_EQ_HAT, FX_EQ_CLAP, FX_EQ_TOM, FX_EQ_808,
     FX_VINYL,
     FX_JTM45, FX_FUZZ, FX_JC, FX_DC30, FX_MFC42, FX_B15,
+    FX_STEREO, // STEREO ENHANCER: one side a few ms later (the Haas effect), a mono sound made wide
     FX_COUNT
 };
 

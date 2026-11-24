@@ -7031,6 +7031,33 @@ static void test_knob_fx_padding(void) {
     CHECK(input_down(&in, IN_KNOB_FX) && dev.ghosts == 0);
 }
 
+// STEREO ENHANCER: a click the same on both sides stays on the left, and comes on the right Time
+// later (Width full), so a mono sound is heard wide; Side LEFT the other way round.
+static void test_stereo_enhancer(void) {
+    struct fx *f = fx_new();
+    CHECK(f != 0);
+    fx_set(f, FX_STEREO);
+    f->p[0] = 34; // 10 ms
+    char t[16];
+    fx_param_text(FX_STEREO, 0, f->p[0], 120, t, sizeof t);
+    CHECK(!strcmp(t, "10ms") && !strcmp(fx_name(FX_STEREO), "STEREO ENHANCER"));
+    static float b[2 * 2048];
+    memset(b, 0, sizeof b);
+    b[0] = b[1] = 1; // a click, both sides
+    fx_process(f, b, 2048);
+    int peak = 0;
+    for (int i = 1; i < 2048; i++)
+        if (fabsf(b[i * 2 + 1]) > fabsf(b[peak * 2 + 1])) peak = i;
+    CHECK(b[0] == 1 && peak >= 435 && peak <= 447); // 10 ms at 44.1 kHz: 441 frames
+    fx_set(f, FX_STEREO);
+    f->p[0] = 34, f->p[2] = 0; // Side LEFT
+    memset(b, 0, sizeof b);
+    b[0] = b[1] = 1;
+    fx_process(f, b, 2048);
+    CHECK(b[1] == 1 && fabsf(b[0]) < 0.01f);
+    fx_free(f);
+}
+
 static void test_disk_type_order(void) {
     CHECK(DISK_MIDI + 1 == DISK_XLSEQ && DISK_XLSEQ + 1 == DISK_XLPGM && DISK_XLPGM + 1 == DISK_XLPRJ && DISK_XLPRJ + 1 == DISK_MPC && DISK_MPC + 1 == DISK_MPCPGM &&
           DISK_MPCPGM + 1 == DISK_MPCPRJ && DISK_MPCPRJ + 1 == DISK_SEQUENCE);
@@ -9670,6 +9697,7 @@ int main(int argc, char **argv) {
     test_xl_files();
     test_purge_unused();
     test_disk_type_order();
+    test_stereo_enhancer();
     test_knob_fx_padding();
     test_levels_s600_no_held();
     test_levels_s600_seq_no_held();
