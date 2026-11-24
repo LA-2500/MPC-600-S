@@ -167,6 +167,93 @@ static int find_stock(void) {
     return m.udc[0] ? 0 : -1;
 }
 
+// ---- USB individual outs: the stock UAC2 function with 8 channels to the computer ----
+//
+// Found on the device (MPC Sample, kernel 6.12) with Windows: the stock function with more than 8
+// channels to the computer stalls after about two seconds; a second UAC2 function beside it is
+// streamed but Windows plays it as silence. The stock function with 8 plays. So with the outs on,
+// its playback channel mask is 8 (the main mix on 1-2 or not, as the OS's Layout says); off, back
+// to the stock's own. A function's settings are locked while it is linked into a configuration, so
+// every link is taken out (order noted), the setting changed, and the links put back in that order.
+#define OLD_OUTS_FN "uac2.outs" // a second function, from a build that tried one: taken away
+static char outs_bcd[16], outs_chmask[16], outs_serial[64]; // the stock gadget's own, as found the first time
+
+int usbmode_outs(int on, const int *input_src) {
+    if (find_stock() != 0 || !m.stock[0]) return -1;
+    char g[160], p[400], cfg[300], chm[400];
+    snprintf(g, sizeof g, GADGETS "/%s", m.stock);
+    snprintf(cfg, sizeof cfg, "%s/configs/c.1", g);
+    snprintf(chm, sizeof chm, "%s/functions/uac2.audio/p_chmask", g);
+    if (access(chm, F_OK) != 0) return -1;
+    char now[16];
+    get(chm, now, sizeof now);
+    if (!outs_chmask[0]) {
+        snprintf(outs_chmask, sizeof outs_chmask, "%s", strcmp(now, "255") && strcmp(now, "0xff") ? now : "3");
+        snprintf(p, sizeof p, "%s/bcdDevice", g);
+        get(p, outs_bcd, sizeof outs_bcd);
+        snprintf(p, sizeof p, "%s/strings/0x409/serialnumber", g);
+        get(p, outs_serial, sizeof outs_serial);
+        size_t sl = strlen(outs_serial);
+        if (sl > 2 && !strcmp(outs_serial + sl - 2, "-8")) outs_serial[sl - 2] = 0; // left on by a crash: the stock's
+        if (!outs_bcd[0] || !strcmp(outs_bcd, "0x0190") || !strcmp(outs_bcd, "0x0191") || !strcmp(outs_bcd, "0x0192"))
+            snprintf(outs_bcd, sizeof outs_bcd, "0x0101");
+    }
+    snprintf(p, sizeof p, "%s/functions/" OLD_OUTS_FN, g);
+    int old = access(p, F_OK) == 0, is_on = !strcmp(now, "255") || !strcmp(now, "0xff");
+    if (is_on == on && !old) return 0; // already so
+    midi_port_close(MIDI_PORT_USB);
+    alsa_out_usb_release();
+    snprintf(p, sizeof p, "%s/UDC", g);
+    put(p, "");
+    usleep(500 * 1000);
+    char name[16][64], target[16][300];
+    int n = 0;
+    DIR *d = opendir(cfg);
+    struct dirent *e;
+    while (d && (e = readdir(d)) && n < 16) {
+        char lp[400];
+        snprintf(lp, sizeof lp, "%s/%s", cfg, e->d_name);
+        struct stat st;
+        if (e->d_name[0] == '.' || lstat(lp, &st) != 0 || !S_ISLNK(st.st_mode)) continue;
+        unlink(lp);
+        if (!strcmp(e->d_name, OLD_OUTS_FN)) continue;
+        snprintf(name[n], sizeof name[n], "%s", e->d_name);
+        snprintf(target[n], sizeof target[n], "%s/functions/%s", g, e->d_name);
+        n++;
+    }
+    if (d) closedir(d);
+    snprintf(p, sizeof p, "%s/functions/" OLD_OUTS_FN, g);
+    rmdir(p);
+    int rc = put(chm, on ? "0xff" : outs_chmask);
+    // configfs lists a configuration's links newest first: made again oldest first (the list read
+    // backwards), so every function keeps its place and its interface numbers. (Made in the order
+    // listed, the order turned round each time, and Windows lost the MIDI port.)
+    for (int i = n - 1; i >= 0; i--) {
+        char lp[400];
+        snprintf(lp, sizeof lp, "%s/%s", cfg, name[i]);
+        symlink(target[i], lp);
+    }
+    // With the outs, its own serial number (the stock's with -8): Windows keeps a device's setup by
+    // its serial, and fitting the 8-channel device onto the stereo one's lost the MIDI port (as did
+    // a new bcdDevice, which made it new hardware). Each now has its own whole setup, MIDI and all.
+    snprintf(p, sizeof p, "%s/bcdDevice", g);
+    put(p, outs_bcd);
+    if (outs_serial[0]) {
+        char sn[80];
+        snprintf(sn, sizeof sn, "%s%s", outs_serial, on && rc == 0 ? "-8" : "");
+        snprintf(p, sizeof p, "%s/strings/0x409/serialnumber", g);
+        put(p, sn);
+    }
+    snprintf(p, sizeof p, "%s/UDC", g);
+    if (put(p, m.udc) != 0) rc = -1;
+    for (int i = 0; i < 10; i++) {
+        usleep(100 * 1000);
+        if (midi_port_open(MIDI_PORT_USB) == 0) break;
+    }
+    alsa_out_usb_restore(input_src ? *input_src : 0);
+    return rc;
+}
+
 // Our gadget away, whatever state it is in. Each step may fail when it is not there.
 static void remove_ours(void) {
     if (access(OURS, F_OK) != 0) return;

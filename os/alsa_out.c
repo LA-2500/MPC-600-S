@@ -20,9 +20,10 @@
 #define MAX_PERIOD 1024
 #define MAX_CHANNELS 4
 #define RT_PRIORITY 80
-// Start-up, without a pop: silence while the codec settles, the speaker amp switched on only
-// after that, then the sound faded in.
-#define START_HOLD (RATE * 6 / 10)  // 0.6 s of silence
+// Start-up, without a pop: silence while the codec settles (all through the title screen), the
+// codec's volume brought up from where the start script left it (0) gradually, the speaker amp
+// switched on after that, then the sound faded in.
+#define START_HOLD (RATE * 3)       // 3 s of silence
 #define START_FADE (RATE * 8 / 10)  // then 0.8 s to full level
 
 static struct {
@@ -219,12 +220,38 @@ static struct {
     double ratio;        // how far it moves for each output frame
 } usb = {.fd = -1, .ratio = 1.0};
 
-static int usb_card(void) {
-    char link[64];
-    ssize_t n = readlink("/proc/asound/UAC2Gadget", link, sizeof link - 1); // "card3"
-    if (n <= 0) return -1;
-    link[n] = 0;
-    return strncmp(link, "card", 4) == 0 ? atoi(link + 4) : -1;
+
+// A stream on the USB audio gadget: each of its cards (UAC2Gadget, and UAC2Gadget_1 when the
+// individual outs are on), the first that takes `channels` in one of the formats. *bytes: the
+// sample size taken. The stock stereo function and the outs' 8-channel one are told apart this way.
+static int usb_stream_card = -1; // the card usb_stream opened last
+static int usb_stream(int capture, int channels, int period, int periods, int *bytes) {
+    static const struct { unsigned format; int bytes; } FORMATS[] = {
+        {SNDRV_PCM_FORMAT_S16_LE, 2}, {SNDRV_PCM_FORMAT_S24_3LE, 3}, {SNDRV_PCM_FORMAT_S32_LE, 4},
+    };
+    for (int card = 0; card < 16; card++) {
+        char path[48], id[32] = "";
+        snprintf(path, sizeof path, "/proc/asound/card%d/id", card);
+        int f = open(path, O_RDONLY | O_CLOEXEC);
+        if (f < 0) continue;
+        ssize_t n = read(f, id, sizeof id - 1);
+        close(f);
+        if (n <= 0 || strncmp(id, "UAC2Gadget", 10) != 0) continue;
+        snprintf(path, sizeof path, "/dev/snd/pcmC%dD0%c", card, capture ? 'c' : 'p');
+        if (access(path, F_OK) != 0) continue; // the outs have no input
+        int fd = open_pcm(card, capture);
+        if (fd < 0) continue;
+        for (size_t i = 0; i < sizeof FORMATS / sizeof FORMATS[0]; i++) {
+            if (configure_as(fd, channels, period, periods, capture, FORMATS[i].format) == 0) {
+                *bytes = FORMATS[i].bytes;
+                usb_stream_card = card;
+                return fd;
+            }
+            ioctl(fd, SNDRV_PCM_IOCTL_HW_FREE);
+        }
+        close(fd);
+    }
+    return -1;
 }
 
 static void *usb_thread(void *arg) {
@@ -259,22 +286,8 @@ static void *usb_thread(void *arg) {
 
 static int usb_open(void) {
     if (usb.fd >= 0) return 0;
-    int card = usb_card();
-    if (card < 0) return -1;
-    int fd = open_pcm(card, 1);
+    int fd = usb_stream(1, 2, 256, 8, &usb.bytes);
     if (fd < 0) return -1;
-    static const struct { unsigned format; int bytes; } FORMATS[] = {
-        {SNDRV_PCM_FORMAT_S16_LE, 2}, {SNDRV_PCM_FORMAT_S24_3LE, 3}, {SNDRV_PCM_FORMAT_S32_LE, 4},
-    };
-    int ok = 0;
-    for (size_t i = 0; i < sizeof FORMATS / sizeof FORMATS[0] && !ok; i++) {
-        if (configure_as(fd, 2, 256, 8, 1, FORMATS[i].format) == 0) usb.bytes = FORMATS[i].bytes, ok = 1;
-        else ioctl(fd, SNDRV_PCM_IOCTL_HW_FREE);
-    }
-    if (!ok) {
-        close(fd);
-        return -1;
-    }
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
     usb.fd = fd;
     atomic_store(&usb.written, 0u);
@@ -332,6 +345,8 @@ static void usb_take(float *in, int frames) {
 // keep the ring half full, as the input does. With no computer recording, the ring simply
 // runs on and nothing waits. The audio thread never touches the gadget.
 
+static atomic_int outs_active; // the USB individual outs have the device (8 channels): USB Audio Out stands aside
+
 static struct {
     atomic_int on, run, held, open; // held: USB mode has the port, so stay off it
     int fd, bytes;
@@ -352,22 +367,8 @@ static void usbo_put(const float *mix, int frames) { // the audio thread: a peri
 }
 
 static int usbo_open(void) {
-    int card = usb_card();
-    if (card < 0) return -1;
-    int fd = open_pcm(card, 0);
+    int fd = usb_stream(0, 2, 256, 8, &usbo.bytes);
     if (fd < 0) return -1;
-    static const struct { unsigned format; int bytes; } FORMATS[] = {
-        {SNDRV_PCM_FORMAT_S16_LE, 2}, {SNDRV_PCM_FORMAT_S24_3LE, 3}, {SNDRV_PCM_FORMAT_S32_LE, 4},
-    };
-    int ok = 0;
-    for (size_t i = 0; i < sizeof FORMATS / sizeof FORMATS[0] && !ok; i++) {
-        if (configure_as(fd, 2, 256, 8, 0, FORMATS[i].format) == 0) usbo.bytes = FORMATS[i].bytes, ok = 1;
-        else ioctl(fd, SNDRV_PCM_IOCTL_HW_FREE);
-    }
-    if (!ok) {
-        close(fd);
-        return -1;
-    }
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
     usbo.fd = fd;
     unsigned w = atomic_load(&usbo.written);
@@ -412,7 +413,7 @@ static void *usbo_thread(void *arg) {
     float f[256 * 2];
     unsigned char raw[256 * 2 * 4];
     while (atomic_load(&usbo.run)) {
-        if (!atomic_load(&usbo.on) || atomic_load(&usbo.held)) { // switched off, or USB mode: let the gadget go
+        if (!atomic_load(&usbo.on) || atomic_load(&usbo.held) || atomic_load(&outs_active)) { // off, USB mode, or the outs have it
             usbo_close_fd();
             nap_ms(200);
             continue;
@@ -461,6 +462,155 @@ void alsa_out_set_usb_out(int on) {
     if (!usbo.started) { // the thread starts the first time, and then follows the switch
         atomic_store(&usbo.run, 1);
         if (pthread_create(&usbo.thread, 0, usbo_thread, 0) == 0) usbo.started = 1;
+    }
+}
+
+// ---- USB individual outs: eight channels to the computer ----
+//
+// The stock USB audio device with 8 channels (usbmode_outs sets it so): the engine's outputs, the
+// main mix on 1-2 in place of outputs 1-2 when the layout says so (as USB Audio Out takes it).
+// As USB Audio Out: the audio thread puts each period's eight channels into a ring; this thread
+// feeds the device on the computer's clock, steering the ring's fill. Its periods are short: the
+// gadget takes at most a page (4096 bytes) a period, 128 frames of eight 32-bit channels. While
+// it is on, USB Audio Out's stereo stream stands aside (the device is no longer stereo).
+#define OUTS_CH ENGINE_OUTS
+#define OUTS_PERIOD 128
+
+static struct {
+    atomic_int on, run, mix; // mix: the main mix on channels 1-2
+    int fd, bytes, started;
+    pthread_t thread;
+    float ring[USB_RING * OUTS_CH];
+    atomic_uint written;
+    double read, ratio;
+    // For the log: the card open (-1 none), frames the computer has taken, write errors, and the
+    // loudest each channel has been since last asked.
+    atomic_int card, errors;
+    atomic_long taken;
+    _Atomic float peak[OUTS_CH];
+} usbx = {.fd = -1, .ratio = 1.0, .card = -1};
+
+static void usbx_put(const struct engine *e, const float *mix, int frames) { // the audio thread
+    unsigned w = atomic_load_explicit(&usbx.written, memory_order_relaxed);
+    int with_mix = atomic_load_explicit(&usbx.mix, memory_order_relaxed);
+    for (int i = 0; i < frames; i++) {
+        float *d = &usbx.ring[((w + (unsigned)i) & (USB_RING - 1)) * OUTS_CH];
+        for (int c = 0; c < OUTS_CH; c++) d[c] = e->outs[c][i];
+        if (with_mix) d[0] = mix[i * 2], d[1] = mix[i * 2 + 1];
+    }
+    for (int c = 0; c < OUTS_CH; c++) {
+        float m = atomic_load_explicit(&usbx.peak[c], memory_order_relaxed);
+        for (int i = 0; i < frames; i++) m = fabsf(e->outs[c][i]) > m ? fabsf(e->outs[c][i]) : m;
+        atomic_store_explicit(&usbx.peak[c], m, memory_order_relaxed);
+    }
+    atomic_store_explicit(&usbx.written, w + (unsigned)frames, memory_order_release);
+}
+
+static void usbx_close_fd(void) {
+    if (usbx.fd < 0) return;
+    ioctl(usbx.fd, SNDRV_PCM_IOCTL_DROP);
+    close(usbx.fd);
+    usbx.fd = -1;
+    atomic_store(&usbx.card, -1);
+}
+
+static void usbx_take(float *buf, int frames) {
+    unsigned w = atomic_load_explicit(&usbx.written, memory_order_acquire);
+    double fill = (double)w - usbx.read;
+    if (fill < frames + 2 || fill > USB_RING - frames * 2) {
+        memset(buf, 0, (size_t)frames * OUTS_CH * sizeof *buf);
+        usbx.read = (double)w - USB_FILL < 0 ? 0 : (double)w - USB_FILL;
+        usbx.ratio = 1.0;
+        return;
+    }
+    double err = (fill - USB_FILL) / USB_FILL;
+    double want = 1.0 + (err > 1 ? 1 : err < -1 ? -1 : err) * 0.0005;
+    usbx.ratio += (want - usbx.ratio) * 0.01;
+    for (int i = 0; i < frames; i++) {
+        unsigned a = (unsigned)usbx.read, b = a + 1;
+        float t = (float)(usbx.read - floor(usbx.read));
+        const float *pa = &usbx.ring[(a & (USB_RING - 1)) * OUTS_CH], *pb = &usbx.ring[(b & (USB_RING - 1)) * OUTS_CH];
+        for (int c = 0; c < OUTS_CH; c++) buf[i * OUTS_CH + c] = pa[c] + t * (pb[c] - pa[c]);
+        usbx.read += usbx.ratio;
+    }
+}
+
+static void *usbx_thread(void *arg) {
+    (void)arg;
+    float f[OUTS_PERIOD * OUTS_CH];
+    unsigned char raw[OUTS_PERIOD * OUTS_CH * 4];
+    while (atomic_load(&usbx.run)) {
+        if (!atomic_load(&usbx.on) || atomic_load(&usbo.held)) { // off, or the port's being changed
+            usbx_close_fd();
+            nap_ms(200);
+            continue;
+        }
+        if (usbx.fd < 0) {
+            int fd = usb_stream(0, OUTS_CH, OUTS_PERIOD, 8, &usbx.bytes), card = usb_stream_card;
+            if (fd < 0) {
+                nap_ms(1000); // the outs' device not up yet, or no computer
+                continue;
+            }
+            fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+            usbx.fd = fd;
+            atomic_store(&usbx.card, card);
+            unsigned w = atomic_load(&usbx.written);
+            usbx.read = (double)w - USB_FILL < 0 ? 0 : (double)w - USB_FILL;
+            usbx.ratio = 1.0;
+        }
+        struct pollfd p = {.fd = usbx.fd, .events = POLLOUT};
+        if (poll(&p, 1, 100) <= 0) {
+            unsigned w = atomic_load(&usbx.written);
+            if ((double)w - usbx.read > USB_RING / 2) usbx.read = (double)w - USB_FILL;
+            continue;
+        }
+        if (p.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            if (ioctl(usbx.fd, SNDRV_PCM_IOCTL_PREPARE) != 0) usbx_close_fd();
+            continue;
+        }
+        usbx_take(f, OUTS_PERIOD);
+        for (int i = 0; i < OUTS_PERIOD * OUTS_CH; i++) {
+            float x = f[i] > 1.0f ? 1.0f : f[i] < -1.0f ? -1.0f : f[i];
+            int32_t a = (int32_t)(x * 2147483392.0f);
+            unsigned char *d = raw + i * usbx.bytes;
+            if (usbx.bytes == 2) d[0] = (unsigned char)(a >> 16), d[1] = (unsigned char)(a >> 24);
+            else if (usbx.bytes == 3) d[0] = (unsigned char)(a >> 8), d[1] = (unsigned char)(a >> 16), d[2] = (unsigned char)(a >> 24);
+            else d[0] = (unsigned char)a, d[1] = (unsigned char)(a >> 8), d[2] = (unsigned char)(a >> 16), d[3] = (unsigned char)(a >> 24);
+        }
+        struct snd_xferi x = {.buf = raw, .frames = OUTS_PERIOD};
+        if (ioctl(usbx.fd, SNDRV_PCM_IOCTL_WRITEI_FRAMES, &x) != 0) {
+            if (errno != EAGAIN) atomic_fetch_add(&usbx.errors, 1);
+            if (errno == EPIPE) ioctl(usbx.fd, SNDRV_PCM_IOCTL_PREPARE);
+            else if (errno != EAGAIN && errno != EINTR) usbx_close_fd();
+        } else {
+            atomic_fetch_add(&usbx.taken, (long)x.result);
+        }
+    }
+    usbx_close_fd();
+    return 0;
+}
+
+void alsa_out_outs_status(char *b, size_t n) {
+    char pk[OUTS_CH * 6 + 1];
+    size_t u = 0;
+    for (int c = 0; c < OUTS_CH; c++) {
+        float m = atomic_exchange(&usbx.peak[c], 0.0f);
+        u += (size_t)snprintf(pk + u, sizeof pk - u, " %.2f", m);
+    }
+    snprintf(b, n, "USB outs: %s, card %d, %ld frames taken, %d errors; peaks%s", atomic_load(&usbx.on) ? "on" : "off",
+             atomic_load(&usbx.card), atomic_load(&usbx.taken), atomic_load(&usbx.errors), pk);
+}
+
+void alsa_out_set_outs_mix(int mix) {
+    atomic_store(&usbx.mix, mix != 0);
+}
+
+void alsa_out_set_usb_outs(int on) {
+    atomic_store(&usbx.on, on != 0);
+    atomic_store(&outs_active, on != 0);
+    if (!usbx.started) {
+        atomic_store(&usbx.run, 1);
+        if (pthread_create(&usbx.thread, 0, usbx_thread, 0) == 0) usbx.started = 1;
     }
 }
 
@@ -516,6 +666,8 @@ static void *audio_thread(void *arg) {
         }
         if (out.master) master_process(out.master, mix, out.period); // last: never resampled
         if (atomic_load_explicit(&usbo.on, memory_order_relaxed)) usbo_put(mix, out.period); // to the computer, before the volume
+        if (atomic_load_explicit(&usbx.on, memory_order_relaxed) && atomic_load_explicit(&out.engine->outs_on, memory_order_relaxed))
+            usbx_put(out.engine, mix, out.period); // the individual outs as the engine left them; the mix as USB Audio Out
         if (thru_after)
             for (int i = 0; i < out.period * 2; i++) mix[i] += in[i];
         float target = atomic_load_explicit(out.main_gain, memory_order_relaxed);
@@ -577,7 +729,7 @@ static void start_thread(void) {
 // at startup, so a program that replaces the stock app has to do it as well.
 static struct {
     int fd, speaker;
-    int have_speaker, have_headphones, have_line, have_mic, have_trs, have_volume, volume_up;
+    int have_speaker, have_headphones, have_line, have_mic, have_trs, have_volume, volume_up, ramp; // ramp: the codec volume on its way back up at start-up
     struct snd_ctl_elem_id speaker_id, headphones_id, line_id, mic_id, trs_id, volume_id;
 } mixer = {.fd = -1, .speaker = -1};
 
@@ -680,7 +832,12 @@ int alsa_out_set_input(int src) {
 void alsa_out_speaker_update(void) {
     if (mixer.fd < 0 || !mixer.have_speaker) return;
     if (!atomic_load(&out.settled)) return; // start-up: the amp is left as it is until the codec has played silence
-    if (!mixer.volume_up) mixer_write_volume(255), mixer.volume_up = 1; // the start script turned the codec down
+    if (!mixer.volume_up) { // the start script turned the codec down: back up a step a frame (about 0.5 s), not at once
+        mixer.ramp = mixer.ramp + 8 > 255 ? 255 : mixer.ramp + 8;
+        mixer_write_volume(mixer.ramp);
+        if (mixer.ramp < 255) return; // the amp after the codec is up
+        mixer.volume_up = 1;
+    }
     int plugged = (mixer.have_headphones && mixer_read(&mixer.headphones_id))
                || (mixer.have_line && mixer_read(&mixer.line_id));
     if (mixer.speaker != !plugged) mixer_write_speaker(!plugged);

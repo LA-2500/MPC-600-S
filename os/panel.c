@@ -80,7 +80,7 @@ void input_begin(struct input *in, const struct input_dev *dev) {
     memcpy(in->pad_down, dev->pad_down, sizeof in->pad_down);
 }
 
-static int pad_threshold = 12;
+static int pad_threshold = 30; // presses lighter than this are noise (Pad Threshold in Settings)
 
 void panel_set_pad_threshold(int velocity) {
     pad_threshold = velocity < 1 ? 1 : velocity > 60 ? 60 : velocity;
@@ -90,8 +90,13 @@ void panel_set_pad_threshold(int velocity) {
 // within CROSS_MS of a hit on a neighbouring pad (side or corner) and under 60% of its velocity is
 // that; from a pad further off, only one under a third (and light) is, so two hands still play.
 #define CROSS_MS 40
-#define CTL_GUARD_MS 300 // after a knob, slider or wheel movement
-#define CTL_GUARD_VEL 48 // pad hits lighter than this are taken as the panel shaking
+#define CTL_GUARD_MS 400 // after a knob, slider or wheel movement
+#define CTL_GUARD_VEL 80 // pad hits lighter than this are taken as the panel shaking
+// A pad hit shakes the panel too: a lone wheel step within WHEEL_SHAKE_MS after one, or a press
+// of the wheel, B1-B3 or -/+ within BUTTON_SHAKE_MS, is that, not a hand (they moved the cursor
+// or changed the page by themselves). A turn under way, steps close together, is let through.
+#define WHEEL_SHAKE_MS 150
+#define BUTTON_SHAKE_MS 80
 
 static int crosstalk(const struct input_dev *dev, int p, int value, long long now) {
     for (int q = 0; q < 16; q++) {
@@ -131,7 +136,7 @@ static void pad_message(struct input_dev *dev, struct input *in, int kind, int n
             return;
         }
         if (dev) dev->pad_on_vel[p] = value;
-        if (dev) dev->pad_down[p] = 1, dev->pad_on_ms[p] = now;
+        if (dev) dev->pad_down[p] = 1, dev->pad_on_ms[p] = now, dev->pad_hit_ms = now;
         in->pad_hit[p] = value, in->pad_down[p] = 1;
     } else if (kind == 0x80 || (kind == 0x90 && value == 0)) {
         if (dev) dev->pad_down[p] = 0;
@@ -209,6 +214,12 @@ static void button_message(struct input_dev *dev, struct input *in, int kind, in
         return;
     }
     if (kind == 0x90 && value == 127) { // a press (other velocities are not the panel's presses)
+        // The cursor's and the page's buttons, just after a pad press: the panel shaking.
+        unsigned shaken = (1u << IN_ENCODER) | (1u << IN_B1) | (1u << IN_B2) | (1u << IN_B3) | (1u << IN_MINUS) | (1u << IN_PLUS);
+        if (dev && (bit & shaken) && !(dev->held & bit) && dev->pad_hit_ms && clock_ms() - dev->pad_hit_ms < BUTTON_SHAKE_MS) {
+            dev->ghosts++;
+            return; // and its release, with no press before it, is nothing either
+        }
         if (!(in->held & bit)) {
             in->down |= bit;
             if (b == IN_ENCODER) in->encoder_press = 1;
@@ -281,7 +292,17 @@ static int control_value(struct input_dev *dev, int c, int value) {
 static void control_message(struct input_dev *dev, struct input *in, int cc, int value) {
     if (dev && ((cc >= 16 && cc <= 20) || cc == 100)) dev->ctl_ms = clock_ms(); // a control being worked
     if (cc == 100) {
-        in->encoder += value < 64 ? value : value - 128; // two's complement steps
+        int step = value < 64 ? value : value - 128; // two's complement steps
+        if (dev) {
+            long long now = clock_ms();
+            int lone = step >= -1 && step <= 1 && now - dev->wheel_ms > WHEEL_SHAKE_MS;
+            if (lone && dev->pad_hit_ms && now - dev->pad_hit_ms < WHEEL_SHAKE_MS) { // a pad's shake, not a turn
+                dev->rejected++;
+                return;
+            }
+            dev->wheel_ms = now;
+        }
+        in->encoder += step;
         return;
     }
     int c = cc >= 16 && cc <= 18 ? cc - 16 : cc == 19 ? 3 : cc == 20 ? 4 : -1;

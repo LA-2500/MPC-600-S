@@ -23,6 +23,9 @@ void seq_copyev_open(struct os *s); // SHIFT + ERASE: Copy Events
 void seq_copyev_frame(struct os *s, struct ui *u, const struct input *in);
 void seq_copyev_pad(struct os *s, int note); // a pad hit picks the notes copied
 void seq_copybars_open(struct os *s);
+void seq_outs_open(struct os *s); // SHIFT + Pad 9 on the mixer: USB Indiv Out
+void seq_outs_frame(struct os *s, struct ui *u, const struct input *in);
+void seq_outs_pad(struct os *s, int slot);
 void seq_copybars_frame(struct os *s, struct ui *u, const struct input *in);
 void seq_mixer_open(struct os *s);
 void seq_mixer_frame(struct os *s, struct ui *u, const struct input *in);

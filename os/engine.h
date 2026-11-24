@@ -21,6 +21,10 @@
 #define ENGINE_RETIRE_MAX 32
 #define ENGINE_SENDS 9    // Track FX: each track's sends to the nine effects
 #define ENGINE_TRACKS 100 // track numbers as events carry them: 1 + the track, 0 none
+#define ENGINE_OUTS 8     // USB individual outputs: eight mono channels, a stereo out using two
+// An output assignment: 0 the main mix only; 1-8 a mono output (the sound summed to one channel);
+// 9-15 a stereo output on two channels side by side, (a - 8) and (a - 7).
+#define ENGINE_OUT_CODES 16
 
 // In the order the Filter pages list them. FILTER_MOOG, S600 LPF: a four-pole transistor
 // ladder after the Minimoog Model D's, resonant to self-oscillation.
@@ -76,6 +80,11 @@ struct pad_params {
     // The mod wheel, beside its vibrato (mod_pitch): on the filter (LFO: the LFO's movement added;
     // OPEN: the cutoff opened, up to three octaves) and the level (the LFO as tremolo). 0..100 at full.
     int32_t mod_filter, mod_flt_open, mod_level;
+    // USB individual outs (after the MPC3000's Indiv Out): the output this pad plays on
+    // (ENGINE_OUT_CODES, 0 OFF), and its own level there: 100 - usb_vol_cut, used when
+    // usb_follow_off (Follow ster vol: NO); otherwise the output follows the pad's Volume. Kept as
+    // cut and off so a pad loaded from an older file (zeros) is at 100, following.
+    int32_t usb_out, usb_vol_cut, usb_follow_off;
 };
 
 enum { LFO_TRI, LFO_SINE, LFO_SQUARE, LFO_SAW_UP, LFO_SAW_DOWN, LFO_RANDOM, LFO_SHAPES };
@@ -231,6 +240,12 @@ struct engine {
     uint32_t km_stage_seq[ENGINE_KM_STAGE];
     uint32_t km_seq;
     atomic_uint km_ack;
+    // USB individual outputs: on, and by track (else by pad, from each voice's own pad settings).
+    // By track: each track's output (the OS keeps them current), and whether a track on an
+    // output stays in the main mix as well. outs holds the last block, a mono buffer a channel.
+    atomic_int outs_on, outs_by_track, outs_keep;
+    _Atomic unsigned char trk_out[ENGINE_TRACKS], trk_ovol[ENGINE_TRACKS]; // each track's output, and its level there (0-100)
+    float outs[ENGINE_OUTS][ENGINE_MAX_BLOCK];
 };
 
 void engine_init(struct engine *e);

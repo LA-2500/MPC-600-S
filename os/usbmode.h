@@ -36,3 +36,8 @@ struct usbmode_hooks {
 // The device's (usbmode_hw.c). input_src: the OS's Input setting, put back on exit.
 const struct usbmode_hooks *usbmode_hw(const int *input_src);
 int usbmode_card_away(void); // 1 while the card is not the MPC's: nothing may write there
+
+// USB individual outs: the stock USB gadget's audio with 8 channels to the computer (on), or its own
+// stereo again (off). USB audio and MIDI let go of first and opened again after. Waits about two
+// seconds: call it from a thread of its own. 0, or -1 when the port could not be found or bound.
+int usbmode_outs(int on, const int *input_src);

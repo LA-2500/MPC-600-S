@@ -201,23 +201,26 @@ void prefs_pad_lights(struct os *s, struct ui *u) {
 }
 
 void prefs_save_line(const struct os *s, char *b, size_t n) {
-    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res,
+    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res,
              s->screen_scheme, s->start_bpm10, s->start_tc, s->start_swing, s->start_bars, s->inst_gain, s->inst_bright,
              s->pad_threshold, s->loop_conv, s->start_rate, s->start_bits, s->start_aa, s->start_norm, s->start_thru, s->start_mode,
-             s->auto_root, s->knob_mode, s->usb_out, s->layout);
+             s->auto_root, s->knob_mode, s->usb_out, s->layout, s->usb_outs, s->outs_by_track, s->outs_keep, s->outs_layout);
 }
 
 void prefs_load_line(struct os *s, const char *line) {
-    int v[22];
-    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5],
-                     &v[6], &v[7], &v[8], &v[9], &v[10], &v[11], &v[12], &v[13], &v[14], &v[15], &v[16], &v[17], &v[18], &v[19], &v[20],
-                     &v[21]);
+    int v[26];
+    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3],
+                     &v[4], &v[5], &v[6], &v[7], &v[8], &v[9], &v[10], &v[11], &v[12], &v[13], &v[14], &v[15], &v[16], &v[17], &v[18],
+                     &v[19], &v[20], &v[21], &v[22], &v[23], &v[24], &v[25]);
+    if (got >= 26) s->outs_layout = v[25] != 0;
+    if (got >= 25) s->usb_outs = v[22] != 0, s->outs_by_track = v[23] != 0, s->outs_keep = v[24] != 0;
     if (got >= 22) s->layout = clampi(v[21], 0, LAYOUTS - 1);
     if (got >= 21) s->usb_out = v[20] != 0;
     if (got >= 19) s->auto_root = v[18] != 0;
     if (got >= 20) s->knob_mode = clampi(v[19], 0, KNOB_MODES - 1);
     if (got >= 10) s->inst_gain = clampi(v[8], 0, 30), s->inst_bright = clampi(v[9], 0, 100);
     if (got >= 11) s->pad_threshold = clampi(v[10], 1, 60);
+    if (got >= 11 && v[10] == 12) s->pad_threshold = 30; // the old default: now 30, against stray presses
     if (got >= 12) s->loop_conv = clampi(v[11], 0, LOOP_CONVS - 1);
     if (got >= 18) { // the Start recording values: onto every recording page
         int list[96], n = record_rates(list), ok = 0;

@@ -942,6 +942,23 @@ static void biquad(float *x, int frames, const float c[5], float z[2][2]) {
     }
 }
 
+// A block onto its USB individual output, at gain g: mono summed (centre is unity), or stereo as it is.
+static void to_outs(struct engine *e, int a, const float *buf, int frames, float g) {
+    if (a >= 1 && a <= ENGINE_OUTS) {
+        float *o = e->outs[a - 1];
+        for (int n = 0; n < frames; n++) o[n] += (buf[n * 2] + buf[n * 2 + 1]) * 0.5f * g;
+    } else if (a >= ENGINE_OUTS + 1 && a < ENGINE_OUT_CODES) {
+        float *l = e->outs[a - ENGINE_OUTS - 1], *r = e->outs[a - ENGINE_OUTS];
+        for (int n = 0; n < frames; n++) l[n] += buf[n * 2] * g, r[n] += buf[n * 2 + 1] * g;
+    }
+}
+
+// A track's level on its output (Indiv Out Volume), on the voices' squared curve.
+static float trk_gain(const struct engine *e, int t) {
+    float v = t > 0 && t < ENGINE_TRACKS ? (float)atomic_load_explicit(&e->trk_ovol[t], memory_order_relaxed) / 100.0f : 1.0f;
+    return v * v;
+}
+
 void engine_render(struct engine *e, float *out, int frames) {
     if (frames > ENGINE_MAX_BLOCK) { // longer than a bus holds: in pieces
         for (int done = 0; done < frames; done += ENGINE_MAX_BLOCK)
@@ -965,6 +982,14 @@ void engine_render(struct engine *e, float *out, int frames) {
     int fx_pad = e->fx_hook ? atomic_load_explicit(&e->fx_pad, memory_order_relaxed) : -1;
     if (sends_on || fx_pad >= 0)
         for (int b = 0; b <= ENGINE_SENDS; b++) memset(e->fxbus[b], 0, (size_t)frames * 2 * sizeof(float));
+    // USB individual outputs: by pad, a voice there goes to its output as it is rendered (its track's
+    // fader and pan on it, its track's inserts skipped); by track, a track's sound after its inserts,
+    // EQ, fader and pan. With outs_keep off it leaves the main mix (and its sends) for the output.
+    int outs = atomic_load_explicit(&e->outs_on, memory_order_relaxed);
+    int by_track = outs && atomic_load_explicit(&e->outs_by_track, memory_order_relaxed);
+    int keep = !outs || atomic_load_explicit(&e->outs_keep, memory_order_relaxed);
+    if (outs)
+        for (int c = 0; c < ENGINE_OUTS; c++) memset(e->outs[c], 0, (size_t)frames * sizeof(float));
     for (int i = 0; i < ENGINE_VOICES; i++) {
         struct voice *v = &e->voice[i];
         if (v->stage == V_FREE) continue;
@@ -974,6 +999,41 @@ void engine_render(struct engine *e, float *out, int frames) {
         int ins = -1; // a track with inserts: into its own bus at full level and centre (fader, pan, sends after)
         for (int b = 0; b < ENGINE_INSERTS && v->track > 0 && e->insert_hook; b++)
             if (e->ins_track[b] == v->track) ins = b;
+        int trk_a = by_track && v->track > 0 && v->track < ENGINE_TRACKS ? atomic_load_explicit(&e->trk_out[v->track], memory_order_relaxed) : 0;
+        int by_pad = outs && !by_track && v->pad >= 0 && v->p.usb_out > 0 && v->p.usb_out < ENGINE_OUT_CODES;
+        int out_a = by_pad ? v->p.usb_out : by_track && to == out && ins < 0 ? trk_a : 0; // by track: here only when no bus comes after
+        if (out_a) { // rendered alone: to its output, and to where it would have gone
+            float one[ENGINE_MAX_BLOCK * 2];
+            memset(one, 0, (size_t)frames * 2 * sizeof(float));
+            // A pad with its own output level (Follow ster vol: NO): rendered at full Volume, then each
+            // side at its own, on the voices' squared curve. Stereo Volume 0 takes it out of the mix.
+            float g_mix = 1, g_out = 1;
+            if (by_pad && v->p.usb_follow_off) {
+                int32_t vol = v->p.volume;
+                float sv = (float)vol / 100.0f, iv = (float)(100 - v->p.usb_vol_cut) / 100.0f;
+                g_mix = sv * sv, g_out = iv * iv;
+                v->p.volume = 100;
+                render_voice(v, one, frames, bend, mod);
+                v->p.volume = vol;
+            } else {
+                render_voice(v, one, frames, bend, mod);
+            }
+            if (!by_pad) g_out = trk_gain(e, v->track); // by track: the track's own level there
+            to_outs(e, out_a, one, frames, g_out);
+            if (by_pad || keep) { // a pad is in the mix at its stereo Volume; a track, kept or not
+                for (int n = 0; n < frames * 2; n++) one[n] *= g_mix;
+                for (int n = 0; n < frames * 2; n++) to[n] += one[n];
+                const float *send = sends_on && v->track > 0 && v->track < ENGINE_TRACKS ? e->send[v->track] : 0;
+                for (int k = 0; send && k < ENGINE_SENDS; k++)
+                    if (send[k] > 0)
+                        for (int n = 0; n < frames * 2; n++) e->fxbus[k][n] += one[n] * send[k];
+            }
+            if (v->stage != V_FREE) {
+                active++;
+                if (v->pad >= 0 && v->pad < ENGINE_SLOTS) playing[v->pad] = 1;
+            }
+            continue;
+        }
         if (ins >= 0 && !(fx_pad >= 0 && (v->pad == fx_pad || v->pad == fx_pad + ENGINE_S600))) {
             int cut = v->track_cut, pan = v->track_pan;
             v->track_cut = 0, v->track_pan = 0;
@@ -986,7 +1046,8 @@ void engine_render(struct engine *e, float *out, int frames) {
             continue;
         }
         int on_pad = fx_pad >= 0 && (v->pad == fx_pad || v->pad == fx_pad + ENGINE_S600);
-        const float *send = sends_on && v->track > 0 && v->track < ENGINE_TRACKS ? e->send[v->track] : 0;
+        // A track going to an output, out of the mix: its sends go with it (none left behind)
+        const float *send = sends_on && v->track > 0 && v->track < ENGINE_TRACKS && !(trk_a && !keep) ? e->send[v->track] : 0;
         int sending = 0;
         for (int k = 0; send && k < ENGINE_SENDS; k++) sending |= send[k] > 0;
         if (!on_pad && !sending) {
@@ -1018,18 +1079,26 @@ void engine_render(struct engine *e, float *out, int frames) {
         if (gr > g) gr = g;
         for (int n = 0; n < frames; n++) buf[n * 2] *= gl, buf[n * 2 + 1] *= gr;
         if (guard(buf, frames * 2)) memset(buf, 0, (size_t)frames * 2 * sizeof(float));
-        for (int k = 0; sends_on && k < ENGINE_SENDS; k++)
+        int ta = by_track && t < ENGINE_TRACKS ? atomic_load_explicit(&e->trk_out[t], memory_order_relaxed) : 0;
+        for (int k = 0; sends_on && (!ta || keep) && k < ENGINE_SENDS; k++)
             if (e->send[t][k] > 0)
                 for (int n = 0; n < frames * 2; n++) e->fxbus[k][n] += buf[n] * e->send[t][k];
         float *to = out;
         for (int q = 0; q < ENGINE_BUSES; q++)
             if (e->bus[q].track == t) to = e->bus[q].buf;
+        if (ta && to == out) { // no EQ after: to its output here
+            to_outs(e, ta, buf, frames, trk_gain(e, t));
+            if (!keep) continue;
+        }
         for (int n = 0; n < frames * 2; n++) to[n] += buf[n];
     }
     for (int b = 0; b < ENGINE_BUSES; b++) { // each EQ'd track through its three bands, into the outputs
         if (!e->bus[b].track) continue;
         for (int k = 0; k < 3; k++) biquad(e->bus[b].buf, frames, e->bus[b].c[k], e->bus[b].z[k]);
         if (guard(e->bus[b].buf, frames * 2)) memset(e->bus[b].z, 0, sizeof e->bus[b].z);
+        int ta = by_track && e->bus[b].track < ENGINE_TRACKS ? atomic_load_explicit(&e->trk_out[e->bus[b].track], memory_order_relaxed) : 0;
+        if (ta) to_outs(e, ta, e->bus[b].buf, frames, trk_gain(e, e->bus[b].track)); // the track after its EQ
+        if (ta && !keep) continue;
         for (int i = 0; i < frames * 2; i++) out[i] += e->bus[b].buf[i];
     }
     if (sends_on || fx_pad >= 0) e->fx_hook(e->fx_ctx, e, out, frames); // the effects' returns

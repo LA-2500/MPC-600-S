@@ -18,13 +18,13 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM, RENAME_SOUND };
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "1.7D"
-#define OS_VERSION "LA Version " OS_NUMBER " (11/23/26)" // 26 columns: a four-digit year will not fit
+#define OS_NUMBER "2.0"
+#define OS_VERSION "LA Version " OS_NUMBER " (11/24/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
 #define OS_POWER_FORCE_MS 15000 // if an orderly shutdown has not finished by then, cut the power
 
-enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI, OS_INSERT, OS_USBMODE, OS_COPYEV, OS_COPYBARS };
+enum { OS_SAMPLE, OS_BROWSER, OS_PROJECT, OS_TITLE, OS_SHUTDOWN, OS_MAIN, OS_TC, OS_METRO, OS_PROGRAM, OS_ERASE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_RECORD, OS_REPEAT, OS_ZONES, OS_EQ, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_HELP, OS_MASTER, OS_SENDS, OS_SONG, OS_STEP, OS_WARP, OS_PREFS, OS_DISK, OS_SEQCOPY, OS_ARPEDIT, OS_MULTI, OS_INSERT, OS_USBMODE, OS_COPYEV, OS_COPYBARS, OS_OUTS };
 enum { DISK_SAVE, DISK_LOAD, DISK_EXPORT, DISK_USB, DISK_MODES }; // DISK_USB: USB DATA MODE
 enum { DISK_PROJECT, DISK_PROGRAM, DISK_SAMPLE, DISK_SETTINGS, DISK_AUTOLOAD, DISK_FX, DISK_ARP, DISK_TRACKFX, DISK_WAVE,
        DISK_SND,                                       // an Akai .SND: the sound on the selected pad
@@ -246,6 +246,13 @@ struct os {
     int pad_threshold;           // the lightest pad hit that counts (Additional Settings)
     void (*set_pad_threshold)(int velocity); // tells the panel, or NULL
     int usb_out;                  // USB Audio Out: the master mix to a computer (OFF to start)
+    // USB individual outs (SHIFT + Pad 9 twice): eight more channels to the computer, a second USB
+    // audio device beside the main one; by pad or by track; assigned sounds kept in the main mix too.
+    int usb_outs, outs_by_track, outs_keep, outs_sel, cursor_outs;
+    int outs_layout;              // 0 MIX + 6 OUTS: the main mix on 1-2, outputs 3-8; 1 8 OUTS: no mix
+    void (*set_outs_mix)(int mix); // tells the audio side whether 1-2 are the main mix, or NULL
+    void (*set_usb_outs)(int on); // puts the outputs' USB device on or takes it off, or NULL
+    int usb_outs_state;           // what that last did: 0 off, 1 on, -1 failed
     void (*set_usb_out)(int on);  // tells the audio side, or NULL
     // Stems (Shift + SAMPLE REC again): one stem of a pad's sound, separated by Open-Unmix.
     int stem_kind, stem_remove;  // STEM_*; 0 EXTRACT (only it), 1 REMOVE (all but it)
@@ -439,6 +446,11 @@ struct os {
     struct warp_job *warp_job;
     struct sample *warp_result;   // the one warped sound, until <To Pad>
     int64_t frame_ms;             // the time this frame started
+    int64_t ctl_ms;               // the last frame a K knob or the slider moved
+    // The mixer pages: a K knob or the slider moved in the last 300 ms. Turning one can shake the
+    // panel into a wheel step or a pad hit; meanwhile those do not pan or pick another channel.
+    #define OS_CTL_QUIET_MS 300
+    #define os_ctl_busy(s) ((s)->ctl_ms && (s)->frame_ms - (s)->ctl_ms < OS_CTL_QUIET_MS)
     int64_t start_ms;             // the first frame's time
     int layout; // Additional Settings Layout: LAYOUT_* (lcd.h)
     int button_lights, pad_lights, screen_scheme, cursor_prefs; // Additional Settings: BUTTON_*, PAD_LIGHT_*, SCREEN_*

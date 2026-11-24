@@ -363,7 +363,8 @@ void os_init(struct os *s, struct engine *e) {
     s->button_lights = BUTTON_RED, s->pad_lights = PAD_LIGHT_OFF, s->screen_scheme = SCREEN_MPC3000;
     s->pads_lit = 1; // whatever the stock app left lit goes dark on the first frame
     s->start_bpm10 = 1200, s->start_bars = 2, s->start_tc = TC_16, s->start_swing = 50;
-    s->inst_gain = 12, s->inst_bright = 50, s->pad_threshold = 12, s->usb_out = 0;
+    s->inst_gain = 12, s->inst_bright = 50, s->pad_threshold = 30, s->usb_out = 0;
+    s->usb_outs = 0, s->outs_by_track = 1, s->outs_keep = 1; // by track, to start
     s->padtpl_oct = 2; // pad note templates from C2
     s->led_style = 1; // colour A alone: red on the two-colour buttons
     lcd_set_scheme(SCREEN_MPC3000);
@@ -1249,12 +1250,14 @@ static void pad_down(struct os *s, struct ui *u, const struct input *in, int i) 
         return;
     }
     if (s->screen == OS_MIXER || s->screen == OS_SENDS || s->screen == OS_INSERT) { // on the mixer a pad only picks its track's channel
-        seq_mixer_pad(s, slot);
+        // ...unless a knob or the slider is being worked: then it is the panel shaking, not a press
+        if (!os_ctl_busy(s)) seq_mixer_pad(s, slot);
         return;
     }
     if (s->screen == OS_TC) seq_tc_pad(s, note);
     if (s->screen == OS_ERASE) seq_erase_pad(s, note);
     if (s->screen == OS_COPYEV) seq_copyev_pad(s, note);
+    if (s->screen == OS_OUTS) seq_outs_pad(s, slot);
     if (padnotes_pad(s, u, slot)) return; // Pad Notes: a pad picks the one to set
     infx_pad_pressed(s, slot);            // Pad Effects: the chain goes to the pad pressed
     multi_pad(s, slot);                   // MULTI, the cursor on a Zone: that pad is the zone
@@ -2809,6 +2812,21 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
     if (s->screen != OS_MAIN) s->seq_ask = SEQ_ASK_NONE; // a question on the main page goes with it
     if (s->screen != OS_WARP && (s->warp_job || s->warp_result)) warp_close(s); // one warped sound, only while warping
     s->frame_ms = now_ms(u);
+    if (in->knob_moved[0] || in->knob_moved[1] || in->knob_moved[2] || in->fader_moved) s->ctl_ms = s->frame_ms;
+    // USB individual outs: the engine follows the settings and every pad's and track's output.
+    // On once the outputs' USB device is up (always, with no device to wait for, as in the tests).
+    if (s->engine) {
+        struct engine *e = s->engine;
+        int on = s->usb_outs && (s->usb_outs_state == 1 || !s->set_usb_outs);
+        atomic_store_explicit(&e->outs_on, on, memory_order_relaxed);
+        atomic_store_explicit(&e->outs_by_track, s->outs_by_track, memory_order_relaxed);
+        atomic_store_explicit(&e->outs_keep, s->outs_keep, memory_order_relaxed);
+        if (s->set_outs_mix) s->set_outs_mix(s->outs_layout == 0);
+        const struct seq_sequence *q = &s->seq.sequence[s->seq.current];
+        for (int t = 0; on && t < SEQ_TRACKS && t + 1 < ENGINE_TRACKS; t++)
+            atomic_store_explicit(&e->trk_out[t + 1], (unsigned char)q->track[t].usb_out, memory_order_relaxed),
+            atomic_store_explicit(&e->trk_ovol[t + 1], (unsigned char)(100 - q->track[t].usb_vol_cut), memory_order_relaxed);
+    }
     if (!s->start_ms) s->start_ms = s->frame_ms ? s->frame_ms : 1;
     for (int i = 0; i < 16; i++) // Step Edit's auditions, let go after a moment
         if (s->aud[i].until && s->frame_ms >= s->aud[i].until) {
@@ -2909,7 +2927,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         s->screen == OS_MASTER || s->screen == OS_SENDS || s->screen == OS_SONG || s->screen == OS_STEP ||
         s->screen == OS_WARP || s->screen == OS_PREFS || s->screen == OS_DISK || s->screen == OS_SEQCOPY ||
         s->screen == OS_ARPEDIT || s->screen == OS_MULTI || s->screen == OS_INSERT || s->screen == OS_COPYEV ||
-        s->screen == OS_COPYBARS) {
+        s->screen == OS_COPYBARS || s->screen == OS_OUTS) {
         if (input_down(in, IN_MUTE) && !in->shift) mute_open(s); // the Track Mute page
         if (input_down(in, IN_MUTE) && in->shift) mute_unmute_all(s, u); // UNMUTE ALL
         if (input_down(in, IN_SAMPLE_REC) && in->shift) { // the main page: back a bar. Elsewhere: help
@@ -3058,6 +3076,9 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         break;
     case OS_COPYBARS:
         seq_copybars_frame(s, u, in);
+        break;
+    case OS_OUTS:
+        seq_outs_frame(s, u, in);
         break;
     case OS_ARPEDIT:
         arpedit_frame(s, u, in);

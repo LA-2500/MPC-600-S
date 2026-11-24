@@ -384,7 +384,7 @@ static void read_program(struct os *s, struct bin *b, struct sample **sounds, in
 }
 
 static void write_track(struct bin *b, const struct seq_track *k) {
-    int32_t f[] = {k->type, k->on, k->channel, k->vel_pct, k->level, k->pan, k->mute, k->solo, k->program, k->kit};
+    int32_t f[] = {k->type, k->on, k->channel, k->vel_pct, k->level, k->pan, k->mute, k->solo, k->program, k->kit, k->usb_out, k->usb_vol_cut};
     wints(b, f, (int)(sizeof f / 4));
     wints(b, &k->eq, (int)(sizeof k->eq / 4));
     int32_t send[9];
@@ -406,10 +406,11 @@ static void write_track(struct bin *b, const struct seq_track *k) {
 }
 
 static void read_track(struct bin *b, struct seq_track *k) {
-    int32_t f[10] = {TRACK_DRUM, 1, 0, 100, 100, 0, 0, 0, 0, 0};
-    rints(b, f, 10);
+    int32_t f[12] = {TRACK_DRUM, 1, 0, 100, 100, 0, 0, 0, 0, 0, 0, 0};
+    rints(b, f, 12);
     k->type = f[0], k->on = f[1], k->channel = f[2], k->vel_pct = f[3], k->level = f[4], k->pan = f[5];
     k->mute = f[6], k->solo = f[7], k->program = f[8], k->kit = clampi(f[9], 0, OS_PROGRAMS - 1);
+    k->usb_out = clampi(f[10], 0, ENGINE_OUT_CODES - 1), k->usb_vol_cut = clampi(f[11], 0, 100);
     rints(b, &k->eq, (int)(sizeof k->eq / 4));
     int32_t send[9] = {0};
     rints(b, send, 9);

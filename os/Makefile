@@ -46,6 +46,15 @@ $(BIN)/mpc-probe.zip: $(BIN)/ctl-dump os/probe/mpc-probe tools/make_autorun.py
 	python3 tools/make_autorun.py mpc-probe os/probe/mpc-probe $(BUILD)/probe $(BIN)/ctl-dump
 	cp $(BUILD)/probe/mpc-probe.zip $@
 
+# The USB individual-outs test: an 18-channel USB audio gadget playing a tone on each channel.
+$(BIN)/mpc-usbouts: os/probe/usbaudio_test.c
+	mkdir -p $(BIN)
+	$(ZIGDEV) -static -O2 -s $(WARN) -D_DEFAULT_SOURCE -o $@ $< -lm
+
+$(BIN)/mpc-usbouts.zip: $(BIN)/mpc-usbouts tools/make_autorun.py
+	python3 tools/make_autorun.py mpc-usbouts $< $(BUILD)/usbouts
+	cp $(BUILD)/usbouts/mpc-usbouts.zip $@
+
 desktop: $(BIN)/mpc-os.zip
 	mkdir -p "$(DESKTOP)"
 	cp $(BIN)/mpc-os.zip "$(DESKTOP)/mpc-os.zip"

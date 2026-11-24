@@ -325,6 +325,16 @@ static const struct {
      "A sequence with notes is replaced only after you say so. Shift+- undoes.\f"
      "Shift+B3 on the main page opens this page (hold SHIFT to see <Copy>), and so does "
      "B1 on Copy Events."},
+    {OS_OUTS, -1, "USB Indiv Out",
+     "Eight channels to a computer over USB, on MPC Sample.\n"
+     "USB Outs ON makes it eight channels (USB audio and MIDI stop for a moment).\n"
+     "Layout: MIX on 1-2 + 6 OUTS (outputs 3-8), or 8 OUTS (no main mix over USB).\f"
+     "Src PADS: each pad its Output (OFF, a channel, or a stereo pair such as 3-4), Volume "
+     "there and Follow (its stereo Volume). Stereo Volume 0 leaves the pad on its output only.\n"
+     "B3 <Set All>: this pad's on every pad.\f"
+     "Src TRACKS: each track's Output and Volume there, after its fader, pan, inserts and EQ. In mix NO takes "
+     "tracks on an output out of the main mix.\n"
+     "Pads pick the note or track. B1 the mixer. Shift+Pad 9 again: the mixer."},
     {OS_COPYEV, -1, "Copy Events",
      "Copies notes and fader moves: from a sequence and track (0 is every track, each onto "
      "its own), a range and pads you press (none is all), to a sequence, track and start.\n"

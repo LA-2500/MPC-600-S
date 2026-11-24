@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 1.7D &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 2.0 &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -106,7 +106,7 @@
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
-<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v1.7D.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
 <ol>
   <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
   <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
@@ -193,7 +193,7 @@
 <h3>SHIFT + Pads</h3>
 <table>
   <tr><th class="n">Pad</th><th>Function</th><th class="n">Pad</th><th>Function</th></tr>
-  <tr><td class="n">1</td><td>Full Level on/off</td><td class="n">9</td><td>Track Mixer</td></tr>
+  <tr><td class="n">1</td><td>Full Level on/off</td><td class="n">9</td><td>Track Mixer (again: USB Indiv Out)</td></tr>
   <tr><td class="n">2</td><td>Half the sequence (asks first)</td><td class="n">10</td><td>Timing Correct on/off</td></tr>
   <tr><td class="n">3</td><td>Double the sequence (asks first)</td><td class="n">11</td><td>Resample</td></tr>
   <tr><td class="n">4</td><td>Count-in on/off</td><td class="n">12</td><td>Song</td></tr>
@@ -594,7 +594,7 @@
   <li><strong>Trim</strong>: Zone Start, Zone End, and <strong>Do</strong> (on <span class="key">K3</span>): Discard, Normalize, Extract, Silence Zone, Reverse Zone, Delete Zone, Copy Zone&rarr;Temp, Insert Temp at Zone Start or End, Convert 44.1k. <span class="key">B3</span> does it. On Trim the slider steps Zone Start through the hits found in the sound. <span class="key">SHIFT + Pad 13</span> opens Trim from anywhere.</li>
   <li><strong>Vol</strong>: Volume, Pan. <strong>Tune</strong>: Semi, Fine. <strong>Poly</strong>: Poly/Mono, Mute Group, Also Play. <strong>Envel</strong>: Attack, Decay, Decay Mode. <strong>Vel Mod</strong>: velocity to level, attack and start.</li>
   <li><strong>Filter</strong>: Type, Cutoff, Resonance. <strong>Flt Env</strong>: Attack, Decay, Depth.</li>
-  <li>Hidden keys: <span class="key">SHIFT + B1</span> Loop Lock, <span class="key">SHIFT + B2</span> Normalize, <span class="key">SHIFT + B3</span> Edit All Pads (an edit goes to every pad; <span class="lcd">ALL PADS</span> shows on the bottom line while it is on). Hold <span class="key">SAMPLE</span> and press <span class="key">B1</span>/<span class="key">B2</span> to zoom.</li>
+  <li>Hidden keys: <span class="key">SHIFT + B1</span> Loop Lock (while it is on, the loop point follows the start point, so with the sound&rsquo;s loop on, the whole sound loops from start to end; it is on for every new sound, and turns off by itself when you set Loop St by hand or a loop point is found for you), <span class="key">SHIFT + B2</span> Normalize, <span class="key">SHIFT + B3</span> Edit All Pads (an edit goes to every pad; <span class="lcd">ALL PADS</span> shows on the bottom line while it is on). Hold <span class="key">SAMPLE</span> and press <span class="key">B1</span>/<span class="key">B2</span> to zoom.</li>
 </ul>
 {{shot:trim_do|The Trim page}}
 <h3>Filter Types</h3>
@@ -996,6 +996,24 @@
 {{shot:mixer|The track mixer}}
 <p>Each track&rsquo;s <strong>EQ</strong> is a three-band, either <strong>1073</strong> (stepped frequencies) or <strong>4000 E</strong> (any frequency, with mid Q). Flat or off is a true bypass.</p>
 
+<h2>USB Individual Outs</h2>
+<p>The MPC 600 S can send eight channels to a computer over USB instead of the stereo main mix, for recording pads or tracks on their own tracks in a DAW. Press <span class="key">SHIFT + Pad 9</span> on the track mixer (that is, twice) for <strong>USB Indiv Out</strong>; again for the mixer. The page is taken from the MPC3000&rsquo;s All Mix Data (Mixer, 3).</p>
+<table>
+  <tr><th>Field</th><th>Does</th></tr>
+  <tr><td>USB Outs</td><td><strong>ON</strong> makes the MPC&rsquo;s USB audio device (<strong>MPC Sample</strong>) eight channels to the computer instead of two. USB audio and MIDI stop for a couple of seconds while the port changes. The setting is kept, and the eight come back at power-on; off (or leaving the MPC 600 S), it is stereo again. <span class="lcd">ON (no USB)</span>: the port could not be changed.</td></tr>
+  <tr><td>Src</td><td><strong>TRACKS</strong> (to start): each sequence track has its own output. <strong>PADS</strong>: each pad has one.</td></tr>
+  <tr><td>Note / Trk</td><td>The pad (or track) shown. Pads pick it.</td></tr>
+  <tr><td>Stereo Out: Volume, Pan</td><td>(Pads) the pad&rsquo;s own Volume and Pan, as on its Vol page: what goes to the main mix. <strong>Volume 0</strong> leaves the pad on its output only. (Tracks: the track&rsquo;s Level and Pan, the same as on the mixer.)</td></tr>
+  <tr><td>Indiv Out: Output</td><td><strong>OFF</strong>, a channel (mono: the sound summed to one channel), or a stereo pair of channels side by side, which keeps the pan. Any mix of mono and stereo fits the channels the Layout leaves; several pads (or tracks) can share an output.</td></tr>
+  <tr><td>Indiv Out: Volume</td><td>Its level on the output. (Pads: setting it turns Follow to NO. Tracks: the track&rsquo;s level on its output only, after its fader; the main mix keeps the fader&rsquo;s.)</td></tr>
+  <tr><td>Follow</td><td>(Pads) <strong>YES</strong>: the output follows the pad&rsquo;s stereo Volume. <strong>NO</strong>: it has its own.</td></tr>
+  <tr><td>In mix</td><td>(Tracks) <strong>YES</strong>: a track on an output stays in the main mix too. <strong>NO</strong>: it leaves the main mix (and its effect sends) for its output.</td></tr>
+  <tr><td>Layout</td><td><strong>MIX on 1-2 + 6 OUTS</strong>: channels 1-2 are the main mix (as USB Audio Out sends it, after Master Effects), and the outputs are 3 to 8 (pairs 3-4 to 7-8). <strong>8 OUTS</strong>: all eight are outputs, and the main mix does not go over USB (record it from the line out if you need it). Changing it does not restart USB.</td></tr>
+</table>
+<p>By pad, the output takes the sound after its envelope and filter, with its track&rsquo;s fader and pan; a pad on an output passes by its track&rsquo;s insert effects. By track, it is the track after its fader, pan, insert effects and EQ. Master Effects stay on the main mix. <span class="key">B3 &lt;Set All&gt;</span> puts this pad&rsquo;s Output, Volume and Follow on every pad of the program; <span class="key">B1 &lt;Mixer&gt;</span> goes back. <strong>In use</strong> shows which channels something plays on (<span class="lcd">M</span>: the main mix).</p>
+<p>On the computer, MPC Sample then has eight inputs. A DAW on Windows that shows only inputs 1/2 is using MME or DirectX, which give two; ASIO4ALL gives all eight. In Ableton&rsquo;s Input Config, turn on the mono inputs for mono outputs and the pairs for stereo ones. (Eight is the most: Windows stops taking more than eight channels from one USB device after two seconds.)</p>
+{{shot:usb_outs|USB Indiv Out, by pad}}
+
 <h2>Input Effects</h2>
 <p><span class="key">KNOB FX</span> opens Input Effects: nine effects, used in one of three ways (<strong>Type</strong>). At every power-on they start off and empty (Type INPUT, each Type on its blank first preset), whatever was used last or came with an autoload project.</p>
 <ul>
@@ -1283,7 +1301,7 @@
 <ul>
   <li><strong>Button Lights</strong>: red (default), white, pink or off.</li>
   <li><strong>Pad Lights</strong>: light blue, red, white or off (default). Lit pads dim while pressed, more with pressure.</li>
-  <li><strong>Pad Thresh</strong>: the lightest pad hit that counts, 1 to 60 (default 12). Raise it if pads play by themselves; lower it to play very softly. A hit shakes the pads around it, and they can send light hits of their own: a hit on a neighbouring pad (beside it or at a corner) within 40 ms that is under 60% of its velocity is taken as that and ignored; on a pad further away, only one under a third of the velocity (and light) is, so two pads played together still both play. Turning a knob, moving the slider, or turning or pushing the data wheel presses on the panel too: for 300 ms after, and while the wheel is held down, pad hits lighter than velocity 48 are ignored, so the pad shown on the editing pages does not change by itself. A knob, slider or volume reading that jumps far from the last is ignored unless the next reading confirms it (the main volume needs two more readings that agree), so a stray reading cannot jump a setting or drop the volume.</li>
+  <li><strong>Pad Thresh</strong>: the lightest pad hit that counts, 1 to 60 (default 30; a setting saved at the old default of 12 is raised to 30). Raise it if pads play by themselves; lower it to play very softly. A hit shakes the pads around it, and they can send light hits of their own: a hit on a neighbouring pad (beside it or at a corner) within 40 ms that is under 60% of its velocity is taken as that and ignored; on a pad further away, only one under a third of the velocity (and light) is, so two pads played together still both play. Turning a knob, moving the slider, or turning or pushing the data wheel presses on the panel too: for 400 ms after, and while the wheel is held down, pad hits lighter than velocity 80 are ignored, so the pad shown on the editing pages does not change by itself. A pad hit shakes the panel the other way too: a lone step of the wheel within 150 ms after it, or a press of the wheel, B1&ndash;B3 or &minus;/+ within 80 ms, is ignored, so the cursor and the page do not move by themselves (a turn of the wheel under way still turns). On the mixer pages, for 300 ms after a knob or the slider moves, the wheel does not pan and a pad does not pick another channel. A knob, slider or volume reading that jumps far from the last is ignored unless the next reading confirms it (the main volume needs two more readings that agree), so a stray reading cannot jump a setting or drop the volume.</li>
   <li><strong>Screen</strong>: MPC3000 Blue (default), MPC60 Green, MPC1000 Green, MPC4000, MPC2000, Black/Red, Red/Black, Fairlight.</li>
   <li><strong>Layout</strong>: DEFAULT or 2000XL, the look of every page (below).</li>
   <li><strong>Sequencer Res</strong>: MPC 3000, MPC60, MPC 2000 (all 96 PPQN) or SP12 (24 PPQN). See Chapter 4.</li>
@@ -1316,7 +1334,7 @@
 <p><strong>Layout: 2000XL</strong> (Additional Settings) gives every page the look of the MPC2000XL&rsquo;s screen, at the MPC 600 S&rsquo;s size: the XL&rsquo;s letters, the key labels drawn as tabs, and dotted lines. With <strong>Screen: MPC2000</strong> it takes the XL&rsquo;s colour too. What the pages do stays the same; a few are laid out as on the XL. <strong>DEFAULT</strong> is the MPC 600 S&rsquo;s own look.</p>
 {{shot:prefs_layout|Additional Settings: Layout}}
 <ul>
-  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 1.7D</span> in the middle of the screen, nothing else.</li>
+  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0</span> in the middle of the screen, nothing else.</li>
   <li><strong>The main page</strong>: the sequence and <span class="lcd">Now:</span> on top; under them tempo, time signature, Timing, Count, Loop and Bars; the track under the dotted line. <span class="key">B1</span>&ndash;<span class="key">B3</span> read TrMUTE, Tr &minus; and Tr + (the same keys as on DEFAULT), and the knobs are listed along the bottom: <span class="lcd">K1:Track K2:BPM K3:Pgm</span>. Pick another sequence while one plays and <span class="lcd">Next:</span> shows beside the counter, with its number and name, until it starts.</li>
   <li><strong>Track Mute</strong>: the XL&rsquo;s grid of track names, 16 at a time. A playing track sits on a bar; a muted one is plain; a track with nothing on it reads <span class="lcd">(Unused)</span>.</li>
   <li><strong>Save and Load</strong>: the XL&rsquo;s pictures. SAVE: the MPC, an arrow marked SAVE, and the card (marked SD). LOAD: the card, an arrow marked LOAD, and the MPC.</li>

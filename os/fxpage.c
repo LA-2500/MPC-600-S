@@ -892,7 +892,7 @@ void sends_frame(struct os *s, struct ui *u, const struct input *in) {
         int pos = os_knob_take(s, &s->fader_caught, last, now, at);
         if (pos >= 0) send[fx] = (unsigned char)(pos * 100 / 127), changed_send = 1;
     }
-    int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
+    int d = (os_ctl_busy(s) ? 0 : in->encoder) + input_down(in, IN_PLUS) - input_down(in, IN_MINUS); // not the knobs' shaking
     if (d) send[fx] = (unsigned char)clamp(send[fx] + d, 0, 100), changed_send = 1;
     unsigned char mine[FX_SLOTS];
     memcpy(mine, send, sizeof mine);
@@ -1103,7 +1103,7 @@ void inserts_frame(struct os *s, struct ui *u, const struct input *in) {
     if (s->ins_sel >= n) s->ins_sel = n ? n - 1 : 0;
     int slot = n ? chain[s->ins_sel] : -1, type = slot >= 0 ? atomic_load(&s->ins.type[slot]) : FX_OFF;
     if (in->encoder_press) s->ins_cursor = (s->ins_cursor + (in->shift ? INS_FIELDS - 1 : 1)) % INS_FIELDS;
-    int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS);
+    int d = (os_ctl_busy(s) ? 0 : in->encoder) + input_down(in, IN_PLUS) - input_down(in, IN_MINUS); // not the knobs' shaking
     if (d && slot >= 0) {
         switch (s->ins_cursor) {
         case INS_SEL: s->ins_sel = clampi_ins(s->ins_sel + d, 0, n - 1); break;

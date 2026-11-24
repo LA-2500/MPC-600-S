@@ -5,12 +5,15 @@
 #include "power_key.h"
 #include "wav.h"
 #include "usbmode.h"
+#include <pthread.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <time.h>
 
 static struct engine engine;
 static struct os os;
@@ -35,6 +38,20 @@ static void log_line(const char *text) {
 // power-on, so a cut-out can be traced afterwards. At most a line a second.
 static void audio_poll(void) {
     alsa_out_speaker_update();
+    // USB individual outs, while on: every 5 minutes, what reached the computer and how loud each output was.
+    static time_t outs_logged;
+    if (os.usb_outs) {
+        struct timespec t;
+        clock_gettime(CLOCK_MONOTONIC, &t);
+        if (t.tv_sec - outs_logged >= 300) {
+            outs_logged = t.tv_sec;
+            char st[200], line[240];
+            alsa_out_outs_status(st, sizeof st);
+            snprintf(line, sizeof line, "t=%lds %s (state %d, by %s)", (long)t.tv_sec, st, os.usb_outs_state,
+                     os.outs_by_track ? "track" : "pad");
+            log_line(line);
+        }
+    }
     char note[400];
     if (panel_take_note(note, sizeof note)) log_line(note);
     static unsigned xr, gt, pb, rj;
@@ -93,6 +110,32 @@ static long mem_available(void) {
     return kb * 1024;
 }
 
+// USB individual outs: the outs' USB device put on the port or taken off, in a thread (it takes
+// a couple of seconds), as many times as the setting changes while it works; then the engine's
+// outputs fed to it or not. os.usb_outs_state says how it went: 1 on, 0 off, -1 failed.
+static atomic_int outs_busy;
+static void *outs_worker(void *arg) {
+    (void)arg;
+    for (;;) {
+        int want = os.usb_outs;
+        if (usbmode_card_away()) break; // USB DATA MODE has the port: left as it is
+        int rc = usbmode_outs(want, &os.input_src);
+        alsa_out_set_usb_outs(want && rc == 0);
+        os.usb_outs_state = !want ? 0 : rc == 0 ? 1 : -1;
+        log_line(!want ? "USB Indiv Out: off" : rc == 0 ? "USB Indiv Out: on" : "USB Indiv Out: could not start");
+        if (want == os.usb_outs) break; // changed again meanwhile: once more
+    }
+    atomic_store(&outs_busy, 0);
+    return 0;
+}
+static void set_usb_outs(int on) {
+    (void)on; // read from os.usb_outs by the worker, which may already be running
+    if (atomic_exchange(&outs_busy, 1)) return;
+    pthread_t t;
+    if (pthread_create(&t, 0, outs_worker, 0) == 0) pthread_detach(t);
+    else atomic_store(&outs_busy, 0);
+}
+
 int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "--codec-volume") == 0) {
         int ok = alsa_out_codec_volume(atoi(argv[2])) == 0;
@@ -149,6 +192,11 @@ int main(int argc, char **argv) {
     panel_set_pad_threshold(os.pad_threshold);
     if (!failed) os.set_usb_out = alsa_out_set_usb_out, alsa_out_set_usb_out(os.usb_out); // the mix to a computer
     log_line(os.usb_out ? "USB Audio Out: on" : "USB Audio Out: off");
+    if (!failed) {
+        os.set_usb_outs = set_usb_outs;
+        os.set_outs_mix = alsa_out_set_outs_mix;
+        if (os.usb_outs) set_usb_outs(1); // the outs' USB device, as last set
+    }
     panel_set_bicolour_style(os.led_style);
     static char power_status[32];
     int power_keys = power_key_open();
@@ -158,6 +206,9 @@ int main(int argc, char **argv) {
     os.power_off = power_off;
     if (power_keys > 0) os.power_pressed = power_key_pressed;
     int rc = panel_run(os_frame, &os);
+    // The stock gadget as the stock app knows it: the outs' device off before it starts again.
+    for (int i = 0; i < 50 && atomic_load(&outs_busy); i++) usleep(100 * 1000);
+    if (!failed && os.usb_outs_state == 1 && !usbmode_card_away()) usbmode_outs(0, &os.input_src);
     if (!failed) {
         char line[64];
         snprintf(line, sizeof line, "exit, dropouts: %u", alsa_out_xruns());

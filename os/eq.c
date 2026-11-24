@@ -169,7 +169,8 @@ void eq_frame(struct os *s, struct ui *u, const struct input *in) {
         do s->cursor_eq = (s->cursor_eq + (in->shift ? E_FIELDS - 1 : 1)) % E_FIELDS;
         while (!shown(q, s->cursor_eq));
     }
-    int d = in->encoder + input_down(in, IN_PLUS) - input_down(in, IN_MINUS), changed = 0;
+    // The wheel, not while a knob is being worked (turning one can shake the wheel a step).
+    int d = (os_ctl_busy(s) ? 0 : in->encoder) + input_down(in, IN_PLUS) - input_down(in, IN_MINUS), changed = 0;
     if (d) eq_change(s, q, s->cursor_eq, d), changed = 1;
     for (int k = 0; k < 3; k++) { // K1-K3: the three gains, as on the mixer
         if (!in->knob_moved[k]) continue;

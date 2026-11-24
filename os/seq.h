@@ -72,6 +72,8 @@ struct seq_track {
     int kit;               // the pad program a DRUM track plays, 0..ENGINE_PROGRAMS-1. Kept apart
                            // from `program` so changing the track type loses neither.
     char name[SEQ_NAME];
+    int usb_out;           // USB individual outs, by track: the output it plays on (ENGINE_OUT_CODES), 0 none
+    int usb_vol_cut;       // and its level there, 100 - this (0, as in older files: 100)
 };
 
 struct seq_sequence {

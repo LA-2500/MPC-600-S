@@ -61,6 +61,9 @@ struct input_dev {
     unsigned confirm_pending, confirm_shift;
     long long confirm_ms[32];
     unsigned ghosts;       // page-button note-ons never confirmed, for the log
+    long long pad_hit_ms;  // the last pad press taken: the wheel and the cursor buttons close after
+                           // it are the panel shaking (see PAD_SHAKE_MS)
+    long long wheel_ms;    // the last wheel step taken: a turn under way is not a shake
 };
 
 // A new frame: nothing happened yet, held things as the panel holds them (dev NULL: nothing).

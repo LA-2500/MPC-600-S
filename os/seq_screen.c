@@ -19,7 +19,33 @@ enum {
     F_CE_SEQ, F_CE_TRK, F_CE_FROM_BAR, F_CE_FROM_BEAT, F_CE_FROM_TICK, F_CE_TO_BAR, F_CE_TO_BEAT, F_CE_TO_TICK, F_CE_NOTES,
     F_CE_TO_SEQ, F_CE_TO_TRK, F_CE_AT_BAR, F_CE_AT_BEAT, F_CE_AT_TICK, F_CE_MODE, F_CE_COPIES,
     F_CB_MODE, F_CB_SEQ, F_CB_FIRST, F_CB_LAST, F_CB_TO_SEQ, F_CB_BEFORE, F_CB_COPIES, F_CB_COUNT,
+    F_O_ON, F_O_SRC, F_O_NOTE, F_O_SVOL, F_O_PAN, F_O_IVOL, F_O_OUT, F_O_FOLLOW, F_O_KEEP, F_O_TLEVEL, F_O_TPAN, F_O_LAYOUT,
 };
+static void pan_text(int pan, char *b, size_t n);
+static void mixer_changed(struct os *s, int t);
+// An output the layout has: with the main mix on 1-2 (MIX + 6 OUTS), only 3-8 and pairs from 3-4.
+static int out_ok(const struct os *s, int a) {
+    if (a <= 0) return 1;
+    if (s->outs_layout) return a < ENGINE_OUT_CODES;
+    return (a >= 3 && a <= ENGINE_OUTS) || (a >= ENGINE_OUTS + 3 && a < ENGINE_OUT_CODES);
+}
+static int out_step(const struct os *s, int a, int d) { // d steps through the outputs the layout has
+    int step = d > 0 ? 1 : -1;
+    for (int n = d > 0 ? d : -d; n > 0; n--) {
+        int b = a + step;
+        while (b > 0 && b < ENGINE_OUT_CODES && !out_ok(s, b)) b += step;
+        if (b < 0 || b >= ENGINE_OUT_CODES) break;
+        a = b;
+    }
+    return a;
+}
+
+// A USB individual output, as the page shows it: OFF, 1-8, or a stereo pair 1-2 ... 7-8.
+static void out_name(int a, char *b, size_t n) {
+    if (a <= 0 || a >= ENGINE_OUT_CODES) snprintf(b, n, "OFF");
+    else if (a <= ENGINE_OUTS) snprintf(b, n, "%d", a);
+    else snprintf(b, n, "%d-%d", a - ENGINE_OUTS, a - ENGINE_OUTS + 1);
+}
 enum { CB_COPY, CB_INSERT, CB_DELETE, CB_MODES };
 
 struct field {
@@ -122,6 +148,8 @@ static int field_shown(const struct os *s, int id) {
     if (id == F_CB_TO_SEQ || id == F_CB_COPIES) return s->cb_mode == CB_COPY;
     if (id == F_CB_BEFORE) return s->cb_mode != CB_DELETE;
     if (id == F_CB_COUNT) return s->cb_mode == CB_INSERT;
+    if (id == F_O_SVOL || id == F_O_PAN || id == F_O_FOLLOW) return !s->outs_by_track; // a pad's own
+    if (id == F_O_KEEP || id == F_O_TLEVEL || id == F_O_TPAN) return s->outs_by_track;
     return id != F_TC_SWING || swing_shown(s);
 }
 
@@ -299,6 +327,29 @@ static void value(struct os *s, int id, char *b, size_t n) {
     }
     case F_CB_COPIES: snprintf(b, n, "%3d", s->cb_copies); break;
     case F_CB_COUNT: snprintf(b, n, "%3d", s->cb_count); break;
+    case F_O_ON: snprintf(b, n, "%s", !s->usb_outs ? "OFF" : s->usb_outs_state < 0 ? "ON (no USB)" : "ON"); break;
+    case F_O_SRC: snprintf(b, n, "%s", s->outs_by_track ? "TRACKS" : "PADS"); break;
+    case F_O_NOTE:
+        if (s->outs_by_track) track_label(&q->track[s->outs_sel], s->outs_sel, b, n);
+        else snprintf(b, n, "%c%02d-%.12s", 'A' + s->selected / 16, s->selected % 16 + 1, s->pads[s->selected].s ? s->pads[s->selected].name : "(empty)");
+        break;
+    case F_O_SVOL: snprintf(b, n, "%3d", s->pads[s->selected].p.volume); break;
+    case F_O_PAN: pan_text(s->pads[s->selected].p.pan, b, n); break;
+    case F_O_IVOL: {
+        if (s->outs_by_track) {
+            snprintf(b, n, "%3d", 100 - q->track[s->outs_sel].usb_vol_cut);
+            break;
+        }
+        const struct pad_params *p = &s->pads[s->selected].p;
+        snprintf(b, n, "%3d", p->usb_follow_off ? 100 - p->usb_vol_cut : p->volume);
+        break;
+    }
+    case F_O_OUT: out_name(s->outs_by_track ? q->track[s->outs_sel].usb_out : s->pads[s->selected].p.usb_out, b, n); break;
+    case F_O_FOLLOW: snprintf(b, n, "%s", s->pads[s->selected].p.usb_follow_off ? "NO" : "YES"); break;
+    case F_O_KEEP: snprintf(b, n, "%s", s->outs_keep ? "YES" : "NO"); break;
+    case F_O_LAYOUT: snprintf(b, n, "%s", s->outs_layout ? "8 OUTS (no mix)" : "MIX on 1-2 + 6 OUTS"); break;
+    case F_O_TLEVEL: snprintf(b, n, "%3d", q->track[s->outs_sel].level); break;
+    case F_O_TPAN: pan_text(q->track[s->outs_sel].pan, b, n); break;
     default: b[0] = 0; break;
     }
 }
@@ -455,6 +506,56 @@ static void change(struct os *s, int id, int d, int fine) {
         break;
     case F_CB_COPIES: s->cb_copies = clampi(s->cb_copies + d, 1, 99); break;
     case F_CB_COUNT: s->cb_count = clampi(s->cb_count + d, 1, 99); break;
+    case F_O_ON:
+        s->usb_outs = d > 0;
+        if (s->set_usb_outs) s->set_usb_outs(s->usb_outs); // the outputs' USB device on or off
+        break;
+    case F_O_SRC: s->outs_by_track = d > 0; break;
+    case F_O_NOTE:
+        if (s->outs_by_track) s->outs_sel = clampi(s->outs_sel + d, 0, SEQ_TRACKS - 1);
+        else s->selected = clampi(s->selected + d, 0, OS_PADS - 1);
+        break;
+    case F_O_KEEP: s->outs_keep = d > 0; break;
+    case F_O_LAYOUT: s->outs_layout = d > 0; break;
+    case F_O_TLEVEL: case F_O_TPAN: { // the track's mixer level and pan, as on the mixer
+        struct seq_track *t = &q->track[s->outs_sel];
+        if (id == F_O_TLEVEL) t->level = clampi(t->level + d, 0, 100);
+        else t->pan = clampi(t->pan + d, -50, 50);
+        mixer_changed(s, s->outs_sel);
+        break;
+    }
+    case F_O_OUT:
+        if (s->outs_by_track) {
+            struct seq_track *t = &q->track[s->outs_sel];
+            t->usb_out = out_step(s, t->usb_out, d);
+            break;
+        }
+        /* fall through */
+    case F_O_IVOL:
+        if (s->outs_by_track && id == F_O_IVOL) { // the track's level on its output
+            struct seq_track *t = &q->track[s->outs_sel];
+            t->usb_vol_cut = 100 - clampi(100 - t->usb_vol_cut + d, 0, 100);
+            break;
+        }
+        /* fall through */
+    case F_O_SVOL: case F_O_PAN: case F_O_FOLLOW: {
+        struct pad_params *p = &s->pads[s->selected].p;
+        if (id == F_O_OUT) p->usb_out = out_step(s, p->usb_out, d);
+        else if (id == F_O_SVOL) p->volume = clampi(p->volume + d, 0, 100);
+        else if (id == F_O_PAN) p->pan = clampi(p->pan + d, -50, 50);
+        else if (id == F_O_FOLLOW) {
+            if (!p->usb_follow_off && d > 0) break;
+            if (p->usb_follow_off && d < 0) break;
+            if (d < 0) p->usb_vol_cut = 100 - p->volume; // NO: its own level starts where the pad's is
+            p->usb_follow_off = d < 0;
+        } else { // its own Volume: setting it stops following
+            int v = (p->usb_follow_off ? 100 - p->usb_vol_cut : p->volume) + d;
+            p->usb_vol_cut = 100 - clampi(v, 0, 100);
+            p->usb_follow_off = 1;
+        }
+        os_pad_push(s, s->selected);
+        break;
+    }
     case F_CLICK:
         if (sq->metronome == METRO_OFF) {
             sq->metronome = s->metro_on_mode;
@@ -1378,8 +1479,9 @@ void seq_mixer_frame(struct os *s, struct ui *u, const struct input *in) {
             changed = 1;
         }
     }
-    int d = in->encoder + (in->shift ? 0 : input_down(in, IN_PLUS) - input_down(in, IN_MINUS));
-    if (d) { // the wheel pans it
+    // The wheel pans it (not while a knob or the slider is being worked: that shakes the wheel too).
+    int d = (os_ctl_busy(s) ? 0 : in->encoder) + (in->shift ? 0 : input_down(in, IN_PLUS) - input_down(in, IN_MINUS));
+    if (d) {
         k->pan = clampi(k->pan + d, -50, 50);
         changed = 1;
     }
@@ -1704,6 +1806,86 @@ void seq_copybars_frame(struct os *s, struct ui *u, const struct input *in) {
     pthread_mutex_unlock(&sq->lock);
 }
 
+// ---- USB Indiv Out (SHIFT + Pad 9 twice), after the MPC3000's All Mix Data (Mixer 3) ----
+
+static const struct field OUTS_FIELDS[] = {
+    {F_O_ON, 3, 9}, {F_O_SRC, 3, 20}, {F_O_NOTE, 4, 5},
+    {F_O_SVOL, 6, 7}, {F_O_TLEVEL, 6, 6}, {F_O_IVOL, 6, 20}, {F_O_PAN, 7, 4}, {F_O_TPAN, 7, 4}, {F_O_OUT, 7, 20},
+    {F_O_FOLLOW, 8, 20}, {F_O_KEEP, 8, 20}, {F_O_LAYOUT, 9, 7},
+};
+
+#define OUTS_OUTPUT 8 // OUTS_FIELDS' Output, where the cursor opens and a pad puts it
+void seq_outs_open(struct os *s) {
+    s->screen = OS_OUTS;
+    s->outs_sel = s->seq.track;
+    s->cursor_outs = OUTS_OUTPUT;
+}
+
+// A pad picks the note (by pad), or the track of the bank (by track).
+void seq_outs_pad(struct os *s, int slot) {
+    if (s->outs_by_track) s->outs_sel = slot < SEQ_TRACKS ? slot : SEQ_TRACKS - 1;
+    s->cursor_outs = OUTS_OUTPUT;
+}
+
+void seq_outs_frame(struct os *s, struct ui *u, const struct input *in) {
+    struct seq *sq = &s->seq;
+    if (input_down(in, IN_B1)) { // <Mixer>
+        seq_mixer_open(s);
+        ui_wake(u, 1);
+        return;
+    }
+    if (input_down(in, IN_B3) && !s->outs_by_track) { // <Set All>: this pad's output settings on every pad
+        os_undo_save(s, "Set All Outs");
+        const struct pad_params *f = &s->pads[s->selected].p;
+        int a = f->usb_out, cut = f->usb_vol_cut, off = f->usb_follow_off;
+        for (int i = 0; i < OS_PADS; i++) {
+            struct pad_params *p = &s->pads[i].p;
+            p->usb_out = a, p->usb_vol_cut = cut, p->usb_follow_off = off;
+            if (s->pads[i].s) os_pad_push(s, i);
+        }
+        os_toast(s, u, "Set on every pad");
+    }
+    pthread_mutex_lock(&sq->lock);
+    edit_fields(s, in, OUTS_FIELDS, COUNT(OUTS_FIELDS), &s->cursor_outs);
+    lcd_text(u, 0, KEY_ROW, "<Mixer>");
+    if (!s->outs_by_track) lcd_text(u, 17, KEY_ROW, "<Set All>");
+    lcd_rule(u, TITLE_ROW, "USB Indiv Out");
+    lcd_text(u, 0, 3, "USB Outs:");
+    lcd_text(u, 16, 3, "Src:");
+    lcd_text(u, 0, 4, s->outs_by_track ? "Trk:" : "Note:");
+    lcd_text(u, 0, 5, "=Stereo Out= ==Indiv Out===");
+    if (s->outs_by_track) {
+        lcd_text(u, 0, 6, "Level:");
+        lcd_text(u, 0, 7, "Pan:");
+        lcd_text(u, 13, 6, "Volume:");
+        lcd_text(u, 13, 8, "In mix:");
+    } else {
+        lcd_text(u, 0, 6, "Volume:");
+        lcd_text(u, 0, 7, "Pan:");
+        lcd_text(u, 13, 6, "Volume:");
+        lcd_text(u, 13, 8, "Follow:");
+    }
+    lcd_text(u, 13, 7, "Output:");
+    // Which of the eight channels something plays on.
+    char used[ENGINE_OUTS + 1];
+    memset(used, '.', ENGINE_OUTS), used[ENGINE_OUTS] = 0;
+    for (int i = 0; i < (s->outs_by_track ? SEQ_TRACKS : OS_PADS); i++) {
+        int a = s->outs_by_track ? current(s)->track[i].usb_out : s->pads[i].s ? s->pads[i].p.usb_out : 0;
+        if (a >= 1 && a <= ENGINE_OUTS) used[a - 1] = '1' + (char)(a - 1);
+        else if (a > ENGINE_OUTS && a < ENGINE_OUT_CODES) used[a - ENGINE_OUTS - 1] = '1' + (char)(a - ENGINE_OUTS - 1), used[a - ENGINE_OUTS] = '1' + (char)(a - ENGINE_OUTS);
+    }
+    char line[40];
+    lcd_text(u, 0, 9, "Layout:");
+    if (!s->outs_layout) used[0] = used[1] = 'M'; // the main mix on 1-2
+    snprintf(line, sizeof line, "In use: %s", used);
+    lcd_rule(u, 10, 0);
+    lcd_text(u, 0, 11, line);
+    lcd_text(u, 0, 13, s->outs_by_track ? "Pads pick the track" : "Pads pick the note");
+    draw_fields(s, u, OUTS_FIELDS, COUNT(OUTS_FIELDS), s->cursor_outs);
+    lcd_rule(u, BOTTOM_ROW, 0);
+    pthread_mutex_unlock(&sq->lock);
+}
+
 void seq_metro_frame(struct os *s, struct ui *u, const struct input *in) {
     struct seq *sq = &s->seq;
     if (input_down(in, IN_B1)) {
@@ -1957,8 +2139,8 @@ int seq_shift_pad(struct os *s, struct ui *u, int pad) {
         os_toast(s, u, off ? "Timing Correct: Off" : "Timing Correct: On");
         return 1;
     }
-    case 8: // the track mixer
-        if (s->screen == OS_MIXER) seq_mixer_pad(s, s->bank * 16); // pressed again: the bank's first channel
+    case 8: // the track mixer; pressed again, USB Indiv Out; again, the mixer
+        if (s->screen == OS_MIXER) seq_outs_open(s);
         else seq_mixer_open(s);
         return 1;
     case 13:

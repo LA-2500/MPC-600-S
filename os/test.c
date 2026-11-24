@@ -455,6 +455,8 @@ static void force_layout(struct os *o) {
 
 static void frame(struct input *in) {
     struct ui u = {.px = px, .now_ms = 1000, .track_led = -1};
+    // Each test frame stands for its own moment: a knob turned in an earlier one is long past.
+    if (!(in->knob_moved[0] || in->knob_moved[1] || in->knob_moved[2] || in->fader_moved)) os.ctl_ms = 0;
     os_frame(&u, in, &os);
     render(128);
 }
@@ -2975,9 +2977,16 @@ static void test_mixer(const char *shot_dir) {
     frame(&in);
     if (shot_dir) write_shot(shot_dir, "mixer");
     in = blank();
-    in.pad_hit[8] = 100, in.shift = 1, in.held = 1u << IN_SHIFT; // pressed again: the bank's first channel
+    in.pad_hit[8] = 100, in.shift = 1, in.held = 1u << IN_SHIFT; // pressed again: USB Indiv Out
     frame(&in);
-    CHECK(os.mixer_track == 0);
+    CHECK(os.screen == OS_OUTS);
+    in = blank(), in.pad_release[8] = 1, frame(&in);
+    in = blank();
+    in.pad_hit[8] = 100, in.shift = 1, in.held = 1u << IN_SHIFT; // and again: the mixer
+    frame(&in);
+    CHECK(os.screen == OS_MIXER);
+    in = blank(), in.pad_release[8] = 1, frame(&in);
+    os.mixer_track = 0;
 
     // Track 1 at half level: its notes play at half, and follow the slider while they sound.
     struct seq_track *k = &os.seq.sequence[0].track[0];
@@ -3380,6 +3389,143 @@ static void test_sample_erase_rename(void) {
     in = blank(), in.up = 1u << IN_ERASE, frame(&in);
     CHECK(os.rename_what == RENAME_NONE);
     os.pads[5].s = 0, os.pads[0].s->refs--;
+    os.screen = OS_MAIN;
+}
+
+// The mixer: turning K1-K3 (the EQ) or the slider can shake the panel into a wheel step or a pad
+// hit. For 300 ms after a knob moves, those neither pan the channel nor pick another one.
+static void test_mixer_knob_shake(void) {
+    seq_fresh();
+    struct seq *sq = &os.seq;
+    seq_mixer_open(&os);
+    os.mixer_track = 2, os.bank = 0;
+    struct seq_track *k = &sq->sequence[sq->current].track[2];
+    int pan = k->pan;
+    os.knob_mode = KNOB_JUMP;
+    struct input in = blank();
+    in.knob_moved[0] = 1, in.knob[0] = 100, in.encoder = 3; // a knob turn with a wheel step in it
+    in.pad_hit[7] = 90, in.pad_down[7] = 1;                 // and a firm phantom hit
+    frame(&in);
+    CHECK(os.screen == OS_MIXER && os.mixer_track == 2 && k->pan == pan && k->eq.lg > 0);
+    in = blank(), in.pad_release[7] = 1;
+    frame(&in);
+    // Later, on their own, the wheel pans and a pad picks a channel. (Each frame here is 1000 ms.)
+    struct ui w = {.px = px, .now_ms = 2000, .track_led = -1};
+    in = blank(), in.encoder = 3;
+    os_frame(&w, &in, &os);
+    CHECK(k->pan == pan + 3);
+    w.now_ms = 3000;
+    in = blank(), in.pad_hit[7] = 90, in.pad_down[7] = 1;
+    os_frame(&w, &in, &os);
+    CHECK(os.mixer_track == 7);
+    in = blank(), in.pad_release[7] = 1;
+    w.now_ms = 4000;
+    os_frame(&w, &in, &os);
+    os.knob_mode = KNOB_CATCH;
+    os.screen = OS_MAIN;
+}
+
+// USB individual outs: a pad (or a track) onto one of the eight output channels, mono or a stereo
+// pair; its own level there (Follow ster vol: NO), and stereo Volume 0 taking it out of the mix.
+static float outs_peak(int c) {
+    float m = 0;
+    for (int n = 0; n < 128; n++) m = fmaxf(m, fabsf(e.outs[c][n]));
+    return m;
+}
+static float mix_peak(void) {
+    float m = 0;
+    for (int n = 0; n < 256; n++) m = fmaxf(m, fabsf(block[n]));
+    return m;
+}
+static void outs_hit(void) { // pad A01, hard, and a block of what it plays
+    engine_kill_all(&e);
+    render(16);
+    struct input in = blank();
+    in.pad_hit[0] = 127, in.pad_down[0] = 1;
+    frame(&in);
+    render(128);
+    in = blank(), in.pad_release[0] = 1;
+    frame(&in);
+}
+static void test_usb_outs(const char *shot_dir) {
+    seq_fresh();
+    load_pad(0);
+    os.screen = OS_MAIN, os.selected = 0, os.bank = 0;
+    os.usb_outs = 1, os.outs_by_track = 0, os.outs_keep = 1;
+    struct pad_params *p = &os.pads[0].p;
+    p->usb_out = 3, os_pad_push(&os, 0);
+    outs_hit();
+    float mix = mix_peak(), o3 = outs_peak(2);
+    CHECK(atomic_load(&e.outs_on) == 1 && mix > 0.01f && fabsf(o3 - mix) < 0.002f && outs_peak(0) == 0 && outs_peak(3) == 0);
+    p->usb_out = ENGINE_OUTS + 1, os_pad_push(&os, 0); // stereo 1-2
+    outs_hit();
+    CHECK(outs_peak(0) > 0.01f && outs_peak(1) > 0.01f && outs_peak(2) == 0);
+    p->usb_out = 3, p->usb_follow_off = 1, p->usb_vol_cut = 50, os_pad_push(&os, 0); // its own level, 50
+    outs_hit();
+    CHECK(fabsf(outs_peak(2) - mix_peak() * 0.25f) < 0.002f && mix_peak() > 0.01f);
+    p->volume = 0, p->usb_vol_cut = 0, os_pad_push(&os, 0); // stereo Volume 0: on the output only
+    outs_hit();
+    CHECK(mix_peak() == 0 && outs_peak(2) > 0.01f);
+    p->volume = 100, p->usb_follow_off = 0, p->usb_out = 0, os_pad_push(&os, 0);
+    // By track: the active track (1) on output 5; kept in the mix, then not
+    os.outs_by_track = 1;
+    os.seq.sequence[0].track[0].usb_out = 5;
+    outs_hit();
+    CHECK(outs_peak(4) > 0.01f && mix_peak() > 0.01f && outs_peak(2) == 0);
+    float full = outs_peak(4), in_mix = mix_peak();
+    os.seq.sequence[0].track[0].usb_vol_cut = 50; // Indiv Out Volume 50: a quarter (squared), the mix as it was
+    outs_hit();
+    CHECK(fabsf(outs_peak(4) - full * 0.25f) < 0.002f && fabsf(mix_peak() - in_mix) < 0.002f);
+    os.seq.sequence[0].track[0].usb_vol_cut = 0;
+    os.outs_keep = 0;
+    outs_hit();
+    CHECK(outs_peak(4) > 0.01f && mix_peak() == 0);
+    os.outs_keep = 1, os.outs_by_track = 0;
+    os.seq.sequence[0].track[0].usb_out = 0;
+    // Off: the engine leaves the outputs alone
+    os.usb_outs = 0;
+    outs_hit();
+    CHECK(atomic_load(&e.outs_on) == 0 && mix_peak() > 0.01f);
+    // The page: SHIFT + Pad 9 twice; the cursor opens on Output; the wheel sets it; B3 <Set All>
+    os.usb_outs = 1;
+    seq_mixer_open(&os);
+    struct input in = blank();
+    in.pad_hit[8] = 100, in.shift = 1, in.held = 1u << IN_SHIFT;
+    frame(&in);
+    in = blank(), in.pad_release[8] = 1, frame(&in);
+    CHECK(os.screen == OS_OUTS);
+    // MIX + 6 OUTS (to start): the mix on 1-2, so the wheel goes OFF, 3 ... 8, 3-4 ... 7-8
+    in = blank(), in.encoder = 7;
+    frame(&in);
+    CHECK(os.outs_layout == 0 && p->usb_out == ENGINE_OUTS + 3); // 3-4
+    in = blank(), in.encoder = -7;
+    frame(&in);
+    CHECK(p->usb_out == 0);
+    os.outs_layout = 1; // 8 OUTS: OFF, 1 ... 8, 1-2, 2-3
+    in = blank(), in.encoder = 10;
+    frame(&in);
+    CHECK(p->usb_out == 10);
+    if (shot_dir) write_shot(shot_dir, "usb_outs");
+    tap(IN_B3); // <Set All>
+    CHECK(os.pads[7].p.usb_out == 10 && os.pads[100].p.usb_out == 10);
+    os.outs_layout = 0;
+    os.cursor_outs = 1; // Src: TRACKS
+    in = blank(), in.encoder = 1, frame(&in);
+    CHECK(os.outs_by_track == 1);
+    in = blank(), in.pad_hit[3] = 100, in.pad_down[3] = 1, frame(&in); // a pad picks track 4
+    in = blank(), in.pad_release[3] = 1, frame(&in);
+    CHECK(os.outs_sel == 3 && os.cursor_outs == 8);
+    os.cursor_outs = 4; // Level: the track's mixer level
+    in = blank(), in.encoder = -10, frame(&in);
+    CHECK(os.seq.sequence[0].track[3].level == 90);
+    os.cursor_outs = 8;
+    in = blank(), in.encoder = 2, frame(&in);
+    CHECK(os.seq.sequence[0].track[3].usb_out == 4); // OFF, 3, 4: the mix has 1-2
+    if (shot_dir) write_shot(shot_dir, "usb_outs_tracks");
+    tap(IN_B1); // <Mixer>
+    CHECK(os.screen == OS_MIXER);
+    for (int i = 0; i < OS_PADS; i++) os.pads[i].p.usb_out = 0;
+    os.usb_outs = 0, os.outs_by_track = 0;
     os.screen = OS_MAIN;
 }
 
@@ -6379,7 +6525,7 @@ static void test_help_and_locate(const char *shot_dir) {
     // Every page with help wraps inside the text area and has at least one page.
     int screens[] = {OS_SAMPLE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_EQ, OS_REPEAT, OS_ZONES, OS_PROGRAM,
                      OS_TC, OS_METRO, OS_ERASE, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_MUTE, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT,
-                     OS_COPYEV, OS_COPYBARS};
+                     OS_COPYEV, OS_COPYBARS, OS_OUTS};
     for (int i = 0; i < (int)(sizeof screens / sizeof screens[0]); i++) {
         os.screen = screens[i];
         CHECK(help_open(&os, 0) == 1);
@@ -6388,7 +6534,7 @@ static void test_help_and_locate(const char *shot_dir) {
     if (getenv("HELP_DUMP")) { // every help page, as laid out
         int all[] = {OS_SAMPLE, OS_LOOP, OS_S600, OS_LEVELS, OS_MIXER, OS_EQ, OS_REPEAT, OS_ZONES, OS_PROGRAM, OS_TC, OS_METRO,
                      OS_ERASE, OS_MIDI, OS_CCMAP, OS_PADNOTES, OS_PRINT, OS_INFX, OS_SENDS, OS_MASTER, OS_MUTE, OS_SONG, OS_STEP,
-                     OS_WARP, OS_PREFS, OS_DISK, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT, OS_INSERT, OS_COPYEV, OS_COPYBARS};
+                     OS_WARP, OS_PREFS, OS_DISK, OS_BROWSER, OS_SEQCOPY, OS_ARPEDIT, OS_INSERT, OS_COPYEV, OS_COPYBARS, OS_OUTS};
         for (int i = 0; i < (int)(sizeof all / sizeof all[0]); i++) help_dump(&os, all[i]);
         for (int r = 0; r < 7; r++) os.record_page = r, help_dump(&os, OS_RECORD);
         for (int m = 0; m < 3; m++) os.multi_page = m, help_dump(&os, OS_MULTI);
@@ -7790,6 +7936,25 @@ static void test_panel_input(void) {
         input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[13], 30}); // shaken
         input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[0], 90});  // pressed
         CHECK(i2.pad_hit[13] < 0 && i2.pad_hit[0] == 90 && d2.rejected == before + 1);
+        // Just after a pad press, a press of the wheel, B1-B3 or -/+, and a lone wheel step, are the
+        // pad shaking the panel: nothing. A turn under way (steps close together) still turns.
+        {
+            unsigned g0 = d2.ghosts, r0 = d2.rejected;
+            input_begin(&i2, &d2);
+            input_push(&d2, &i2, (const unsigned char[3]){0x90, 111, 127});           // the wheel "pushed"
+            input_push(&d2, &i2, (const unsigned char[3]){0x90, 12, 127});            // B1 "pressed"
+            input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 1});             // a lone step
+            CHECK(!i2.encoder_press && !(i2.down & (1u << IN_B1)) && i2.encoder == 0 && d2.ghosts == g0 + 2 && d2.rejected == r0 + 1);
+            input_push(&d2, &i2, (const unsigned char[3]){0x80, 12, 0});              // its release: nothing
+            CHECK(!(i2.up & (1u << IN_B1)));
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            d2.wheel_ms = (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;            // a turn under way
+            input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 1});
+            CHECK(i2.encoder == 1);
+            d2.pad_hit_ms = 0, d2.wheel_ms = 0;                                        // long after the pad
+            before = d2.rejected - 1; // as before this block: the knob's one, counted below from there
+        }
         input_begin(&i2, &d2);
         input_push(&d2, &i2, (const unsigned char[3]){0x90, 111, 127});               // the wheel pushed, held
         d2.ctl_ms = 0;
@@ -9221,6 +9386,8 @@ int main(int argc, char **argv) {
     test_play_retrigger();
     test_step_pad_no_ghost();
     test_sample_erase_rename();
+    test_mixer_knob_shake();
+    test_usb_outs(argc > 1 ? argv[1] : 0);
     test_levels_s600_no_held();
     test_levels_s600_seq_no_held();
     test_levels_s600_wild();
