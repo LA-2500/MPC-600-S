@@ -566,6 +566,8 @@ int disk_project_save(struct os *s, const char *dir) {
     wstr(&b, line);
     inserts_save_line(s, line, sizeof line); // after them: an older OS stops before it
     wstr(&b, line);
+    w32(&b, SEQ_SONGS); // the songs' names (2.0D)
+    for (int g = 0; g < SEQ_SONGS; g++) wstr(&b, sq->song[g].name);
     int ok = b.ok;
     if (fclose(b.f) != 0) ok = 0;
     if (ok && write_sounds(&l, dir) != 0) ok = 0;
@@ -663,6 +665,13 @@ int disk_project_load(struct os *s, const char *dir) {
     if (b.ok) master_load_line(&s->master, line);
     rstr(&b, line, sizeof line);
     inserts_load_line(s, b.ok ? line : ""); // none saved (an older project): none
+    for (int g = 0; g < SEQ_SONGS; g++) sq->song[g].name[0] = 0;
+    int nnames = b.ok ? r32(&b) : 0; // the songs' names (none in an older project)
+    for (int g = 0; g < nnames && g < 1000 && b.ok; g++) {
+        char nm[64];
+        rstr(&b, nm, sizeof nm);
+        if (b.ok && g < SEQ_SONGS) snprintf(sq->song[g].name, sizeof sq->song[g].name, "%s", nm);
+    }
     fclose(b.f);
     for (int i = 0; i < nsounds; i++) // a sound nothing took (a pad that no longer exists)
         if (sounds[i] && sounds[i]->refs == 0) sample_free(sounds[i]);
@@ -687,7 +696,7 @@ void disk_clear_all(struct os *s) {
     struct seq *sq = &s->seq;
     pthread_mutex_lock(&sq->lock);
     for (int n = 0; n < SEQ_COUNT; n++) seq_sequence_reset(&sq->sequence[n], n);
-    for (int g = 0; g < SEQ_SONGS; g++) sq->song[g].nsteps = 0;
+    for (int g = 0; g < SEQ_SONGS; g++) sq->song[g].nsteps = 0, sq->song[g].name[0] = 0;
     sq->current = 0, sq->track = 0, sq->pos = 0, sq->next = -1;
     pthread_mutex_unlock(&sq->lock);
     s->eq_seq = -1; // every track's EQ and sends to the engine, next frame

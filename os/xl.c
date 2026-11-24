@@ -987,7 +987,8 @@ int disk_xl_all_save(struct os *s, const char *path, int *sequences, int *droppe
         unsigned char *so = b + ALL_HEAD + 99 * 18 + g * ALL_SONG;
         const struct seq_song *x = &sq->song[g];
         char nm[17];
-        if (x->nsteps) snprintf(nm, sizeof nm, "Song%02d", g + 1);
+        if (x->nsteps && x->name[0]) snprintf(nm, sizeof nm, "%s", x->name);
+        else if (x->nsteps) snprintf(nm, sizeof nm, "Song%02d", g + 1);
         else snprintf(nm, sizeof nm, "(Unused)");
         pad_name(so, nm, 16);
         for (int k = 0; k < 250; k++) {

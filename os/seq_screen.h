@@ -30,6 +30,7 @@ void seq_copybars_frame(struct os *s, struct ui *u, const struct input *in);
 void seq_mixer_open(struct os *s);
 void seq_mixer_frame(struct os *s, struct ui *u, const struct input *in);
 void seq_mixer_pad(struct os *s, int pad); // a pad hit picks the channel: pad bank * 16 + pad
+void seq_rename_song(struct os *s); // SHIFT + B2 on the Song page: the song's name
 void seq_rename_sound(struct os *s); // ERASE on the Sample page's Sample: the selected pad's sound, renamed
 void seq_rename_overlay(struct os *s, struct ui *u, const struct input *in); // the rename box, over the page
 void seq_transport(struct os *s, struct ui *u, const struct input *in);

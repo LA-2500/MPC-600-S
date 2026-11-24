@@ -3131,6 +3131,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
     }
     if (s->arpedit_play && s->screen != OS_ARPEDIT) arpedit_leave(s); // left Pattern Edit: its preview stops
     if (s->rename_what == RENAME_SOUND && s->screen != OS_SAMPLE) s->rename_what = RENAME_NONE; // left the page: closed
+    if (s->rename_what == RENAME_SONG && s->screen != OS_SONG) s->rename_what = RENAME_NONE;
     switch (s->screen) {
     case OS_MAIN:
         seq_screen_frame(s, u, in);

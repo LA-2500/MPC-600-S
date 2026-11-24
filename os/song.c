@@ -4,6 +4,7 @@
 // ends after its last step. PLAY plays it from the selected step; <Convert> makes it one sequence.
 #include "lcd.h"
 #include "os.h"
+#include "seq_screen.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -72,7 +73,17 @@ void song_frame(struct os *s, struct ui *u, const struct input *in) {
     struct seq *sq = &s->seq;
     int export_to = -1, confirmed = -1;
     // <Convert> asks first; while it asks, the keys and the wheel answer it and nothing else.
-    struct input quiet;
+    struct input quiet, none;
+    input_begin(&none, 0);
+    const struct input *real = in;
+    // SHIFT + B2 <Rename>: the song's name; the box takes the keys and the wheel while it is open.
+    int opened = 0;
+    if (!s->song_ask && s->rename_what == RENAME_NONE && input_down(in, IN_B2) && in->shift) seq_rename_song(s), opened = 1;
+    if (s->rename_what == RENAME_SONG) {
+        quiet = *in;
+        quiet.down = 0, quiet.encoder = 0, quiet.encoder_press = 0;
+        in = &quiet;
+    }
     if (s->song_ask) {
         if (input_down(in, IN_B3)) confirmed = s->song_ask - 1;
         if (input_down(in, IN_B1) || input_down(in, IN_B3)) s->song_ask = 0;
@@ -122,10 +133,13 @@ void song_frame(struct os *s, struct ui *u, const struct input *in) {
         lcd_text(u, 17, KEY_ROW, "<Convert>");
     } else {
         lcd_text(u, 0, KEY_ROW, "<Delete>");
-        lcd_text(u, 9, KEY_ROW, "<Insert>");
+        lcd_text(u, 9, KEY_ROW, real->held & (1u << IN_SHIFT) ? "<Rename>" : "<Insert>");
         lcd_text(u, 17, KEY_ROW, "<Convert>");
     }
-    lcd_rule(u, TITLE_ROW, "Song");
+    char title[32];
+    if (g->name[0]) snprintf(title, sizeof title, "Song: %s", g->name);
+    else snprintf(title, sizeof title, "Song: Song%02d", s->song_sel + 1);
+    lcd_rule(u, TITLE_ROW, title);
     lcd_text(u, 0, 3, "Song:");
     snprintf(line, sizeof line, " %02d ", s->song_sel + 1);
     if (s->cursor_song == G_SONG) lcd_inverse(u, 5, 3, line);
@@ -169,6 +183,7 @@ void song_frame(struct os *s, struct ui *u, const struct input *in) {
     if (sq->mode != SEQ_STOPPED) ui_wake(u, 100);
     pthread_mutex_unlock(&sq->lock);
 
+    if (s->rename_what == RENAME_SONG) seq_rename_overlay(s, u, opened ? &none : real);
     if (input_down(in, IN_B3) && export_to < 0) os_toast(s, u, "No empty sequence");
     if (confirmed >= 0) {
         char msg[32];

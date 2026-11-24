@@ -906,6 +906,16 @@ static int rename_start(struct os *s, struct ui *u) {
     return 1;
 }
 
+void seq_rename_song(struct os *s) {
+    const struct seq_song *g = &s->seq.song[s->song_sel];
+    char d[SEQ_NAME];
+    if (g->name[0]) snprintf(d, sizeof d, "%s", g->name);
+    else snprintf(d, sizeof d, "Song%02d", s->song_sel + 1);
+    s->rename_what = RENAME_SONG;
+    snprintf(s->rename_buf, sizeof s->rename_buf, "%-16.16s", d);
+    s->rename_pos = 0;
+}
+
 void seq_rename_sound(struct os *s) {
     s->rename_what = RENAME_SOUND;
     snprintf(s->rename_buf, sizeof s->rename_buf, "%-16.16s", s->pads[s->selected].name);
@@ -926,6 +936,7 @@ static void rename_finish(struct os *s, struct ui *u) {
     if (s->rename_what == RENAME_SEQ) snprintf(q->name, sizeof q->name, "%s", name);
     else if (s->rename_what == RENAME_TRACK) snprintf(k->name, sizeof k->name, "%s", name);
     else if (s->rename_what == RENAME_PROGRAM) snprintf(s->programs[k->kit].name, sizeof s->programs[k->kit].name, "%s", name);
+    else if (s->rename_what == RENAME_SONG) snprintf(sq->song[s->song_sel].name, sizeof sq->song[0].name, "%s", name);
     else if (s->rename_what == RENAME_SOUND) { // every pad playing this sound, in every program
         const struct os_pad *sel = &s->pads[s->selected];
         const struct sample *x = sel->s;
@@ -966,10 +977,10 @@ static void rename_frame(struct os *s, struct ui *u, const struct input *in) {
         int i = at ? (int)(at - NAME_CHARS) : 0, n = (int)strlen(NAME_CHARS);
         s->rename_buf[s->rename_pos] = NAME_CHARS[((i + in->encoder) % n + n) % n];
     }
-    static const char *const WHAT[] = {"", "Sequence", "Track", "Program", "Sound"};
+    static const char *const WHAT[] = {"", "Sequence", "Track", "Program", "Sound", "Song"};
     char title[32];
     pthread_mutex_lock(&sq->lock);
-    int n = s->rename_what == RENAME_SEQ ? sq->current + 1 : s->rename_what == RENAME_TRACK ? sq->track + 1
+    int n = s->rename_what == RENAME_SONG ? s->song_sel + 1 : s->rename_what == RENAME_SEQ ? sq->current + 1 : s->rename_what == RENAME_TRACK ? sq->track + 1
           : sq->sequence[sq->current].track[sq->track].kit + 1;
     pthread_mutex_unlock(&sq->lock);
     if (s->rename_what == RENAME_SOUND)

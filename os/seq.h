@@ -88,6 +88,7 @@ struct seq_sequence {
 #define SEQ_SONGS 20
 #define SONG_STEPS 250
 struct seq_song {
+    char name[SEQ_NAME]; // "": shown as Song01..Song20
     int nsteps;
     struct {
         unsigned char seq, reps; // a sequence 0..98, played 1..99 times

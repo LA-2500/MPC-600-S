@@ -8341,6 +8341,32 @@ static void test_song(const char *shot_dir) {
     const struct seq_sequence *x = &sq->sequence[2];
     CHECK(x->bars == 3 && x->track[0].count == 3 && x->track[0].notes[2].tick == (uint32_t)(2 * bar) &&
           x->track[0].notes[2].note == 1);
+    // SHIFT + B2 <Rename>: the song's name, not a step inserted
+    int nsteps0 = sq->song[os.song_sel].nsteps;
+    struct input r = blank();
+    r.held = 1u << IN_SHIFT, r.shift = 1;
+    frame(&r);
+    r.down = 1u << IN_B2, r.held |= 1u << IN_B2;
+    frame(&r);
+    CHECK(os.rename_what == RENAME_SONG && sq->song[os.song_sel].nsteps == nsteps0 && !strncmp(os.rename_buf, "Song01", 6));
+    r = blank(), r.down = r.held = 1u << IN_ERASE, r.shift = 1, r.held |= 1u << IN_SHIFT; // SHIFT + ERASE: the whole name
+    frame(&r);
+    r = blank(), r.encoder = 2; // the first letter: from the blank, two on
+    frame(&r);
+    char want = os.rename_buf[0];
+    tap(IN_B3); // <OK>
+    CHECK(os.rename_what == RENAME_NONE && sq->song[os.song_sel].name[0] == want && want != ' ');
+    char keep[SEQ_NAME];
+    snprintf(keep, sizeof keep, "%s", sq->song[os.song_sel].name);
+    // Saved with the project and loaded back
+    char dir[] = "/tmp/songnameXXXXXX", p[600];
+    CHECK(mkdtemp(dir) != 0);
+    snprintf(p, sizeof p, "%s/P", dir);
+    CHECK(disk_project_save(&os, p) == 0);
+    sq->song[os.song_sel].name[0] = 0;
+    CHECK(disk_project_load(&os, p) == 0 && !strcmp(sq->song[0].name, keep));
+    snprintf(p, sizeof p, "rm -rf %s", dir);
+    CHECK(system(p) == 0);
 }
 
 static void test_step_edit(const char *shot_dir) {
