@@ -9342,6 +9342,115 @@ static struct sample *piano_note(int note, int loud) {
     return t;
 }
 
+// USB Indiv Out on: a pad on Input Effects' PAD chain, and a track's inserts, are still heard in
+// the mix (they were skipped: the voice went straight to its output). The PAD pad's output takes
+// the chain's return; by pad, an output stays before the track's inserts.
+static float outs_fx_peak(int pad_fx, int insert, int outs, int by_track, float *usb) {
+    seq_fresh();
+    struct sample *tone = sample_new(44100, 1, 44100);
+    for (int i = 0; i < 44100; i++) tone->data[i] = 0.2f * sinf(2 * 3.14159f * 220 * i / 44100.0f);
+    os_pad_load(&os, 0, tone, "Tone");
+    os.usb_outs = outs, os.outs_by_track = by_track, os.outs_keep = 1;
+    os.seq.sequence[0].track[0].usb_out = outs ? 1 : 0;
+    os.pads[0].p.usb_out = outs && !by_track ? 1 : 0;
+    os_pad_push(&os, 0);
+    struct input in = blank();
+    for (int i = 0; i < 10; i++) frame(&in);
+    if (pad_fx) { // a drive on the chain, Type PAD on A01
+        os.infx_mode = FXM_PAD, os.infx_pad = 0, atomic_store(&os.fx.mode, FXM_PAD);
+        atomic_store(&os.fx.type[3], FX_DS1), atomic_store(&os.fx.on, 1);
+        for (int k = 0; k < 3; k++) atomic_store(&os.fx.p[3][k], fx_param_default(FX_DS1, k));
+        atomic_store(&os.fx.p[3][0], 127);
+        for (int i = 0; i < 4; i++) frame(&in);
+    }
+    if (insert) { // a drive inserted on track 1
+        atomic_store(&os.ins.track[0], 1), atomic_store(&os.ins.type[0], FX_DS1);
+        for (int k = 0; k < 3; k++) atomic_store(&os.ins.p[0][k], fx_param_default(FX_DS1, k));
+        atomic_store(&os.ins.p[0][0], 127);
+        int tracks[ENGINE_INSERTS] = {1};
+        engine_set_inserts(&e, tracks);
+    }
+    render(16);
+    in = blank();
+    in.pad_hit[0] = 100, in.pad_down[0] = 1;
+    frame(&in);
+    for (int i = 0; i < 20; i++) render(128);
+    float pk = 0, po = 0;
+    for (int i = 0; i < 256; i++) pk = fmaxf(pk, fabsf(block[i]));
+    for (int i = 0; outs && i < 128; i++) po = fmaxf(po, fabsf(e.outs[0][i]));
+    if (usb) *usb = po;
+    engine_kill_all(&e);
+    for (int i = 0; i < 20; i++) render(128);
+    return pk;
+}
+
+static void test_usb_outs_effects(void) {
+    float usb;
+    float dry = outs_fx_peak(0, 0, 0, 1, 0), pad = outs_fx_peak(1, 0, 0, 1, 0), ins = outs_fx_peak(0, 1, 0, 1, 0);
+    CHECK(fabsf(pad - dry) > 0.005f && fabsf(ins - dry) > 0.005f); // the drive is heard
+    CHECK(fabsf(outs_fx_peak(1, 0, 1, 1, &usb) - pad) < 0.002f && fabsf(usb - pad) < 0.002f); // by track: mix and output
+    CHECK(fabsf(outs_fx_peak(1, 0, 1, 0, &usb) - pad) < 0.002f && fabsf(usb - pad) < 0.002f); // by pad
+    CHECK(fabsf(outs_fx_peak(0, 1, 1, 1, &usb) - ins) < 0.002f && fabsf(usb - ins) < 0.002f); // by track: after the inserts
+    CHECK(fabsf(outs_fx_peak(0, 1, 1, 0, &usb) - ins) < 0.002f && fabsf(usb - dry) < 0.002f); // by pad: mix through them, output before
+}
+
+
+// LOAD's <New>: an empty project without restarting, asked first; settings kept, Start BPM put in.
+static void test_new_project(const char *shot_dir) {
+    seq_fresh();
+    os.start_bpm10 = 900, os.start_bars = 4;
+    os_pad_load(&os, 0, constant(44100), "Kick");
+    load_pad(1);
+    os_program_set_s600(&os, 3, PROG_S600);
+    snprintf(os.seq.sequence[2].name, sizeof os.seq.sequence[2].name, "VERSE");
+    os.seq.sequence[0].tempo10 = 1400;
+    os.seq.pad_mute[0][0] = 1;
+    atomic_store(&os.master.eq_on, 1);
+    atomic_store(&os.fx.on, 1);
+    inserts_load_line(&os, "");
+    snprintf(os.disk_last_saved[DISK_PROJECT], sizeof os.disk_last_saved[0], "OLD SONG");
+    int threshold = os.pad_threshold;
+    os.data_dir = "build/os/newproj"; // a card to open Save/Load on
+    system("rm -rf build/os/newproj");
+    mkdir("build/os/newproj", 0755);
+    disk_open(&os, DISK_LOAD, DISK_PROJECT);
+    struct input in = blank();
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "load_new");
+    tap(IN_B1); // <New>: asked first
+    CHECK(os.disk_ask == 'E' && os.pads[0].s);
+    if (shot_dir) frame(&in), write_shot(shot_dir, "new_project_ask");
+    tap(IN_B1); // <No>: nothing changes
+    CHECK(os.disk_ask == 0 && os.pads[0].s && os.programs[3].s600);
+    tap(IN_B1), tap(IN_B3); // <Yes>
+    CHECK(os.disk_ask == 0 && os.screen == OS_DISK && !os.pads[0].s && !os.pads[1].s && os.nmemory == 0);
+    CHECK(!os.programs[3].s600 && strcmp(os.programs[3].name, "Program04") == 0);
+    CHECK(os.seq.sequence[2].name[0] != 'V' && os.seq.sequence[0].tempo10 == 900 && os.seq.sequence[0].bars == 4);
+    CHECK(!os.seq.pad_mute[0][0] && !atomic_load(&os.master.eq_on) && !atomic_load(&os.fx.on));
+    CHECK(os.disk_last_saved[DISK_PROJECT][0] == 0 && os.pad_threshold == threshold && os.program == 0);
+    CHECK(strcmp(os.toast, "New project") == 0);
+    tap(IN_B1);
+    CHECK(os.disk_ask == 'E' && !strstr(os.toast, "Autoload")); // no autoload project: <Autoload> does nothing
+    tap(IN_B2);
+    CHECK(os.disk_ask == 'E');
+    tap(IN_B1);
+    // With one saved as AUTOLOAD: <Autoload> gives the power-on project, Input Effects off.
+    os_pad_load(&os, 0, constant(44100), "Auto Kick");
+    os.seq.sequence[0].tempo10 = 1234;
+    CHECK(disk_project_save(&os, "build/os/newproj/autoload") == 0);
+    os_pad_load(&os, 1, constant(44100), "Extra");
+    atomic_store(&os.fx.on, 1);
+    tap(IN_B1);
+    os.toast_until = 0; // the last toast gone, as it would be by now
+    frame(&in);
+    if (shot_dir) write_shot(shot_dir, "new_project_autoload");
+    tap(IN_B2); // <Autoload>
+    CHECK(os.disk_ask == 0 && os.pads[0].s && strcmp(os.pads[0].name, "Auto Kick") == 0 && !os.pads[1].s);
+    CHECK(os.seq.sequence[0].tempo10 == 1234 && !atomic_load(&os.fx.on) && strcmp(os.toast, "Autoload project loaded") == 0);
+    system("rm -rf build/os/newproj");
+    os.screen = OS_MAIN, os.data_dir = 0;
+}
+
 static int demo_piano(const char *dir) {
     seq_fresh();
     os_program_set_s600(&os, 0, PROG_MULTI);
@@ -9366,6 +9475,177 @@ static int demo_piano(const char *dir) {
     CHECK(rc == 0 && got == 16 && skipped == 0 && disk_program_load(&os, 1, p) == 0);
     CHECK(os.programs[1].s600 == PROG_MULTI && os.programs[1].pads[0].kgs.n == 16 && os.programs[1].pads[0].kgs.kg[0].zone[1] == 2);
     return rc;
+}
+
+// ---- S600 programs from a list (KIT_SPEC=file KIT_OUT=folder [KIT_PREVIEW=folder]) ----
+// Each program is saved to KIT_OUT/NAME, then loaded back and played from MIDI: middle C (and for
+// a MULTI every keygroup's root, soft and hard) must sound at its note. The list, tab separated:
+//   PROGRAM type name                     (1 S600, 2 S600 MULTI)
+//   PAD pad wav name start end loop loop_on root root_fine
+//   SP pad key=value ...                  (env, mono, legato, porta, sustain, release, inst)
+//   KG lo hi root fine zone1 zone2 split  (zones: 1 + pad, 0 none)
+//   END
+static void kit_set(struct s600_params *q, const char *kv) {
+    char k[32], v[64];
+    if (sscanf(kv, "%31[^=]=%63[^\t\n]", k, v) != 2) return;
+    if (!strcmp(k, "env")) s600_env_template(q, 1, v), s600_env_template(q, 2, v);
+    else if (!strcmp(k, "mono")) q->mono = atoi(v);
+    else if (!strcmp(k, "legato")) q->legato = atoi(v);
+    else if (!strcmp(k, "porta")) q->porta = atoi(v);
+    else if (!strcmp(k, "sustain")) q->sustain = atoi(v);
+    else if (!strcmp(k, "release")) q->release = atoi(v);
+    else if (!strcmp(k, "inst")) {
+        for (int t = 0; t < multi_template_count(); t++)
+            if (!strcmp(multi_template_name(t), v)) {
+                int keep_mono = q->mono;
+                multi_apply_template(&os, 0, t);
+                q->mono = keep_mono;
+            }
+    }
+}
+
+// A key played from MIDI on program 0 for `ms`, then let go: the pitch heard (0 none), and the
+// sample that sounded. The left channel goes to `out` when given.
+static double kit_play(int note, int vel, int ms, const struct sample **played, struct sample **out) {
+    struct input idle = blank();
+    for (int i = 0; i < 40; i++) frame(&idle); // the engine has every pad
+    os.midi_in_read = fake_midi_read;
+    midi_qn = midi_qat = 0;
+    midi_push(0x90, note, vel);
+    int n = ms * 44100 / 1000 / 128, rel = 44100 / 128; // and a second of release
+    struct sample *rec = sample_new((n + rel) * 128, 1, 44100);
+    *played = 0;
+    for (int i = 0; i < n + rel; i++) {
+        if (i == n) midi_qn = midi_qat = 0, midi_push(0x80, note, 0);
+        frame(&idle);
+        if (i == 2)
+            for (int k = 0; k < ENGINE_VOICES && !*played; k++)
+                if (e.voice[k].stage != 0) *played = e.voice[k].s;
+        for (int f = 0; f < 128; f++) rec->data[i * 128 + f] = block[f * 2];
+    }
+    os.midi_in_read = 0;
+    double heard = 0;
+    struct sample cut = *rec; // the held part, past the attack
+    cut.data = rec->data + 44100 / 4, cut.frames = n * 128 - 44100 / 4;
+    if (cut.frames < 4096 || !multi_detect_pitch(&cut, &heard)) heard = 0;
+    if (out) *out = rec;
+    else sample_free(rec);
+    return heard;
+}
+
+static int kit_build(const char *spec, const char *outdir, const char *preview) {
+    FILE *f = fopen(spec, "r");
+    if (!f) return 1;
+    char line[1024], name[64] = "";
+    int type = 1, bad = 0, made = 0;
+    while (fgets(line, sizeof line, f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        char *tok[16];
+        int nt = 0;
+        for (char *t = strtok(line, "\t"); t && nt < 16; t = strtok(0, "\t")) tok[nt++] = t;
+        if (!nt) continue;
+        if (!strcmp(tok[0], "PROGRAM") && nt >= 3) {
+            seq_fresh();
+            type = atoi(tok[1]);
+            snprintf(name, sizeof name, "%s", tok[2]);
+            os_program_set_s600(&os, 0, type == 2 ? PROG_MULTI : PROG_S600);
+            snprintf(os.programs[0].name, sizeof os.programs[0].name, "%s", name);
+            os.programs[0].inst = 0;
+        } else if (!strcmp(tok[0], "PAD") && nt >= 10) {
+            int pad = atoi(tok[1]);
+            struct sample *s = wav_load(tok[2]);
+            if (!s || pad < 0 || pad >= OS_PADS) {
+                printf("  %s: cannot load %s\n", name, tok[2]);
+                bad++;
+                continue;
+            }
+            os_pad_load(&os, pad, s, tok[3]);
+            struct pad_params *p = &os.pads[pad].p;
+            p->start = atoi(tok[4]), p->end = atoi(tok[5]), p->loop = atoi(tok[6]), p->loop_on = atoi(tok[7]);
+            p->loop_lock = 0; // the loop where it was found, not at the start
+            os.pads[pad].sp.root = atoi(tok[8]), os.pads[pad].sp.root_fine = atoi(tok[9]);
+            os_pad_push(&os, pad);
+        } else if (!strcmp(tok[0], "SP") && nt >= 2) {
+            int pad = atoi(tok[1]);
+            for (int i = 2; i < nt; i++) kit_set(&os.pads[pad].sp, tok[i]);
+            os_pad_push(&os, pad);
+        } else if (!strcmp(tok[0], "KG") && nt >= 8) {
+            struct s600_kgs *k = &os.pads[0].kgs;
+            if (k->n >= S600_KGS) continue;
+            struct s600_kg *g = &k->kg[k->n++];
+            memset(g, 0, sizeof *g);
+            g->lo = atoi(tok[1]), g->hi = atoi(tok[2]), g->root = atoi(tok[3]), g->fine = atoi(tok[4]);
+            g->zone[0] = atoi(tok[5]), g->zone[1] = atoi(tok[6]), g->split = atoi(tok[7]);
+            g->level = 100;
+            os.pads[0].sp.ranges_manual = 1;
+        } else if (!strcmp(tok[0], "END")) {
+            os_multi_refresh(&os, 0);
+            char dir[700];
+            snprintf(dir, sizeof dir, "%s/%s", outdir, name);
+            int rc = disk_program_save(&os, 0, dir);
+            made += rc == 0;
+            // Loaded back as the MPC would, then played.
+            seq_fresh();
+            if (rc != 0 || disk_program_load(&os, 0, dir) != 0) {
+                printf("  %s: save or load FAILED\n", name);
+                bad++;
+                continue;
+            }
+            const struct sample *played;
+            struct sample *rec = 0;
+            if (os.programs[0].s600 == PROG_MULTI) {
+                const struct s600_kgs *k = &os.pads[0].kgs;
+                printf("%-16s MULTI %d keygroups:", name, k->n);
+                for (int i = 0; i < k->n; i++) {
+                    const struct s600_kg *g = &k->kg[i];
+                    for (int z = 0; z < 2; z++) {
+                        if (!g->zone[z]) continue;
+                        int vel = z ? 127 : 100;
+                        struct sample *zr = 0;
+                        double h = kit_play(g->root, vel, 700, &played, preview ? &zr : 0);
+                        if (zr) {
+                            char zp[800], zn[8];
+                            multi_note_name(g->root, zn, sizeof zn);
+                            snprintf(zp, sizeof zp, "%s/%s %s %s.wav", preview, name, zn, z ? "hard" : "soft");
+                            wav_save(zp, zr, 16);
+                            sample_free(zr);
+                        }
+                        const struct sample *want = os.pads[g->zone[z] - 1].s;
+                        int ok = h > 0 && fabs(h - g->root) < 0.25 && played == want;
+                        if (!z && !g->zone[1]) { // one sample: the hardest press plays it too
+                            const struct sample *p2;
+                            kit_play(g->root, 127, 300, &p2, 0);
+                            ok = ok && p2 == want;
+                        }
+                        char nn[8];
+                        multi_note_name(g->root, nn, sizeof nn);
+                        printf(" %s%s %+.0fc%s", nn, z ? "(hard)" : "", (h - g->root) * 100, ok ? "" : " WRONG");
+                        bad += !ok;
+                    }
+                }
+                printf("\n");
+                kit_play(60, 100, 2500, &played, &rec);
+            } else {
+                double h = kit_play(60, 100, 2500, &played, &rec);
+                double off = h - 60, oct = off - 12 * round(off / 12); // off by whole octaves: the pitch class is right
+                int ok = h > 0 && fabs(off) < 0.25, c = h > 0 && fabs(oct) < 0.25;
+                const struct os_pad *p = &os.pads[0];
+                printf("%-16s C4 heard %+7.1fc  root %d%+d  loop %d-%d  %s %s%s%s\n", name, off * 100, p->sp.root, p->sp.root_fine,
+                       p->p.loop, p->p.end, p->sp.mono ? "mono" : "poly", p->sp.legato ? "legato " : "", p->sp.porta ? "porta " : "",
+                       ok ? "" : c ? "(a C, another octave heard)" : "WRONG");
+                bad += !c;
+            }
+            if (preview && rec) {
+                char p[800];
+                snprintf(p, sizeof p, "%s/%s C4.wav", preview, name);
+                wav_save(p, rec, 16);
+            }
+            if (rec) sample_free(rec);
+        }
+    }
+    fclose(f);
+    printf("%d programs saved, %d problem(s)\n", made, bad);
+    return bad != 0;
 }
 
 
@@ -9674,6 +9954,7 @@ int main(int argc, char **argv) {
     if (getenv("MPC_TEST_LAYOUT")) forced_layout = atoi(getenv("MPC_TEST_LAYOUT"));
     if (getenv("DEMO_PROJECT")) return demo_project(getenv("DEMO_PROJECT")) != 0 || failures != 0;
     if (getenv("DEMO_PIANO")) return demo_piano(getenv("DEMO_PIANO")) != 0 || failures != 0;
+    if (getenv("KIT_SPEC")) return kit_build(getenv("KIT_SPEC"), getenv("KIT_OUT"), getenv("KIT_PREVIEW")) != 0 || failures != 0;
     test_one_shot();
     test_keymap();
     test_cpu_worst();
@@ -9728,6 +10009,8 @@ int main(int argc, char **argv) {
     test_sample_erase_rename();
     test_mixer_knob_shake();
     test_usb_outs(argc > 1 ? argv[1] : 0);
+    test_usb_outs_effects();
+    test_new_project(argc > 1 ? argv[1] : 0);
     test_chop_recall();
     test_xl_files();
     test_purge_unused();

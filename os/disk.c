@@ -703,6 +703,26 @@ void disk_clear_all(struct os *s) {
     s->selected = 0;
 }
 
+// New Project (LOAD's <New>): an empty project, as at power-on with no autoload, without
+// restarting: Clear all, and the rest a project holds back to its start (pad mutes and solos,
+// Input Effects off and as new, no Master Effects, no inserts), the Start BPM, Bars, TC and Swing
+// put in, and Save no longer offering the last project's name. Settings stay.
+void disk_new_project(struct os *s) {
+    disk_clear_all(s);
+    struct seq *sq = &s->seq;
+    pthread_mutex_lock(&sq->lock);
+    memset(sq->pad_mute, 0, sizeof sq->pad_mute);
+    memset(sq->pad_solo, 0, sizeof sq->pad_solo);
+    pthread_mutex_unlock(&sq->lock);
+    infx_power_on(s);
+    master_defaults(&s->master);
+    inserts_load_line(s, "");
+    prefs_startup(s);
+    s->disk_last_saved[DISK_PROJECT][0] = 0;
+    s->program = 0;
+    os_set_program(s, 0);
+}
+
 int disk_program_save(struct os *s, int program, const char *dir) {
     if (make_dirs(dir) != 0) return -1;
     char p[700];
@@ -1248,6 +1268,12 @@ void disk_install_waves(struct os *s) {
         wav_save(p, x, 16);
         sample_free(x);
     }
+}
+
+static int has_autoload(const struct os *s) { // a project saved as AUTOLOAD, loaded at power-on
+    char p[700];
+    snprintf(p, sizeof p, "%s/autoload/project.bin", s->data_dir ? s->data_dir : ".");
+    return s->data_dir && access(p, F_OK) == 0;
 }
 
 void disk_autoload(struct os *s) {
@@ -1998,12 +2024,29 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
                 }
             }
         }
+        if (input_down(in, IN_B3) && s->disk_ask == 'E') { // <New>: an empty project
+            disk_new_project(s);
+            s->disk_ask = 0;
+            os_toast(s, u, "New project");
+            lcd_rule(u, BOTTOM_ROW, 0);
+            return;
+        }
+        if (input_down(in, IN_B2) && s->disk_ask == 'E' && has_autoload(s)) { // <Autoload>: as at power-on
+            disk_new_project(s);
+            disk_autoload(s);
+            infx_power_on(s); // Input Effects start off, as at power-on
+            s->disk_ask = 0;
+            os_toast(s, u, "Autoload project loaded");
+            lcd_rule(u, BOTTOM_ROW, 0);
+            return;
+        }
         if (input_down(in, IN_B3) && s->disk_ask == 'C') { // Clear all, then the load
             disk_clear_all(s);
             s->disk_ask = 0, s->disk_pending = 'L';
         } else if (input_down(in, IN_B3)) s->disk_pending = s->disk_ask == 'P' || s->disk_ask == 'O' ? 'L' : s->disk_ask, s->disk_ask = 0;
         lcd_text(u, 0, KEY_ROW, s->disk_ask == 'P' ? "<Cancel>" : "<No>");
         if (s->disk_ask == 'P') lcd_text(u, 9, KEY_ROW, "<To Empty>");
+        if (s->disk_ask == 'E' && has_autoload(s)) lcd_text(u, 7, KEY_ROW, "<Autoload>");
         lcd_text(u, 21, KEY_ROW, "<Yes>");
         lcd_rule(u, TITLE_ROW, "Save/Load");
         char q[48];
@@ -2011,12 +2054,19 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         else if (s->disk_ask == 'P') snprintf(q, sizeof q, "Load into Program %02d?", s->disk_which + 1);
         else if (s->disk_ask == 'O') snprintf(q, sizeof q, "Replace Seq %02d?", s->disk_which + 1);
         else if (s->disk_ask == 'C') snprintf(q, sizeof q, "Clear all, then load?");
+        else if (s->disk_ask == 'E') snprintf(q, sizeof q, "Start a new project?");
         else snprintf(q, sizeof q, "Replace %.16s?", s->disk_name);
         lcd_center(u, 6, q);
         if (s->disk_ask == 'D') lcd_center(u, 8, "This cannot be undone");
         if (s->disk_ask == 'C') {
             lcd_center(u, 8, "Programs, sounds, sequences");
             lcd_center(u, 9, "and songs are cleared");
+        }
+        if (s->disk_ask == 'E') {
+            lcd_center(u, 8, "Everything in memory is");
+            lcd_center(u, 9, "cleared, as at power-on");
+            lcd_center(u, 10, "(settings are kept)");
+            if (has_autoload(s)) lcd_center(u, 12, "Autoload: power-on project");
         }
         if (s->disk_ask == 'P') { // which program, and that what is there goes
             snprintf(q, sizeof q, "%02d-%.16s", s->disk_which + 1, s->programs[s->disk_which].name);
@@ -2050,6 +2100,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
         }
     } else if (m == DISK_LOAD) {
         if (input_down(in, IN_B3)) s->disk_page = 1, list_files(s); // <Browse>: the files
+        if (input_down(in, IN_B1)) s->disk_ask = 'E';                 // <New>: an empty project, asked first
     } else if (m != DISK_LOAD && s->disk_type != DISK_AUTOLOAD && input_down(in, IN_B1)) { // <New Dir>
         snprintf(s->disk_keep, sizeof s->disk_keep, "%s", s->disk_name);
         snprintf(s->disk_name, sizeof s->disk_name, "FOLDER");
@@ -2138,6 +2189,7 @@ void disk_frame(struct os *s, struct ui *u, const struct input *in) {
     } else if (m == DISK_USB) {
         lcd_text(u, 19, KEY_ROW, "<Start>");
     } else if (m == DISK_LOAD) {
+        lcd_text(u, 0, KEY_ROW, "<New>");
         lcd_text(u, 18, KEY_ROW, "<Browse>");
     } else if (s->disk_type != DISK_AUTOLOAD) {
         lcd_text(u, 0, KEY_ROW, "<New Dir>");

@@ -18,7 +18,7 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM, RENAME_SOUND, RENA
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "2.0C"
+#define OS_NUMBER "2.0D"
 #define OS_VERSION "LA Version " OS_NUMBER " (11/24/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
@@ -633,6 +633,7 @@ void disk_install_waves(struct os *s); // power-on: the S600 waveforms into MPC6
 int disk_project_save(struct os *s, const char *dir);
 int disk_project_load(struct os *s, const char *dir);
 void disk_clear_all(struct os *s); // every program, sound, sequence and song emptied, as at power-on
+void disk_new_project(struct os *s); // LOAD's <New>: Clear all and the rest of a project as at power-on, settings kept
 int disk_program_save(struct os *s, int program, const char *dir);
 int disk_program_load(struct os *s, int program, const char *dir);
 int disk_seq_save(struct os *s, int which, const char *path); // one sequence, all its tracks

@@ -990,6 +990,10 @@ void engine_render(struct engine *e, float *out, int frames) {
     int keep = !outs || atomic_load_explicit(&e->outs_keep, memory_order_relaxed);
     if (outs)
         for (int c = 0; c < ENGINE_OUTS; c++) memset(e->outs[c], 0, (size_t)frames * sizeof(float));
+    // The pad on Input Effects' PAD chain, going to an output: it goes through the chain like any
+    // other time, and its output takes the chain's return (after the effects' hook, below).
+    int pad_out = 0;
+    float pad_out_g = 1;
     for (int i = 0; i < ENGINE_VOICES; i++) {
         struct voice *v = &e->voice[i];
         if (v->stage == V_FREE) continue;
@@ -1002,12 +1006,24 @@ void engine_render(struct engine *e, float *out, int frames) {
         int trk_a = by_track && v->track > 0 && v->track < ENGINE_TRACKS ? atomic_load_explicit(&e->trk_out[v->track], memory_order_relaxed) : 0;
         int by_pad = outs && !by_track && v->pad >= 0 && v->p.usb_out > 0 && v->p.usb_out < ENGINE_OUT_CODES;
         int out_a = by_pad ? v->p.usb_out : by_track && to == out && ins < 0 ? trk_a : 0; // by track: here only when no bus comes after
+        if (out_a && fx_pad >= 0 && (v->pad == fx_pad || v->pad == fx_pad + ENGINE_S600)) {
+            pad_out = out_a; // through the PAD chain below, as without the outputs
+            if (!by_pad) pad_out_g = trk_gain(e, v->track);
+            else if (v->p.usb_follow_off && v->p.volume > 0) { // its own output level against its stereo Volume
+                float sv = (float)v->p.volume / 100.0f, iv = (float)(100 - v->p.usb_vol_cut) / 100.0f;
+                pad_out_g = (iv * iv) / (sv * sv);
+            }
+            out_a = 0;
+        }
+        int ins_pad = out_a && ins >= 0; // by pad on a track with inserts: the mix through them, the output as before
         if (out_a) { // rendered alone: to its output, and to where it would have gone
             float one[ENGINE_MAX_BLOCK * 2];
             memset(one, 0, (size_t)frames * 2 * sizeof(float));
             // A pad with its own output level (Follow ster vol: NO): rendered at full Volume, then each
             // side at its own, on the voices' squared curve. Stereo Volume 0 takes it out of the mix.
             float g_mix = 1, g_out = 1;
+            int cut = v->track_cut, pan = v->track_pan;
+            if (ins_pad) v->track_cut = 0, v->track_pan = 0; // the insert bus wants it at full level and centre
             if (by_pad && v->p.usb_follow_off) {
                 int32_t vol = v->p.volume;
                 float sv = (float)vol / 100.0f, iv = (float)(100 - v->p.usb_vol_cut) / 100.0f;
@@ -1018,7 +1034,24 @@ void engine_render(struct engine *e, float *out, int frames) {
             } else {
                 render_voice(v, one, frames, bend, mod);
             }
+            v->track_cut = cut, v->track_pan = pan;
             if (!by_pad) g_out = trk_gain(e, v->track); // by track: the track's own level there
+            if (ins_pad) { // the output as before (the track's fader and pan on it, no inserts); the mix into the inserts
+                float tm = (100.0f - (float)e->trk_cut[v->track]) / 100.0f, g = tm * tm;
+                float theta = ((float)e->trk_pan[v->track] + 50.0f) / 100.0f * (PI / 2.0f);
+                float gl = g * (float)cos(theta) * SQRT2, gr = g * (float)sin(theta) * SQRT2;
+                if (gl > g) gl = g;
+                if (gr > g) gr = g;
+                float side[ENGINE_MAX_BLOCK * 2];
+                for (int n = 0; n < frames; n++) side[n * 2] = one[n * 2] * gl, side[n * 2 + 1] = one[n * 2 + 1] * gr;
+                to_outs(e, out_a, side, frames, g_out);
+                for (int n = 0; n < frames * 2; n++) e->ins_buf[ins][n] += one[n] * g_mix; // fader, pan and sends after
+                if (v->stage != V_FREE) {
+                    active++;
+                    if (v->pad >= 0 && v->pad < ENGINE_SLOTS) playing[v->pad] = 1;
+                }
+                continue;
+            }
             to_outs(e, out_a, one, frames, g_out);
             if (by_pad || keep) { // a pad is in the mix at its stereo Volume; a track, kept or not
                 for (int n = 0; n < frames * 2; n++) one[n] *= g_mix;
@@ -1102,6 +1135,11 @@ void engine_render(struct engine *e, float *out, int frames) {
         for (int i = 0; i < frames * 2; i++) out[i] += e->bus[b].buf[i];
     }
     if (sends_on || fx_pad >= 0) e->fx_hook(e->fx_ctx, e, out, frames); // the effects' returns
+    if (pad_out && fx_pad >= 0) { // the PAD chain's pad on its output, after the chain (the bus is its return)
+        to_outs(e, pad_out, e->fxbus[ENGINE_SENDS], frames, pad_out_g);
+        if (by_track && !keep)
+            for (int n = 0; n < frames * 2; n++) out[n] -= e->fxbus[ENGINE_SENDS][n]; // out of the mix, as its track is
+    }
     guard(out, frames * 2); // nothing out of range reaches the input, master or outputs
     struct timespec t_end;
     clock_gettime(CLOCK_MONOTONIC, &t_end);
