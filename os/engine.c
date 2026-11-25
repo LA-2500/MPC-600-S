@@ -273,11 +273,14 @@ static void layer2_params(const struct pad_params *p, struct pad_params *o) {
 static struct voice *start_voice(struct engine *e, const struct event *ev, int offset, int layer) {
     if (!ev->s) return 0;
     const struct pad_params *p = &ev->p;
-    // A slide: this pad's voice still sounding goes on to the new key, gliding there.
+    // A slide: the voice of this pad playing the note slid from goes on to the new key, gliding
+    // there. Only that note's voice: with 16 Levels or a poly S600 sound the pad has other notes
+    // sounding (held pads, the sequence), and one of those moved would never meet its release.
     if (ev->glide_ms > 0 && ev->pad >= 0)
         for (int i = 0; i < ENGINE_VOICES; i++) {
             struct voice *v = &e->voice[i];
             if (v->stage == V_FREE || v->stage == V_RELEASE || v->fading || v->pad != ev->pad || v->layer != layer) continue;
+            if (v->key != ev->from_key) continue;
             v->glide += (float)(v->key - ev->key);
             v->glide_ms = ev->glide_ms;
             v->key = ev->key;
@@ -437,7 +440,10 @@ static void note_on(struct engine *e, const struct event *ev, int offset) {
     if (also == ev->pad || !e->pad[also].s) return;
     struct event other = {.type = EV_ON, .pad = also, .vel = ev->vel, .s = e->pad[also].s, .p = e->pad[also].p,
                           .track = ev->track, .track_cut = ev->track_cut, .track_pan = ev->track_pan};
-    start_voice(e, &other, offset, 0);
+    struct voice *v = start_voice(e, &other, offset, 0);
+    // It ends with the note that started it: an S600 sound holds until released, and nothing
+    // else would release the other pad's voice.
+    if (v) v->also_of = ev->pad + 1, v->also_key = ev->key;
 }
 
 static void process_events(struct engine *e) {
@@ -472,9 +478,9 @@ static void process_events(struct engine *e) {
             int hit = 0;
             for (int i = 0; i < ENGINE_VOICES; i++) {
                 struct voice *v = &e->voice[i];
-                if (v->stage != V_FREE && v->pad == ev->pad && v->p.gate &&
-                    (ev->key == ENGINE_KEY_ANY || ev->key == v->key))
-                    hit += v->stage != V_RELEASE, start_release(v);
+                int mine = v->pad == ev->pad && (ev->key == ENGINE_KEY_ANY || ev->key == v->key);
+                int also = v->also_of == ev->pad + 1 && (ev->key == ENGINE_KEY_ANY || ev->key == v->also_key);
+                if (v->stage != V_FREE && v->p.gate && (mine || also)) hit += v->stage != V_RELEASE, start_release(v);
             }
             elog(e, ELOG_LIVE_OFF, ev->pad, ev->key, hit, 0);
             break;
@@ -564,11 +570,11 @@ void engine_play_pad_mix(struct engine *e, int pad, int vel, int key, int offset
     note_on(e, &ev, offset);
 }
 
-void engine_play_pad_glide(struct engine *e, int pad, int vel, int key, int offset, int track, int level, int pan, int glide_ms) {
+void engine_play_pad_glide(struct engine *e, int pad, int vel, int key, int offset, int track, int level, int pan, int glide_ms, int from_key) {
     if (pad < 0 || pad >= ENGINE_SLOTS || !e->pad[pad].s) return;
     struct event ev = {.type = EV_ON, .pad = pad, .vel = vel, .key = key, .s = e->pad[pad].s, .s2 = e->pad[pad].s2,
                        .p = e->pad[pad].p, .track = track, .track_cut = level_cut(level), .track_pan = pan, .restart = 1,
-                       .glide_ms = glide_ms};
+                       .glide_ms = glide_ms, .from_key = from_key};
     note_on(e, &ev, offset);
 }
 

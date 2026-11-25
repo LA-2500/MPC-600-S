@@ -129,7 +129,8 @@ struct event {
     // down (0 full, 100 silent) and its pan, added to the pad's.
     int track, track_cut, track_pan;
     int restart; // from the sequencer: a looping one-shot starts over each time, never toggles off
-    int glide_ms; // a slide (step patterns): a voice of this pad still sounding glides to the new key instead
+    int glide_ms; // a slide (step patterns): the voice of this pad playing from_key glides to the new key instead
+    int from_key; // the note slid from (another note of the pad, held or playing, is never taken)
     const struct keymap *km; // EV_KEYMAP: the key map to copy (pad: the slot; key: its place, or -1 none)
     int ins[ENGINE_INSERTS]; // EV_INSERTS: the tracks (1 + their number) with insert effects, 0 none
     float eq[3][5]; // EV_EQ: three biquads, b0 b1 b2 a1 a2; track_cut 1 turns the EQ on, 0 off. EV_SEND: the sends, 0..1
@@ -142,6 +143,7 @@ struct filter_state {
 
 struct voice {
     int stage; // 0 is free
+    int also_of, also_key; // started by Also Play: 1 + the pad whose note started it, and that note's key (released with it)
     int pad;
     int key;      // semitones from the pad's pitch
     int layer;    // 1 for an S600 note's second layer
@@ -288,7 +290,7 @@ void engine_play_pad_key(struct engine *e, int pad, int vel, int key, int offset
 void engine_play_pad_mix(struct engine *e, int pad, int vel, int key, int offset, int track, int level, int pan);
 // As engine_play_pad_mix, sliding a voice of the pad still sounding to the new key over glide_ms
 // (its envelopes carry on), or starting one if none is.
-void engine_play_pad_glide(struct engine *e, int pad, int vel, int key, int offset, int track, int level, int pan, int glide_ms);
+void engine_play_pad_glide(struct engine *e, int pad, int vel, int key, int offset, int track, int level, int pan, int glide_ms, int from_key);
 void engine_release_pad_key(struct engine *e, int pad, int key);
 // A recorded fader move: one parameter (the sequencer's AUTO_* order) of a pad, value 0..127.
 // Changes what the pad plays from now on, and the notes it is already playing.

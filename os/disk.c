@@ -719,8 +719,7 @@ void disk_new_project(struct os *s) {
     inserts_load_line(s, "");
     prefs_startup(s);
     s->disk_last_saved[DISK_PROJECT][0] = 0;
-    s->program = 0;
-    os_set_program(s, 0);
+    os_set_program(s, 0); // (it switches the pads too: never set the number by hand)
 }
 
 int disk_program_save(struct os *s, int program, const char *dir) {

@@ -3677,6 +3677,103 @@ static void test_levels_s600_seq_no_held(void) {
 // Everything a player does around 16 Levels, at random, with a looping S600 sound: banks and
 // the root changed under held pads, the Levels page, NOTE REPEAT held, the sequencer overdubbing
 // or not. Once every pad is up and it stops, nothing is left sounding.
+// 16 Levels on a poly S600 sound, played live: a second layer an octave down, long releases (the
+// voices run out), the sustain pedal, PAD BANK with a pad (the bank jump), the Levels page.
+// Checked without stopping: once every pad and the pedal are up and the releases have had time,
+// nothing may sound.
+// Also Play on an S600 pad (a drum setting that comes along): the other pad's sound starts with
+// the note and, as an S600 note holds until released, must end with it, or it is held for good
+// at a pitch no pad plays with 16 Levels.
+static void test_s600_also_play_released(void) {
+    seq_fresh();
+    os_pad_load(&os, 0, constant(44100), "Main");
+    os_pad_load(&os, 1, constant(44100), "Other");
+    os.pads[0].p.loop_on = 1, os.pads[1].p.loop_on = 1;
+    os.pads[0].p.also_pad = 2; // Also Play: A02
+    os_program_set_s600(&os, 0, 1);
+    os.pads[0].sp.mono = 0, os.pads[0].sp.note_on = 1, os.pads[0].sp.release = 50;
+    os_pad_push(&os, 0), os_pad_push(&os, 1);
+    os.levels_on = 1, os.levels_type = LEVELS_TUNE, os.levels_pad = 0, os.levels_root = 7;
+    struct input in = blank();
+    for (int i = 0; i < 10; i++) frame(&in);
+    in = blank(), in.pad_hit[2] = 100, in.pad_down[2] = 1, in.pad_hit[5] = 90, in.pad_down[5] = 1;
+    frame(&in);
+    for (int i = 0; i < 20; i++) render(128);
+    CHECK(voices() == 4); // two notes, each with its Also Play
+    in = blank(), in.pad_release[2] = 1, in.pad_down[5] = 1;
+    frame(&in);
+    for (int i = 0; i < 60; i++) render(128);
+    CHECK(voices() == 2); // the released note's Also Play went with it; the held one's stays
+    in = blank(), in.pad_release[5] = 1;
+    frame(&in);
+    for (int i = 0; i < 60; i++) render(128);
+    CHECK(voices() == 0);
+    os.levels_on = 0;
+    os_program_set_s600(&os, 0, 0);
+}
+
+static void test_levels_s600_poly_live(void) {
+    unsigned rnd = 777;
+    for (int run = 0; run < 6; run++) {
+        seq_fresh();
+        os.seq.metronome = METRO_OFF;
+        os_pad_load(&os, 0, constant(44100), "Poly");
+        os_pad_load(&os, 1, constant(44100), "Sub");
+        os_program_set_s600(&os, 0, 1);
+        struct s600_params *q = &os.pads[0].sp;
+        os.pads[0].p.loop_on = 1, os.pads[1].p.loop_on = 1;
+        q->mono = 0, q->note_on = 1, q->sustain = 100, q->release = run % 2 ? 2500 : 300;
+        q->layers = 2, q->l2_pad = run % 3 == 2 ? 2 : 0, q->l2_semi = -12;
+        os_pad_push(&os, 0), os_pad_push(&os, 1);
+        os.levels_on = 1, os.levels_type = LEVELS_TUNE, os.levels_pad = 0, os.levels_root = 7;
+        os.screen = OS_MAIN;
+        os.midi_in_read = fake_midi_read;
+        int down[16] = {0}, pedal = 0;
+        for (int step = 0; step < 2500; step++) {
+            struct input in = blank();
+            midi_qn = midi_qat = 0;
+            rnd = rnd * 1103515245u + 12345u;
+            int ev = (int)(rnd >> 20) % 100;
+            if (ev < 3) in.down |= 1u << IN_PAD_BANK;
+            else if (ev < 5) in.held |= 1u << IN_PAD_BANK;          // PAD BANK held: a pad jumps the bank
+            else if (ev < 6) os.screen = os.screen == OS_MAIN ? OS_LEVELS : OS_MAIN;
+            else if (ev < 9) pedal = !pedal, midi_push(0xB0, 64, pedal ? 127 : 0); // the sustain pedal
+            for (int k = 0; k < 3; k++) {
+                rnd = rnd * 1103515245u + 12345u;
+                int p = (int)(rnd >> 16) % 16, what = (int)(rnd >> 8) % 6;
+                if (!down[p] && what < 2) {
+                    in.pad_hit[p] = 30 + (int)(rnd >> 4) % 97, down[p] = 1;
+                    if (what == 1) in.pad_release[p] = 1, down[p] = 0;
+                } else if (down[p] && what >= 3) {
+                    in.pad_release[p] = 1, down[p] = 0;
+                }
+            }
+            for (int p = 0; p < 16; p++) in.pad_down[p] = down[p];
+            frame(&in);
+            render(256);
+        }
+        struct input in = blank();
+        midi_qn = midi_qat = 0;
+        if (pedal) midi_push(0xB0, 64, 0);
+        for (int p = 0; p < 16; p++) if (down[p]) in.pad_release[p] = 1;
+        frame(&in);
+        in = blank();
+        frame(&in);
+        os.midi_in_read = 0;
+        for (int b = 0; b < 1400; b++) render(128); // four seconds: every release over
+        int left = voices();
+        CHECK(left == 0);
+        if (left) {
+            printf("  16 Levels poly S600 live, run %d: %d voices left:", run, left);
+            for (int i = 0; i < ENGINE_VOICES; i++)
+                if (e.voice[i].stage) printf(" [pad %d key %d layer %d stage %d gate %d]", e.voice[i].pad, e.voice[i].key, e.voice[i].layer, e.voice[i].stage, e.voice[i].p.gate);
+            printf("\n");
+        }
+        os.levels_on = 0, os.screen = OS_MAIN, os.bank = 0;
+        os_program_set_s600(&os, 0, 0);
+    }
+}
+
 static void test_levels_s600_wild(void) {
     unsigned rnd = 4242;
     for (int run = 0; run < 8; run++) {
@@ -7796,12 +7893,36 @@ static void test_arp_steps(const char *shot_dir) {
     int slot = os_pad_slot(&os, 0);
     engine_play_pad_mix(&e, slot, 100, 0, 0, 1, 100, 0);
     render(128);
-    engine_play_pad_glide(&e, slot, 70, 5, 0, 1, 100, 0, 60);
+    engine_play_pad_glide(&e, slot, 70, 5, 0, 1, 100, 0, 60, 0);
     render(128);
     int sounding = 0, key = -99;
     for (int i = 0; i < ENGINE_VOICES; i++)
         if (e.voice[i].stage != 0) sounding++, key = e.voice[i].key;
     CHECK(sounding == 1 && key == 5);
+    // Another note of the pad sounding (16 Levels, a poly S600 sound): the slide takes only the
+    // note it slides from, so each still meets its own release and none is left held.
+    engine_kill_all(&e);
+    for (int i = 0; i < 40; i++) render(128);
+    struct pad_params gp = os.pads[0].p;
+    gp.synth = 1, gp.gate = 1, gp.sustain = 100, gp.release_ms = 5, gp.loop_on = 1, gp.mono = 0; // poly
+    engine_set_pad(&e, slot, os.pads[0].s, &gp);
+    render(16);
+    engine_play_pad_mix(&e, slot, 100, -9, 0, 1, 100, 0); // a pad held: 9 below
+    render(128);
+    engine_play_pad_mix(&e, slot, 100, 3, 0, 1, 100, 0); // the step note
+    render(128);
+    engine_play_pad_glide(&e, slot, 70, -17, 0, 1, 100, 0, 60, 3); // slides from 3 down to -17
+    render(128);
+    int k9 = 0, k17 = 0, k3 = 0;
+    for (int i = 0; i < ENGINE_VOICES; i++)
+        if (e.voice[i].stage != 0) k9 += e.voice[i].key == -9, k17 += e.voice[i].key == -17, k3 += e.voice[i].key == 3;
+    if (!(k9 == 1 && k17 == 1 && k3 == 0))
+        for (int i = 0; i < ENGINE_VOICES; i++)
+            if (e.voice[i].stage != 0) printf("  voice %d pad %d key %d stage %d layer %d\n", i, e.voice[i].pad, e.voice[i].key, e.voice[i].stage, e.voice[i].layer);
+    CHECK(k9 == 1 && k17 == 1 && k3 == 0); // the held pad's note kept its pitch
+    engine_note_off_key(&e, slot, -9), engine_note_off_key(&e, slot, -17);
+    for (int i = 0; i < 100; i++) render(128);
+    CHECK(voices() == 0); // both released: nothing held
 }
 
 // Additional Settings: Start BPM, TC and Swing are kept with the settings and set at power-on;
@@ -9402,6 +9523,9 @@ static void test_new_project(const char *shot_dir) {
     os_pad_load(&os, 0, constant(44100), "Kick");
     load_pad(1);
     os_program_set_s600(&os, 3, PROG_S600);
+    os_set_program(&os, 1); // another program current (as after a chop to a new program)
+    os_pad_load(&os, 0, constant(1000), "Chop");
+    os.seq.sequence[0].track[0].kit = 1;
     snprintf(os.seq.sequence[2].name, sizeof os.seq.sequence[2].name, "VERSE");
     os.seq.sequence[0].tempo10 = 1400;
     os.seq.pad_mute[0][0] = 1;
@@ -9418,16 +9542,17 @@ static void test_new_project(const char *shot_dir) {
     frame(&in);
     if (shot_dir) write_shot(shot_dir, "load_new");
     tap(IN_B1); // <New>: asked first
-    CHECK(os.disk_ask == 'E' && os.pads[0].s);
+    CHECK(os.disk_ask == 'E' && os.programs[0].pads[0].s);
     if (shot_dir) frame(&in), write_shot(shot_dir, "new_project_ask");
     tap(IN_B1); // <No>: nothing changes
-    CHECK(os.disk_ask == 0 && os.pads[0].s && os.programs[3].s600);
+    CHECK(os.disk_ask == 0 && os.programs[0].pads[0].s && os.programs[3].s600);
     tap(IN_B1), tap(IN_B3); // <Yes>
-    CHECK(os.disk_ask == 0 && os.screen == OS_DISK && !os.pads[0].s && !os.pads[1].s && os.nmemory == 0);
+    CHECK(os.disk_ask == 0 && os.screen == OS_DISK && !os.programs[0].pads[0].s && !os.programs[0].pads[1].s && !os.programs[1].pads[0].s && os.nmemory == 0);
     CHECK(!os.programs[3].s600 && strcmp(os.programs[3].name, "Program04") == 0);
     CHECK(os.seq.sequence[2].name[0] != 'V' && os.seq.sequence[0].tempo10 == 900 && os.seq.sequence[0].bars == 4);
     CHECK(!os.seq.pad_mute[0][0] && !atomic_load(&os.master.eq_on) && !atomic_load(&os.fx.on));
     CHECK(os.disk_last_saved[DISK_PROJECT][0] == 0 && os.pad_threshold == threshold && os.program == 0);
+    CHECK(os.pads == os.programs[0].pads); // the pads are program 1's too
     CHECK(strcmp(os.toast, "New project") == 0);
     tap(IN_B1);
     CHECK(os.disk_ask == 'E' && !strstr(os.toast, "Autoload")); // no autoload project: <Autoload> does nothing
@@ -10021,6 +10146,8 @@ int main(int argc, char **argv) {
     test_levels_s600_no_held();
     test_levels_s600_seq_no_held();
     test_levels_s600_wild();
+    test_levels_s600_poly_live();
+    test_s600_also_play_released();
     test_levels_s600_bassline();
     test_held_note_log();
     test_program_type();

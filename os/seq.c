@@ -800,12 +800,13 @@ static void fire_note(struct seq *s, const struct block *b, double ticks_in, dou
     } else {
         const struct seq_track *k = &s->sequence[s->current].track[s->track];
         int pad = seq_track_slot(s, k, note);
-        if (glide_ms > 0) {
-            if (add == s->arp_last) cancel_pending(s, 0, pad, 0, tune);
-            engine_play_pad_glide(b->e, pad, vel, tune, offset_of(b, ticks_in), s->track + 1, k->level, k->pan, glide_ms);
+        if (glide_ms > 0 && pad == s->arp_last_pad) { // from the last step's note, on the same pad
+            if (tune == s->arp_last_tune) cancel_pending(s, 0, pad, 0, tune);
+            engine_play_pad_glide(b->e, pad, vel, tune, offset_of(b, ticks_in), s->track + 1, k->level, k->pan, glide_ms, s->arp_last_tune);
         } else {
             engine_play_pad_mix(b->e, pad, vel, tune, offset_of(b, ticks_in), s->track + 1, k->level, k->pan);
         }
+        s->arp_last_pad = pad, s->arp_last_tune = tune;
         add_pending_key(s, end, 0, pad, 0, tune);
     }
     if (recording && s->rep[i].record && s->nrecq < (int)(sizeof s->recq / sizeof s->recq[0])) {

@@ -173,6 +173,7 @@ struct seq {
     unsigned arp_rand;
     int arp_slide; // the last step played slides into the next note (step patterns)
     int arp_last;  // and the semitones it played at
+    int arp_last_pad, arp_last_tune; // the pad and tuning of the last step note on a pad's sound (a slide's start)
     struct seq_arp_steps arp_user[ARP_USER]; // USER 1..8: step patterns made on the Pattern Edit page
     int rep_restart;   // a first pad went down: the free-running grid starts now
     double rep_origin; // where that grid starts, in absolute ticks
