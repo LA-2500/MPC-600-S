@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 2.0F &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 2.0G &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -106,7 +106,7 @@
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
-<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0F.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0G.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
 <ol>
   <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
   <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
@@ -1007,13 +1007,11 @@
   <tr><td>Src</td><td><strong>TRACKS</strong> (to start): each sequence track has its own output. <strong>PADS</strong>: each pad has one.</td></tr>
   <tr><td>Note / Trk</td><td>The pad (or track) shown. Pads pick it: by pad, the pad plays as you press it; by track, a pad only picks its track and plays nothing, as on the mixer.</td></tr>
   <tr><td>Stereo Out: Volume, Pan</td><td>(Pads) the pad&rsquo;s own Volume and Pan, as on its Vol page: what goes to the main mix. <strong>Volume 0</strong> leaves the pad on its output only. (Tracks: the track&rsquo;s Level and Pan, the same as on the mixer.)</td></tr>
-  <tr><td>Indiv Out: Output</td><td><strong>OFF</strong>, a channel (mono: the sound summed to one channel), or a stereo pair (1-2, 3-4, 5-6 or 7-8), which keeps the pan. Any mix of mono and stereo fits the channels the Layout leaves; several pads (or tracks) can share an output.</td></tr>
+  <tr><td>Indiv Out: Output</td><td><strong>OFF</strong>, a channel (mono: the sound summed to one channel), or a stereo pair (1-2, 3-4, 5-6 or 7-8), which keeps the pan. Any mix of mono and stereo fits; several pads (or tracks) can share an output.</td></tr>
   <tr><td>Indiv Out: Volume</td><td>Its level on the output. (Pads: setting it turns Follow to NO. Tracks: the track&rsquo;s level on its output only, after its fader; the main mix keeps the fader&rsquo;s.)</td></tr>
   <tr><td>Follow</td><td>(Pads) <strong>YES</strong>: the output follows the pad&rsquo;s stereo Volume. <strong>NO</strong>: it has its own.</td></tr>
-  <tr><td>In mix</td><td>(Tracks) <strong>YES</strong>: a track on an output stays in the main mix too. <strong>NO</strong>: it leaves the main mix (and its effect sends) for its output.</td></tr>
-  <tr><td>Layout</td><td><strong>MIX AUTO + 6 OUTS</strong> (to start): the main mix (as USB Audio Out sends it, after Master Effects) goes on the first pair nothing else uses, and the other six channels are outputs. One pair always stays whole for the mix: once only one is left (say 1, 3, 5 and 6 are taken), its channels are passed over on Output, so 7 and 8 cannot be taken one at a time, and the mix plays there. <span class="lcd">In use</span> shows the mix&rsquo;s pair as <span class="lcd">MM</span>. <strong>MIX on 1-2</strong> (or <strong>3-4</strong>, <strong>5-6</strong>, <strong>7-8</strong>) <strong>+ 6 OUTS</strong>: the mix on that pair, kept for it; a pair already in use is passed over. <strong>8 OUTS</strong>: all eight are outputs, and the main mix does not go over USB (record it from the line out if you need it). Changing it does not restart USB.</td></tr>
 </table>
-<p>By pad, the output takes the sound after its envelope and filter, with its track&rsquo;s fader and pan; a pad on an output passes by its track&rsquo;s insert effects. By track, it is the track after its fader, pan, insert effects and EQ. Master Effects stay on the main mix. <span class="key">B3 &lt;Set All&gt;</span> puts this pad&rsquo;s Output, Volume and Follow on every pad of the program; <span class="key">B1 &lt;Mixer&gt;</span> goes back. <strong>In use</strong> shows which channels something plays on (<span class="lcd">M</span>: the main mix).</p>
+<p>By pad, the output takes the sound after its envelope and filter, with its track&rsquo;s fader and pan; a pad on an output passes by its track&rsquo;s insert effects. By track, it is the track after its fader, pan, insert effects and EQ. The eight channels are all outputs: the main mix does not go over USB with USB Indiv Out on (for the whole song in stereo, use USB Audio Out with USB Outs OFF). The MPC&rsquo;s own line out and headphones keep the whole mix, outputs or not. Master Effects stay on the main mix. <span class="key">B3 &lt;Set All&gt;</span> puts this pad&rsquo;s Output, Volume and Follow on every pad of the program; <span class="key">B1 &lt;Mixer&gt;</span> goes back. <strong>In use</strong> shows which channels something plays on.</p>
 <p>On the computer, MPC Sample then has eight inputs. A DAW on Windows that shows only inputs 1/2 is using MME or DirectX, which give two; ASIO4ALL gives all eight. In Ableton&rsquo;s Input Config, turn on the mono inputs for mono outputs and the pairs for stereo ones. (Eight is the most: Windows stops taking more than eight channels from one USB device after two seconds.)</p>
 {{shot:usb_outs|USB Indiv Out, by pad}}
 
@@ -1349,7 +1347,7 @@
 <p><strong>Layout: 2000XL</strong> (Additional Settings) gives every page the look of the MPC2000XL&rsquo;s screen, at the MPC 600 S&rsquo;s size: the XL&rsquo;s letters, the key labels drawn as tabs, and dotted lines. With <strong>Screen: MPC2000</strong> it takes the XL&rsquo;s colour too. What the pages do stays the same; a few are laid out as on the XL. <strong>DEFAULT</strong> is the MPC 600 S&rsquo;s own look.</p>
 {{shot:prefs_layout|Additional Settings: Layout}}
 <ul>
-  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0F</span> in the middle of the screen, nothing else.</li>
+  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0G</span> in the middle of the screen, nothing else.</li>
   <li><strong>The main page</strong>: the sequence and <span class="lcd">Now:</span> on top; under them tempo, time signature, Timing, Count, Loop and Bars; the track under the dotted line. <span class="key">B1</span>&ndash;<span class="key">B3</span> read TrMUTE, Tr &minus; and Tr + (the same keys as on DEFAULT), and the knobs are listed along the bottom: <span class="lcd">K1:Track K2:BPM K3:Pgm</span>. Pick another sequence while one plays and <span class="lcd">Next:</span> shows beside the counter, with its number and name, until it starts.</li>
   <li><strong>Track Mute</strong>: the XL&rsquo;s grid of track names, 16 at a time. A playing track sits on a bar; a muted one is plain; a track with nothing on it reads <span class="lcd">(Unused)</span>.</li>
   <li><strong>Save and Load</strong>: the XL&rsquo;s pictures. SAVE: the MPC, an arrow marked SAVE, and the card (marked SD). LOAD: the card, an arrow marked LOAD, and the MPC.</li>

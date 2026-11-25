@@ -29,7 +29,6 @@ void seq_outs_pad(struct os *s, int slot);
 void seq_copybars_frame(struct os *s, struct ui *u, const struct input *in);
 void seq_mixer_open(struct os *s);
 void seq_mixer_frame(struct os *s, struct ui *u, const struct input *in);
-int outs_mix_pair(const struct os *s); // USB Indiv Out: the main mix's pair, 0 (1-2) .. 3 (7-8), or -1
 void seq_tracks_heard(struct os *s); // the engine told each track's mute/solo (caller holds the lock)
 void seq_mixer_pad(struct os *s, int pad); // a pad hit picks the channel: pad bank * 16 + pad
 void seq_rename_song(struct os *s); // SHIFT + B2 on the Song page: the song's name

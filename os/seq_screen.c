@@ -23,60 +23,16 @@ enum {
 };
 static void pan_text(int pan, char *b, size_t n);
 static void mixer_changed(struct os *s, int t);
-// The channels an output takes, as bits (channel 1 the lowest): a mono one, or a pair.
-static unsigned out_bits(int a) {
-    if (a <= 0 || a >= ENGINE_OUT_CODES) return 0;
-    if (a <= ENGINE_OUTS) return 1u << (a - 1);
-    return 3u << (a - ENGINE_OUTS - 1);
-}
-
-// The channels the other pads (or tracks) use: all but `skip`, the one being set (-1 none).
-static unsigned outs_used(const struct os *s, int skip) {
-    unsigned u = 0;
-    if (s->outs_by_track) {
-        const struct seq_sequence *q = &s->seq.sequence[s->seq.current];
-        for (int t = 0; t < SEQ_TRACKS; t++)
-            if (t != skip) u |= out_bits(q->track[t].usb_out);
-    } else {
-        for (int i = 0; i < OS_PADS; i++)
-            if (i != skip && s->pads[i].s) u |= out_bits(s->pads[i].p.usb_out);
-    }
-    return u;
-}
-
-static int pair_free(unsigned used, int pair) {
-    return !(used & (3u << (pair * 2)));
-}
-
-// Where the main mix goes: its pair (0 for 1-2 ... 3 for 7-8), or -1 with 8 OUTS. AUTO: the
-// first pair nothing else uses (there is always one: out_ok keeps it).
-int outs_mix_pair(const struct os *s) {
-    if (s->outs_layout == OUTS_8) return -1;
-    if (s->outs_layout >= OUTS_MIX12) return s->outs_layout - OUTS_MIX12;
-    unsigned u = outs_used(s, -1);
-    for (int p = 0; p < 4; p++)
-        if (pair_free(u, p)) return p;
-    return 0;
-}
-
-// An output the layout lets this pad (or track, `self`) have: pairs are 1-2, 3-4, 5-6 or 7-8; the
-// mix's pair is kept for it; with AUTO, one pair must stay whole for the mix, so when only one
-// is left, its channels cannot be taken one at a time.
-static int out_ok(const struct os *s, int a, int self) {
+// An output: OFF, a channel 1-8, or a stereo pair 1-2, 3-4, 5-6 or 7-8 (not 2-3 and so on).
+static int out_ok(int a) {
     if (a <= 0) return 1;
-    if (a >= ENGINE_OUT_CODES || (a > ENGINE_OUTS && (a - ENGINE_OUTS) % 2 == 0)) return 0;
-    if (s->outs_layout == OUTS_8) return 1;
-    if (s->outs_layout >= OUTS_MIX12) return pair_free(out_bits(a), s->outs_layout - OUTS_MIX12);
-    unsigned u = outs_used(s, self) | out_bits(a);
-    for (int p = 0; p < 4; p++)
-        if (pair_free(u, p)) return 1;
-    return 0;
+    return a < ENGINE_OUT_CODES && (a <= ENGINE_OUTS || (a - ENGINE_OUTS) % 2 == 1);
 }
-static int out_step(const struct os *s, int a, int d, int self) { // d steps through the outputs the layout has
+static int out_step(int a, int d) { // d steps through the outputs
     int step = d > 0 ? 1 : -1;
     for (int n = d > 0 ? d : -d; n > 0; n--) {
         int b = a + step;
-        while (b > 0 && b < ENGINE_OUT_CODES && !out_ok(s, b, self)) b += step;
+        while (b > 0 && b < ENGINE_OUT_CODES && !out_ok(b)) b += step;
         if (b < 0 || b >= ENGINE_OUT_CODES) break;
         a = b;
     }
@@ -191,8 +147,9 @@ static int field_shown(const struct os *s, int id) {
     if (id == F_CB_TO_SEQ || id == F_CB_COPIES) return s->cb_mode == CB_COPY;
     if (id == F_CB_BEFORE) return s->cb_mode != CB_DELETE;
     if (id == F_CB_COUNT) return s->cb_mode == CB_INSERT;
+    if (id == F_O_LAYOUT || id == F_O_KEEP) return 0; // (Layout and In mix: gone; the eight are outputs, and the MPC's own mix keeps everything)
     if (id == F_O_SVOL || id == F_O_PAN || id == F_O_FOLLOW) return !s->outs_by_track; // a pad's own
-    if (id == F_O_KEEP || id == F_O_TLEVEL || id == F_O_TPAN) return s->outs_by_track;
+    if (id == F_O_TLEVEL || id == F_O_TPAN) return s->outs_by_track;
     return id != F_TC_SWING || swing_shown(s);
 }
 
@@ -390,11 +347,6 @@ static void value(struct os *s, int id, char *b, size_t n) {
     case F_O_OUT: out_name(s->outs_by_track ? q->track[s->outs_sel].usb_out : s->pads[s->selected].p.usb_out, b, n); break;
     case F_O_FOLLOW: snprintf(b, n, "%s", s->pads[s->selected].p.usb_follow_off ? "NO" : "YES"); break;
     case F_O_KEEP: snprintf(b, n, "%s", s->outs_keep ? "YES" : "NO"); break;
-    case F_O_LAYOUT:
-        if (s->outs_layout == OUTS_8) snprintf(b, n, "8 OUTS (no mix)");
-        else if (s->outs_layout == OUTS_AUTO) snprintf(b, n, "MIX AUTO + 6 OUTS");
-        else snprintf(b, n, "MIX on %d-%d + 6 OUTS", (s->outs_layout - OUTS_MIX12) * 2 + 1, (s->outs_layout - OUTS_MIX12) * 2 + 2);
-        break;
     case F_O_TLEVEL: snprintf(b, n, "%3d", q->track[s->outs_sel].level); break;
     case F_O_TPAN: pan_text(q->track[s->outs_sel].pan, b, n); break;
     default: b[0] = 0; break;
@@ -563,21 +515,6 @@ static void change(struct os *s, int id, int d, int fine) {
         else s->selected = clampi(s->selected + d, 0, OS_PADS - 1);
         break;
     case F_O_KEEP: s->outs_keep = d > 0; break;
-    case F_O_LAYOUT: { // in order: AUTO, the mix on 1-2 ... 7-8, 8 OUTS; a pair in use is passed over
-        static const int ORDER[] = {OUTS_AUTO, OUTS_MIX12, OUTS_MIX12 + 1, OUTS_MIX12 + 2, OUTS_MIX12 + 3, OUTS_8};
-        int at = 0;
-        for (int i = 0; i < 6; i++)
-            if (ORDER[i] == s->outs_layout) at = i;
-        unsigned u = outs_used(s, -1);
-        for (int n = d > 0 ? d : -d; n > 0; n--) {
-            int b = at + (d > 0 ? 1 : -1);
-            while (b >= 0 && b < 6 && ORDER[b] >= OUTS_MIX12 && !pair_free(u, ORDER[b] - OUTS_MIX12)) b += d > 0 ? 1 : -1;
-            if (b < 0 || b >= 6) break;
-            at = b;
-        }
-        s->outs_layout = ORDER[at];
-        break;
-    }
     case F_O_TLEVEL: case F_O_TPAN: { // the track's mixer level and pan, as on the mixer
         struct seq_track *t = &q->track[s->outs_sel];
         if (id == F_O_TLEVEL) t->level = clampi(t->level + d, 0, 100);
@@ -588,7 +525,7 @@ static void change(struct os *s, int id, int d, int fine) {
     case F_O_OUT:
         if (s->outs_by_track) {
             struct seq_track *t = &q->track[s->outs_sel];
-            t->usb_out = out_step(s, t->usb_out, d, s->outs_sel);
+            t->usb_out = out_step(t->usb_out, d);
             break;
         }
         /* fall through */
@@ -601,7 +538,7 @@ static void change(struct os *s, int id, int d, int fine) {
         /* fall through */
     case F_O_SVOL: case F_O_PAN: case F_O_FOLLOW: {
         struct pad_params *p = &s->pads[s->selected].p;
-        if (id == F_O_OUT) p->usb_out = out_step(s, p->usb_out, d, s->selected);
+        if (id == F_O_OUT) p->usb_out = out_step(p->usb_out, d);
         else if (id == F_O_SVOL) p->volume = clampi(p->volume + d, 0, 100);
         else if (id == F_O_PAN) p->pan = clampi(p->pan + d, -50, 50);
         else if (id == F_O_FOLLOW) {
@@ -1938,7 +1875,6 @@ void seq_outs_frame(struct os *s, struct ui *u, const struct input *in) {
         lcd_text(u, 0, 6, "Level:");
         lcd_text(u, 0, 7, "Pan:");
         lcd_text(u, 13, 6, "Volume:");
-        lcd_text(u, 13, 8, "In mix:");
     } else {
         lcd_text(u, 0, 6, "Volume:");
         lcd_text(u, 0, 7, "Pan:");
@@ -1955,9 +1891,6 @@ void seq_outs_frame(struct os *s, struct ui *u, const struct input *in) {
         else if (a > ENGINE_OUTS && a < ENGINE_OUT_CODES) used[a - ENGINE_OUTS - 1] = '1' + (char)(a - ENGINE_OUTS - 1), used[a - ENGINE_OUTS] = '1' + (char)(a - ENGINE_OUTS);
     }
     char line[40];
-    lcd_text(u, 0, 9, "Layout:");
-    int mp = outs_mix_pair(s);
-    if (mp >= 0) used[mp * 2] = used[mp * 2 + 1] = 'M'; // the main mix's pair
     snprintf(line, sizeof line, "In use: %s", used);
     lcd_rule(u, 10, 0);
     lcd_text(u, 0, 11, line);

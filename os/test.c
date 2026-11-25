@@ -3467,7 +3467,7 @@ static void test_usb_outs(const char *shot_dir) {
     outs_hit();
     CHECK(mix_peak() == 0 && outs_peak(2) > 0.01f);
     p->volume = 100, p->usb_follow_off = 0, p->usb_out = 0, os_pad_push(&os, 0);
-    // By track: the active track (1) on output 5; kept in the mix, then not
+    // By track: the active track (1) on output 5, and in the MPC's own mix too
     os.outs_by_track = 1;
     os.seq.sequence[0].track[0].usb_out = 5;
     outs_hit();
@@ -3477,9 +3477,9 @@ static void test_usb_outs(const char *shot_dir) {
     outs_hit();
     CHECK(fabsf(outs_peak(4) - full * 0.25f) < 0.002f && fabsf(mix_peak() - in_mix) < 0.002f);
     os.seq.sequence[0].track[0].usb_vol_cut = 0;
-    os.outs_keep = 0;
+    os.outs_keep = 0; // (an older setting: In mix is gone, the MPC's own mix keeps the track)
     outs_hit();
-    CHECK(outs_peak(4) > 0.01f && mix_peak() == 0);
+    CHECK(outs_peak(4) > 0.01f && fabsf(mix_peak() - in_mix) < 0.002f);
     os.outs_keep = 1, os.outs_by_track = 0;
     os.seq.sequence[0].track[0].usb_out = 0;
     // Off: the engine leaves the outputs alone
@@ -3494,22 +3494,22 @@ static void test_usb_outs(const char *shot_dir) {
     frame(&in);
     in = blank(), in.pad_release[8] = 1, frame(&in);
     CHECK(os.screen == OS_OUTS);
-    // MIX AUTO + 6 OUTS (to start), nothing else on an output: OFF, 1 ... 8, 1-2, 3-4 (pairs side by side only)
+    // Eight outputs: the wheel goes OFF, 1 ... 8, 1-2, 3-4, 5-6, 7-8 (2-3 and so on are no pairs)
     in = blank(), in.encoder = 10;
     frame(&in);
-    CHECK(os.outs_layout == OUTS_AUTO && p->usb_out == ENGINE_OUTS + 3); // 3-4
-    CHECK(outs_mix_pair(&os) == 0); // pads with no sound count for nothing: the mix on 1-2
-    in = blank(), in.encoder = -10;
-    frame(&in);
-    CHECK(p->usb_out == 0);
-    os.outs_layout = OUTS_8; // 8 OUTS: OFF, 1 ... 8, 1-2, 3-4 (2-3 is no pair)
+    CHECK(p->usb_out == ENGINE_OUTS + 3); // 3-4
     in = blank(), in.encoder = 10;
     frame(&in);
-    CHECK(p->usb_out == ENGINE_OUTS + 3 && outs_mix_pair(&os) == -1);
+    CHECK(p->usb_out == ENGINE_OUTS + 7); // 7-8, the last
+    in = blank(), in.encoder = -1;
+    frame(&in);
+    CHECK(p->usb_out == ENGINE_OUTS + 5); // 5-6
+    in = blank(), in.encoder = -1;
+    frame(&in);
+    CHECK(p->usb_out == ENGINE_OUTS + 3);
     if (shot_dir) write_shot(shot_dir, "usb_outs");
     tap(IN_B3); // <Set All>
     CHECK(os.pads[7].p.usb_out == ENGINE_OUTS + 3 && os.pads[100].p.usb_out == ENGINE_OUTS + 3);
-    os.outs_layout = OUTS_AUTO;
     os.cursor_outs = 1; // Src: TRACKS
     in = blank(), in.encoder = 1, frame(&in);
     CHECK(os.outs_by_track == 1);
@@ -3535,30 +3535,7 @@ static void test_usb_outs(const char *shot_dir) {
     CHECK(os.seq.sequence[0].track[3].level == 90);
     os.cursor_outs = 8;
     in = blank(), in.encoder = 2, frame(&in);
-    CHECK(os.seq.sequence[0].track[3].usb_out == 2); // OFF, 1, 2: AUTO moves the mix to 3-4
-    CHECK(outs_mix_pair(&os) == 1);
-    { // AUTO: tracks on 1, 3, 5 and 6; the last whole pair, 7-8, stays the mix's
-        struct seq_track *tk = os.seq.sequence[0].track;
-        tk[3].usb_out = 0, tk[0].usb_out = 1, tk[1].usb_out = 3, tk[2].usb_out = 5, tk[4].usb_out = 6;
-        CHECK(outs_mix_pair(&os) == 3);
-        os.outs_sel = 5, tk[5].usb_out = 0;
-        int seen[ENGINE_OUT_CODES] = {0};
-        for (int k = 0; k < 20; k++) {
-            in = blank(), in.encoder = 1, frame(&in);
-            seen[tk[5].usb_out] = 1;
-        }
-        CHECK(!seen[7] && !seen[8] && !seen[ENGINE_OUTS + 7] && seen[2] && seen[4] && seen[ENGINE_OUTS + 1] && seen[ENGINE_OUTS + 5]);
-        CHECK(tk[5].usb_out == ENGINE_OUTS + 5 && outs_mix_pair(&os) == 3); // 5-6 the last it may take
-        if (shot_dir) write_shot(shot_dir, "usb_outs_auto");
-        os.cursor_outs = 11; // Layout: MIX on 7-8 is in use by nothing, 1-2 ... 5-6 are passed over
-        in = blank(), in.encoder = 1, frame(&in);
-        CHECK(os.outs_layout == OUTS_MIX12 + 3);
-        in = blank(), in.encoder = 1, frame(&in);
-        CHECK(os.outs_layout == OUTS_8);
-        os.outs_layout = OUTS_AUTO, os.cursor_outs = 8;
-        for (int t = 0; t < 6; t++) tk[t].usb_out = 0;
-        os.outs_sel = 3, tk[3].usb_out = 2;
-    }
+    CHECK(os.seq.sequence[0].track[3].usb_out == 2); // OFF, 1, 2
     if (shot_dir) write_shot(shot_dir, "usb_outs_tracks");
     tap(IN_B1); // <Mixer>
     CHECK(os.screen == OS_MIXER);
