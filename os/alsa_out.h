@@ -38,5 +38,5 @@ void alsa_out_set_usb_out(int on);
 // USB individual outs: the engine's eight output channels to the outs' own USB audio device
 // (see usbmode_outs), while on. Starts its thread the first time.
 void alsa_out_set_usb_outs(int on);
-void alsa_out_set_outs_mix(int mix); // the main mix on channels 1-2 of the eight (else outputs 1-2)
+void alsa_out_set_outs_mix(int mix); // the main mix on a pair of the eight: 1 (1-2) .. 4 (7-8), 0 none
 void alsa_out_outs_status(char *b, size_t n); // for the log: open, frames taken, each channel's peak since last asked

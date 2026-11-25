@@ -492,11 +492,11 @@ static struct {
 
 static void usbx_put(const struct engine *e, const float *mix, int frames) { // the audio thread
     unsigned w = atomic_load_explicit(&usbx.written, memory_order_relaxed);
-    int with_mix = atomic_load_explicit(&usbx.mix, memory_order_relaxed);
+    int with_mix = atomic_load_explicit(&usbx.mix, memory_order_relaxed), mc = (with_mix - 1) * 2; // its pair's first channel
     for (int i = 0; i < frames; i++) {
         float *d = &usbx.ring[((w + (unsigned)i) & (USB_RING - 1)) * OUTS_CH];
         for (int c = 0; c < OUTS_CH; c++) d[c] = e->outs[c][i];
-        if (with_mix) d[0] = mix[i * 2], d[1] = mix[i * 2 + 1];
+        if (with_mix > 0 && mc + 1 < OUTS_CH) d[mc] = mix[i * 2], d[mc + 1] = mix[i * 2 + 1];
     }
     for (int c = 0; c < OUTS_CH; c++) {
         float m = atomic_load_explicit(&usbx.peak[c], memory_order_relaxed);
@@ -602,7 +602,7 @@ void alsa_out_outs_status(char *b, size_t n) {
 }
 
 void alsa_out_set_outs_mix(int mix) {
-    atomic_store(&usbx.mix, mix != 0);
+    atomic_store(&usbx.mix, mix < 0 ? 0 : mix > 4 ? 4 : mix); // 0 no mix, else its pair: 1 (1-2) .. 4 (7-8)
 }
 
 void alsa_out_set_usb_outs(int on) {

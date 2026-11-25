@@ -3494,21 +3494,22 @@ static void test_usb_outs(const char *shot_dir) {
     frame(&in);
     in = blank(), in.pad_release[8] = 1, frame(&in);
     CHECK(os.screen == OS_OUTS);
-    // MIX + 6 OUTS (to start): the mix on 1-2, so the wheel goes OFF, 3 ... 8, 3-4 ... 7-8
-    in = blank(), in.encoder = 7;
-    frame(&in);
-    CHECK(os.outs_layout == 0 && p->usb_out == ENGINE_OUTS + 3); // 3-4
-    in = blank(), in.encoder = -7;
-    frame(&in);
-    CHECK(p->usb_out == 0);
-    os.outs_layout = 1; // 8 OUTS: OFF, 1 ... 8, 1-2, 2-3
+    // MIX AUTO + 6 OUTS (to start), nothing else on an output: OFF, 1 ... 8, 1-2, 3-4 (pairs side by side only)
     in = blank(), in.encoder = 10;
     frame(&in);
-    CHECK(p->usb_out == 10);
+    CHECK(os.outs_layout == OUTS_AUTO && p->usb_out == ENGINE_OUTS + 3); // 3-4
+    CHECK(outs_mix_pair(&os) == 0); // pads with no sound count for nothing: the mix on 1-2
+    in = blank(), in.encoder = -10;
+    frame(&in);
+    CHECK(p->usb_out == 0);
+    os.outs_layout = OUTS_8; // 8 OUTS: OFF, 1 ... 8, 1-2, 3-4 (2-3 is no pair)
+    in = blank(), in.encoder = 10;
+    frame(&in);
+    CHECK(p->usb_out == ENGINE_OUTS + 3 && outs_mix_pair(&os) == -1);
     if (shot_dir) write_shot(shot_dir, "usb_outs");
     tap(IN_B3); // <Set All>
-    CHECK(os.pads[7].p.usb_out == 10 && os.pads[100].p.usb_out == 10);
-    os.outs_layout = 0;
+    CHECK(os.pads[7].p.usb_out == ENGINE_OUTS + 3 && os.pads[100].p.usb_out == ENGINE_OUTS + 3);
+    os.outs_layout = OUTS_AUTO;
     os.cursor_outs = 1; // Src: TRACKS
     in = blank(), in.encoder = 1, frame(&in);
     CHECK(os.outs_by_track == 1);
@@ -3534,7 +3535,30 @@ static void test_usb_outs(const char *shot_dir) {
     CHECK(os.seq.sequence[0].track[3].level == 90);
     os.cursor_outs = 8;
     in = blank(), in.encoder = 2, frame(&in);
-    CHECK(os.seq.sequence[0].track[3].usb_out == 4); // OFF, 3, 4: the mix has 1-2
+    CHECK(os.seq.sequence[0].track[3].usb_out == 2); // OFF, 1, 2: AUTO moves the mix to 3-4
+    CHECK(outs_mix_pair(&os) == 1);
+    { // AUTO: tracks on 1, 3, 5 and 6; the last whole pair, 7-8, stays the mix's
+        struct seq_track *tk = os.seq.sequence[0].track;
+        tk[3].usb_out = 0, tk[0].usb_out = 1, tk[1].usb_out = 3, tk[2].usb_out = 5, tk[4].usb_out = 6;
+        CHECK(outs_mix_pair(&os) == 3);
+        os.outs_sel = 5, tk[5].usb_out = 0;
+        int seen[ENGINE_OUT_CODES] = {0};
+        for (int k = 0; k < 20; k++) {
+            in = blank(), in.encoder = 1, frame(&in);
+            seen[tk[5].usb_out] = 1;
+        }
+        CHECK(!seen[7] && !seen[8] && !seen[ENGINE_OUTS + 7] && seen[2] && seen[4] && seen[ENGINE_OUTS + 1] && seen[ENGINE_OUTS + 5]);
+        CHECK(tk[5].usb_out == ENGINE_OUTS + 5 && outs_mix_pair(&os) == 3); // 5-6 the last it may take
+        if (shot_dir) write_shot(shot_dir, "usb_outs_auto");
+        os.cursor_outs = 11; // Layout: MIX on 7-8 is in use by nothing, 1-2 ... 5-6 are passed over
+        in = blank(), in.encoder = 1, frame(&in);
+        CHECK(os.outs_layout == OUTS_MIX12 + 3);
+        in = blank(), in.encoder = 1, frame(&in);
+        CHECK(os.outs_layout == OUTS_8);
+        os.outs_layout = OUTS_AUTO, os.cursor_outs = 8;
+        for (int t = 0; t < 6; t++) tk[t].usb_out = 0;
+        os.outs_sel = 3, tk[3].usb_out = 2;
+    }
     if (shot_dir) write_shot(shot_dir, "usb_outs_tracks");
     tap(IN_B1); // <Mixer>
     CHECK(os.screen == OS_MIXER);
@@ -5223,13 +5247,21 @@ static void test_track_eq(const char *shot_dir) {
     CHECK(boosted > flat * 3.0f); // about +14 dB at 80 Hz under a 110 Hz shelf
     for (int i = 0; i < 20; i++) render(128);
 
-    tap(IN_B1); // <Mute>: its notes stop
+    tap(IN_B1); // <Mute>: its notes play silently (so an unmute is heard at once)
     CHECK(k->mute == 1);
     engine_kill_all(&e);
-    for (int i = 0; i < 4; i++) render(128);
+    for (int i = 0; i < 200; i++) render(128); // the EQ test's tail gone
     seq_play(&os.seq, 1);
-    render(256);
-    CHECK(voices() == 0);
+    CHECK(out_peak(4) < 1e-4f && voices() == 1); // its note plays, unheard
+    tap(IN_B1); // unmuted while the note sounds: heard at once, not at its next note
+    CHECK(k->mute == 0 && out_peak(4) > flat * 0.5f);
+    tap(IN_B1);
+    { // muted while it sounds: its voice silent at once (what is left is the EQ's tail)
+        int silent = 1;
+        for (int i = 0; i < ENGINE_VOICES; i++)
+            if (e.voice[i].stage && e.voice[i].track == 1) silent &= e.voice[i].track_cut == 100;
+        CHECK(voices() == 1 && silent);
+    }
     seq_stop(&os.seq, 1);
     tap(IN_B1);
     tap(IN_B2); // <Solo> on another track: this one is silent
@@ -5239,12 +5271,35 @@ static void test_track_eq(const char *shot_dir) {
     tap(IN_B2);
     CHECK(k->solo == 0 && os.seq.sequence[0].track[1].solo == 1);
     engine_kill_all(&e);
-    for (int i = 0; i < 4; i++) render(128);
+    for (int i = 0; i < 200; i++) render(128);
     seq_play(&os.seq, 1);
-    render(256);
-    CHECK(voices() == 0);
+    CHECK(out_peak(4) < 1e-4f);
     seq_stop(&os.seq, 1);
     os.seq.sequence[0].track[1].solo = 0;
+    { // the Track Mute page (MUTE): a pad mutes and unmutes its track at once, mid-note
+        int was = os.screen;
+        mute_open(&os);
+        os.mute_type = MUTE_TRACK;
+        engine_kill_all(&e);
+        for (int i = 0; i < 4; i++) render(128);
+        seq_play(&os.seq, 1);
+        render(128);
+        struct input pin = blank();
+        pin.pad_hit[0] = 100, pin.pad_down[0] = 1;
+        frame(&pin);
+        int cut = -1;
+        for (int i = 0; i < ENGINE_VOICES; i++)
+            if (e.voice[i].stage && e.voice[i].track == 1) cut = e.voice[i].track_cut;
+        CHECK(k->mute == 1 && cut == 100);
+        frame(&pin);
+        render(128);
+        cut = -1;
+        for (int i = 0; i < ENGINE_VOICES; i++)
+            if (e.voice[i].stage && e.voice[i].track == 1) cut = e.voice[i].track_cut;
+        CHECK(k->mute == 0 && cut >= 0 && cut < 100);
+        seq_stop(&os.seq, 1);
+        os.screen = was;
+    }
 
     tap(IN_B3); // <EQ>: its page
     CHECK(os.screen == OS_EQ && os.cursor_eq == 0);

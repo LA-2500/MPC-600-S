@@ -2900,7 +2900,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         atomic_store_explicit(&e->outs_on, on, memory_order_relaxed);
         atomic_store_explicit(&e->outs_by_track, s->outs_by_track, memory_order_relaxed);
         atomic_store_explicit(&e->outs_keep, s->outs_keep, memory_order_relaxed);
-        if (s->set_outs_mix) s->set_outs_mix(s->outs_layout == 0);
+        if (s->set_outs_mix) s->set_outs_mix(outs_mix_pair(s) + 1); // 0: no mix
         const struct seq_sequence *q = &s->seq.sequence[s->seq.current];
         for (int t = 0; on && t < SEQ_TRACKS && t + 1 < ENGINE_TRACKS; t++)
             atomic_store_explicit(&e->trk_out[t + 1], (unsigned char)q->track[t].usb_out, memory_order_relaxed),

@@ -263,8 +263,10 @@ static int offset_of(const struct block *b, double ticks_in) {
 
 static void cancel_pending(struct seq *s, int midi, int note, int channel, int key);
 
+// `silent`: a muted track's note, played at level 0 and not sent out MIDI, so unmuting is heard at
+// once (a loop already under way comes in where it is) and muting cuts at once (the level).
 static void fire(struct seq *s, const struct block *b, const struct seq_track *k, const struct seq_note *n,
-                 double ticks_in) {
+                 double ticks_in, int silent) {
     if (k->type != TRACK_MIDI && k->kit >= 0 && k->kit < ENGINE_PROGRAMS && n->note < 128) { // Pad Mute, Pad Solo
         const unsigned char *solo = s->pad_solo[k->kit];
         if (s->pad_mute[k->kit][n->note]) return;
@@ -276,7 +278,7 @@ static void fire(struct seq *s, const struct block *b, const struct seq_track *k
     if (k->type != TRACK_MIDI) {
         int pad = seq_track_slot(s, k, n->note); // this track's program
         int t = (int)(k - s->sequence[s->current].track); // the mixer knows tracks by number
-        engine_play_pad_mix(b->e, pad, vel, n->tune, offset_of(b, ticks_in), t + 1, k->level, k->pan);
+        engine_play_pad_mix(b->e, pad, vel, n->tune, offset_of(b, ticks_in), t + 1, silent ? 0 : k->level, k->pan);
         // This note takes over the pad's release. An earlier note's release still waiting (a note
         // longer than the loop: its end falls in the next pass) would otherwise cut this one off.
         cancel_pending(s, 0, pad, 0, n->tune);
@@ -284,7 +286,7 @@ static void fire(struct seq *s, const struct block *b, const struct seq_track *k
     }
     int midi_note = k->type == TRACK_MIDI ? n->note : seq_plays_s600(s, k) ? 60 + n->tune : seq_pad_note(n->note);
     midi_note = midi_note < 0 ? 0 : midi_note > 127 ? 127 : midi_note;
-    if (k->channel > 0) {
+    if (k->channel > 0 && !silent) {
         send3(s, 0x90 | (k->channel - 1), midi_note, vel);
         cancel_pending(s, 1, midi_note, k->channel, 0); // the same for a MIDI note: the new one's end counts
         add_pending(s, end, 1, midi_note, k->channel);
@@ -336,7 +338,10 @@ static void play_range(struct seq *s, const struct block *b, double start, doubl
                 continue;
             }
             if (n->fresh) n->fresh = 0;
-            else if (k->on && !k->mute && (!solo || k->solo)) fire(s, b, k, n, n->tick - start);
+            else if (k->on) {
+                int heard = !k->mute && (!solo || k->solo);
+                if (heard || k->type != TRACK_MIDI) fire(s, b, k, n, n->tick - start, !heard); // muted: silent
+            }
             i++;
         }
         if (k->on) play_autos(s, b, k, start, end);

@@ -18,7 +18,9 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM, RENAME_SOUND, RENA
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "2.0E"
+// USB Indiv Out Layout (outs_layout): 0 and 1 are as older settings saved them.
+enum { OUTS_AUTO, OUTS_8, OUTS_MIX12 }; // MIX AUTO + 6 OUTS, 8 OUTS, then MIX on 1-2 (+1 3-4, +2 5-6, +3 7-8)
+#define OS_NUMBER "2.0F"
 #define OS_VERSION "LA Version " OS_NUMBER " (11/25/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
@@ -251,8 +253,8 @@ struct os {
     // USB individual outs (SHIFT + Pad 9 twice): eight more channels to the computer, a second USB
     // audio device beside the main one; by pad or by track; assigned sounds kept in the main mix too.
     int usb_outs, outs_by_track, outs_keep, outs_sel, cursor_outs;
-    int outs_layout;              // 0 MIX + 6 OUTS: the main mix on 1-2, outputs 3-8; 1 8 OUTS: no mix
-    void (*set_outs_mix)(int mix); // tells the audio side whether 1-2 are the main mix, or NULL
+    int outs_layout;              // OUTS_*: where the main mix goes on the USB outs, or 8 OUTS (no mix)
+    void (*set_outs_mix)(int mix); // tells the audio side the main mix's pair (1 for 1-2 .. 4 for 7-8, 0 none), or NULL
     void (*set_usb_outs)(int on); // puts the outputs' USB device on or takes it off, or NULL
     int usb_outs_state;           // what that last did: 0 off, 1 on, -1 failed
     void (*set_usb_out)(int on);  // tells the audio side, or NULL

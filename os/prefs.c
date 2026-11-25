@@ -212,7 +212,7 @@ void prefs_load_line(struct os *s, const char *line) {
     int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3],
                      &v[4], &v[5], &v[6], &v[7], &v[8], &v[9], &v[10], &v[11], &v[12], &v[13], &v[14], &v[15], &v[16], &v[17], &v[18],
                      &v[19], &v[20], &v[21], &v[22], &v[23], &v[24], &v[25]);
-    if (got >= 26) s->outs_layout = v[25] != 0;
+    if (got >= 26) s->outs_layout = v[25] < 0 || v[25] > OUTS_MIX12 + 3 ? OUTS_AUTO : v[25];
     if (got >= 25) s->usb_outs = v[22] != 0, s->outs_by_track = v[23] != 0, s->outs_keep = v[24] != 0;
     if (got >= 22) s->layout = clampi(v[21], 0, LAYOUTS - 1);
     if (got >= 21) s->usb_out = v[20] != 0;

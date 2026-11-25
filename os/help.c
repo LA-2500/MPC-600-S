@@ -328,7 +328,8 @@ static const struct {
     {OS_OUTS, -1, "USB Indiv Out",
      "Eight channels to a computer over USB, on MPC Sample.\n"
      "USB Outs ON makes it eight channels (USB audio and MIDI stop for a moment).\n"
-     "Layout: MIX on 1-2 + 6 OUTS (outputs 3-8), or 8 OUTS (no main mix over USB).\f"
+     "Layout: MIX AUTO + 6 OUTS (the mix on the pair left free), MIX on 1-2, 3-4, 5-6 or 7-8 + 6 OUTS, "
+     "or 8 OUTS (no main mix over USB). Pairs are 1-2, 3-4, 5-6, 7-8.\f"
      "Src PADS: each pad its Output (OFF, a channel, or a stereo pair such as 3-4), Volume "
      "there and Follow (its stereo Volume). Stereo Volume 0 leaves the pad on its output only.\n"
      "B3 <Set All>: this pad's on every pad.\f"
