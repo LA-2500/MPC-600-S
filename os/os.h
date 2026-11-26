@@ -18,8 +18,8 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM, RENAME_SOUND, RENA
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "2.0G"
-#define OS_VERSION "LA Version " OS_NUMBER " (11/25/26)" // 26 columns: a four-digit year will not fit
+#define OS_NUMBER "2.0H"
+#define OS_VERSION "LA Version " OS_NUMBER " (11/26/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
 #define OS_POWER_FORCE_MS 15000 // if an orderly shutdown has not finished by then, cut the power
@@ -493,6 +493,8 @@ struct os {
     int usbm_op, usbm_ask, usbm_watch;   // the step last started; the "Exit anyway?" question; left while starting
 };
 
+int64_t os_playhead(const struct os *s); // where the selected pad's sound is playing (frames), or -1
+void os_draw_playhead(struct ui *u, int x, int top, int h); // its line, at screen x
 void os_toast(struct os *s, const struct ui *u, const char *text);
 // A knob or the slider at `now` (0..127), `last` before (-1: not read yet), on a value at `at`
 // (0..127): the position to set the value to, by Knob Mode, or -1 to leave it as it is.

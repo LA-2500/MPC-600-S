@@ -236,7 +236,10 @@ static void button_message(struct input_dev *dev, struct input *in, int kind, in
     if (kind == 0x90 && value == 127) { // a press (other velocities are not the panel's presses)
         // The cursor's and the page's buttons, just after a pad press: the panel shaking.
         unsigned shaken = (1u << IN_ENCODER) | (1u << IN_B1) | (1u << IN_B2) | (1u << IN_B3) | (1u << IN_MINUS) | (1u << IN_PLUS);
-        if (dev && (bit & shaken) && !(dev->held & bit) && dev->pad_hit_ms && clock_ms() - dev->pad_hit_ms < BUTTON_SHAKE_MS) {
+        long long t = clock_ms();
+        int after_pad = dev && dev->pad_hit_ms && t - dev->pad_hit_ms < BUTTON_SHAKE_MS;
+        int after_knob = dev && dev->knob_ms && t - dev->knob_ms < BUTTON_SHAKE_MS; // a knob or the slider being turned shakes them too
+        if (dev && (bit & shaken) && !(dev->held & bit) && (after_pad || after_knob)) {
             dev->ghosts++;
             return; // and its release, with no press before it, is nothing either
         }
@@ -319,8 +322,33 @@ static int control_value(struct input_dev *dev, int c, int value) {
     return -1;
 }
 
+// A control at rest is not a turn. See input_dev's ctl_out: the value passed on, or -1.
+#define CTL_DEAD 2
+#define CTL_REST_MS 400
+static unsigned flicker_count;
+unsigned panel_flicker(void) {
+    return flicker_count;
+}
+static int settle(struct input_dev *dev, int c, int value) {
+    long long now = clock_ms();
+    if (!dev->ctl_out_known[c]) { // the first reading: where it is, not a move
+        dev->ctl_out_known[c] = 1, dev->ctl_out[c] = value, dev->ctl_dir[c] = 0;
+        return -1;
+    }
+    if (dev->ctl_dir[c] && now - dev->ctl_move_ms[c] > CTL_REST_MS) dev->ctl_dir[c] = 0; // at rest again
+    int d = value - dev->ctl_out[c];
+    if (!d) return -1;
+    int on = (dev->ctl_dir[c] > 0 && d > 0) || (dev->ctl_dir[c] < 0 && d < 0); // a turn going on
+    if (!on && abs(d) < CTL_DEAD) {
+        flicker_count++, dev->flicker++;
+        return -1;
+    }
+    dev->ctl_dir[c] = d > 0 ? 1 : -1, dev->ctl_out[c] = value, dev->ctl_move_ms[c] = now;
+    return value;
+}
+
 static void control_message(struct input_dev *dev, struct input *in, int cc, int value) {
-    if (dev && ((cc >= 16 && cc <= 20) || cc == 100)) dev->ctl_ms = clock_ms(); // a control being worked
+    if (dev && (cc == 100)) dev->ctl_ms = clock_ms(); // the wheel being worked (knobs: once a move is taken, below)
     if (cc == 100) {
         int step = value < 64 ? value : value - 128; // two's complement steps
         if (dev) {
@@ -337,6 +365,9 @@ static void control_message(struct input_dev *dev, struct input *in, int cc, int
     }
     int c = cc >= 16 && cc <= 18 ? cc - 16 : cc == 19 ? 3 : cc == 20 ? 4 : -1;
     if (c < 0 || (value = control_value(dev, c, value)) < 0) return;
+    if (dev && (value = settle(dev, c, value)) < 0) return;
+    if (dev) dev->ctl_ms = clock_ms(); // a control being worked: pads close to it shake
+    if (dev && c != 3) dev->knob_ms = dev->ctl_ms;
     if (c < 3) in->knob_moved[c] = 1, in->knob[c] = value;
     else if (c == 3) in->main_moved = 1, in->main = value;
     else in->fader_moved = 1, in->fader = value;

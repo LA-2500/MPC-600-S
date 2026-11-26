@@ -83,6 +83,7 @@ static void make_clicks(void) {
 void engine_init(struct engine *e) {
     memset(e, 0, sizeof *e);
     atomic_store(&e->fx_pad, -1);
+    for (int i = 0; i < ENGINE_SLOTS; i++) atomic_store(&e->play_pos[i], -1);
     make_clicks();
     e->click[0] = &click_sample[0];
     e->click[1] = &click_sample[1];
@@ -142,6 +143,11 @@ int engine_track_sends(struct engine *e, int track, const unsigned char *levels)
     struct event ev = {.type = EV_SEND, .track = track};
     for (int i = 0; i < ENGINE_SENDS; i++) ev.eq[i / 5][i % 5] = levels[i] / 100.0f;
     return engine_send(e, &ev);
+}
+
+int engine_play_pos(struct engine *e, int pad) {
+    if (!e || pad < 0 || pad >= ENGINE_SLOTS) return -1;
+    return atomic_load_explicit(&e->play_pos[pad], memory_order_relaxed);
 }
 
 int engine_track_mix(struct engine *e, int track, int level, int pan) {
@@ -781,6 +787,13 @@ static double synth_pitch(struct voice *v, int bend, int mod, int frames, float 
     return semis;
 }
 
+// Pitch as the MPC60 plays it (its L4003 chip, as MAME's reverse engineering has it): the step
+// through the sound in 4.12 fixed point (a 4096th of a sample), and each output the stored sample
+// at or before the position, held, never blended with the next. Gritty: pitched up it aliases,
+// pitched down it steps. (Sampling's own Pitch, before a sound is stored, is high quality: see
+// recorder.c.)
+#define PITCH_STEPS 4096
+
 static void render_voice(struct voice *v, float *out, int frames, int e_bend, int e_mod) {
     const struct sample *s = v->s;
     const struct pad_params *p = &v->p;
@@ -796,6 +809,8 @@ static void render_voice(struct voice *v, float *out, int frames, int e_bend, in
     if (p->synth) semis += synth_pitch(v, e_bend, e_mod, frames, &lfo_octaves, &lfo_gain);
     else semis += glide_step(v, frames); // a slide on a drum pad's sound
     double step = (double)s->rate / ENGINE_RATE * pow(2.0, semis / 12.0);
+    step = floor(step * PITCH_STEPS + 0.5) / PITCH_STEPS; // the chip's 4.12 pitch steps
+    if (step < 1.0 / PITCH_STEPS) step = 1.0 / PITCH_STEPS;
     float vol = (float)p->volume / 100.0f;
     float mix = (100.0f - (float)v->track_cut) / 100.0f; // the track mixer's level, on the same curve
     vol = vol * vol * v->vel_gain * lfo_gain * mix * mix;
@@ -832,9 +847,6 @@ static void render_voice(struct voice *v, float *out, int frames, int e_bend, in
     }
 
     int ch = s->channels;
-    // A sound below 44.1 kHz plays as a vintage sampler's converter did: each sample held
-    // until the next one's time, not blended into it.
-    int hold = s->rate < ENGINE_RATE;
     int first = v->delay < frames ? v->delay : frames;
     v->delay -= first;
     for (int n = first; n < frames; n++) {
@@ -860,11 +872,8 @@ static void render_voice(struct voice *v, float *out, int frames, int e_bend, in
         int32_t i0 = (int32_t)v->pos;
         if (i0 < 0) i0 = 0;
         if (i0 >= s->frames) i0 = s->frames - 1;
-        int32_t i1 = i0 + 1 < s->frames ? i0 + 1 : i0;
-        float t = hold ? 0.0f : (float)(v->pos - i0);
-        float l = s->data[i0 * ch] + t * (s->data[i1 * ch] - s->data[i0 * ch]);
-        float r = l;
-        if (ch == 2) r = s->data[i0 * 2 + 1] + t * (s->data[i1 * 2 + 1] - s->data[i0 * 2 + 1]);
+        float l = s->data[i0 * ch]; // the sample at or before the position, held (the MPC60)
+        float r = ch == 2 ? s->data[i0 * 2 + 1] : l;
 
         for (int c = 0; c < sections; c++) {
             float kc = c + 1 < sections ? k_first : k;
@@ -1153,6 +1162,19 @@ void engine_render(struct engine *e, float *out, int frames) {
     float was = atomic_load_explicit(&e->load, memory_order_relaxed);
     atomic_store_explicit(&e->load, took > was ? took : was * 0.995f + took * 0.005f, memory_order_relaxed);
     for (int i = 0; i < ENGINE_SLOTS; i++) atomic_store_explicit(&e->playing[i], playing[i], memory_order_relaxed);
+    { // each pad's newest note (its first layer): where it is, for the screens' playhead
+        static int32_t at[ENGINE_SLOTS];
+        static uint32_t newest[ENGINE_SLOTS];
+        static unsigned char seen[ENGINE_SLOTS];
+        memset(seen, 0, sizeof seen);
+        for (int i = 0; i < ENGINE_VOICES; i++) {
+            const struct voice *v = &e->voice[i];
+            if (v->stage == V_FREE || v->fading || v->layer || v->pad < 0 || v->pad >= ENGINE_SLOTS) continue;
+            if (seen[v->pad] && (int32_t)(v->age - newest[v->pad]) < 0) continue;
+            seen[v->pad] = 1, newest[v->pad] = v->age, at[v->pad] = (int32_t)v->pos;
+        }
+        for (int i = 0; i < ENGINE_SLOTS; i++) atomic_store_explicit(&e->play_pos[i], seen[i] ? at[i] : -1, memory_order_relaxed);
+    }
     atomic_store_explicit(&e->voices, active, memory_order_relaxed);
     float pl = atomic_load_explicit(&e->peak_l, memory_order_relaxed);
     float pr = atomic_load_explicit(&e->peak_r, memory_order_relaxed);

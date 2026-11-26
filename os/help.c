@@ -335,6 +335,7 @@ static const struct {
      "B3 <Set All>: this pad's on every pad.\f"
      "Src TRACKS: each track's Output and Volume there, after its fader, pan, inserts and EQ. The MPC's "
      "own outputs keep the whole mix.\n"
+     "K1 the track (or pad), K2 its Indiv Out Volume, K3 its Output.\n"
      "Pads pick the note or track. B1 the mixer. Shift+Pad 9 again: the mixer."},
     {OS_COPYEV, -1, "Copy Events",
      "Copies notes and fader moves: from a sequence and track (0 is every track, each onto "

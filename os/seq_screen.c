@@ -1864,6 +1864,27 @@ void seq_outs_frame(struct os *s, struct ui *u, const struct input *in) {
     }
     pthread_mutex_lock(&sq->lock);
     edit_fields(s, in, OUTS_FIELDS, COUNT(OUTS_FIELDS), &s->cursor_outs);
+    // K1 the track (or the pad), K2 its Indiv Out Volume, K3 its Output: each from where the value
+    // is (turned, not jumped to), taking the cursor there. Output steps every 8 readings.
+    {
+        static const int ID[3] = {F_O_NOTE, F_O_IVOL, F_O_OUT}, PER[3] = {1, 1, 8};
+        static int acc[3];
+        for (int k = 0; k < 3; k++) {
+            if (!in->knob_moved[k]) continue;
+            int last = s->knob_last[k], now = in->knob[k];
+            s->knob_last[k] = now;
+            if (last < 0 || now - last > 12 || last - now > 12) { // the knob's first move here: where it is
+                acc[k] = 0;
+                continue;
+            }
+            acc[k] += now - last;
+            int steps = acc[k] / PER[k];
+            acc[k] -= steps * PER[k];
+            for (int f = 0; f < (int)COUNT(OUTS_FIELDS); f++)
+                if (OUTS_FIELDS[f].id == ID[k]) s->cursor_outs = f;
+            if (steps) change(s, ID[k], steps, 0);
+        }
+    }
     lcd_text(u, 0, KEY_ROW, "<Mixer>");
     if (!s->outs_by_track) lcd_text(u, 17, KEY_ROW, "<Set All>");
     lcd_rule(u, TITLE_ROW, "USB Indiv Out");

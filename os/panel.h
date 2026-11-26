@@ -68,6 +68,13 @@ struct input_dev {
     long long pad_hit_ms;  // the last pad press taken: the wheel and the cursor buttons close after
                            // it are the panel shaking (see PAD_SHAKE_MS)
     long long wheel_ms;    // the last wheel step taken: a turn under way is not a shake
+    // A control at rest flickers between two neighbouring readings (63, 64, 63 ...). The value
+    // passed on (ctl_out): from rest, a move of at least CTL_DEAD readings; turning, one more step
+    // the same way; back the other way, CTL_DEAD again. At rest again after CTL_REST_MS.
+    int ctl_out[5], ctl_out_known[5], ctl_dir[5];
+    long long ctl_move_ms[5];
+    long long knob_ms;     // the last knob or slider move taken: the cursor's buttons close after are the panel shaking
+    unsigned flicker;      // readings of a control at rest, passed over
 };
 
 // A new frame: nothing happened yet, held things as the panel holds them (dev NULL: nothing).
@@ -76,6 +83,7 @@ void input_begin(struct input *in, const struct input_dev *dev);
 int input_late_releases(struct input_dev *dev, struct input *in);
 // One message from the panel (three bytes, status first) into the frame and the panel state.
 void input_push(struct input_dev *dev, struct input *in, const unsigned char m[3]);
+unsigned panel_flicker(void); // knob, slider and volume readings passed over as a control at rest flickering
 int input_down(const struct input *in, int button);
 
 // A frame to draw. px is the whole display, one 0xRRGGBB word a pixel, row after row.

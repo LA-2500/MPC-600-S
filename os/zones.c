@@ -306,6 +306,9 @@ static void draw_wave(struct ui *u, const struct os *s) {
     if (s->zone_phase == ZP_PLAY) { // the play position, as a bar above the waveform
         int x = XPOS(play_position(s));
         for (int y = WAVE_TOP - 6; y < WAVE_TOP; y += 2) lcd_dot(u, x, y, LCD_FG);
+    } else { // a zone, or the pad, played: a line where it is
+        int64_t head = os_playhead(s);
+        if (head >= 0 && head < sm->frames) os_draw_playhead(u, XPOS(head), WAVE_TOP, WAVE_H);
     }
     for (int i = 1; i < s->zone_nonsets; i++) // transients: a tick under the waveform
         lcd_dot(u, XPOS(s->zone_onsets[i]), WAVE_TOP + WAVE_H + 2, LCD_FG);

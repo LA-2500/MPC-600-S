@@ -1845,8 +1845,24 @@ static int64_t follow_point(int64_t a, int64_t b, int cursor_on_b) {
     return on_b ? b : a;
 }
 
+// Where the selected pad's sound is playing now (its drum or its S600 note), or -1.
+int64_t os_playhead(const struct os *s) {
+    if (!s->engine || s->selected < 0 || s->selected >= ENGINE_PADS) return -1;
+    int at = engine_play_pos(s->engine, s->selected);
+    if (at < 0) at = engine_play_pos(s->engine, ENGINE_S600 + s->selected);
+    return at;
+}
+
+// The playhead: a solid line down the waveform (the markers are dotted), and the screen drawn
+// again soon while it moves.
+void os_draw_playhead(struct ui *u, int x, int top, int h) {
+    lcd_fill(u, x & ~1, top, 2, h, LCD_FG);
+    ui_wake(u, 30);
+}
+
 // Frames [a, b) are drawn solid, the rest dotted, with solid markers at a and b and a dashed
-// one at `dashed` (or none when it is negative). Zoomed in, the view centres on `focus`.
+// one at `dashed` (or none when it is negative). Zoomed in, the view centres on `focus`. The
+// pad's sound playing: a solid line where it is.
 static void draw_wave(struct ui *u, const struct os *s, const struct os_pad *pad, int64_t a, int64_t b,
                       int64_t focus, int64_t dashed) {
     if (!pad->s) {
@@ -1885,6 +1901,9 @@ static void draw_wave(struct ui *u, const struct os *s, const struct os_pad *pad
     if (end_x >= 0 && end_x <= OS_WAVE_W) marker(u, end_x < OS_WAVE_W ? end_x : OS_WAVE_W - 2, 0, LCD_FG);
     int dashed_x = XPOS(dashed);
     if (dashed >= 0 && dashed_x >= 0 && dashed_x < OS_WAVE_W) marker(u, dashed_x, 1, LCD_FG);
+    int64_t head = os_playhead(s);
+    int head_x = XPOS(head);
+    if (head >= 0 && head < frames && head_x >= 0 && head_x < OS_WAVE_W) os_draw_playhead(u, WAVE_X + head_x, WAVE_Y, WAVE_H);
 #undef XPOS
 }
 

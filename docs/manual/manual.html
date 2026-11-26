@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 2.0G &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 2.0H &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -106,7 +106,7 @@
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
-<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0G.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0H.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
 <ol>
   <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
   <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
@@ -594,7 +594,7 @@
 <p><span class="key">SAMPLE</span> opens the settings of the pad last played (on an MPC program). The page opens on <strong>Vol</strong>. <span class="key">B1</span> steps Trim and Vol, <span class="key">B2</span> Tune, Poly, Envel and Vel Mod, <span class="key">B3</span> Filter and Flt Env; <span class="key">K1</span>&ndash;<span class="key">K3</span> set the three values shown. <strong>Sample:</strong> at the top swaps the pad&rsquo;s sound for any in memory; <span class="key">SHIFT</span> with the wheel steps only through the sounds no pad plays. With the cursor on Sample:, a tap of <span class="key">ERASE</span> renames the sound (not the Erase page): the wheel sets each letter, <span class="key">&minus;</span>/<span class="key">+</span> move, ERASE takes a letter out and <span class="key">SHIFT + ERASE</span> the whole name, <span class="key">B3 &lt;OK&gt;</span> keeps it (on every pad playing that sound) and <span class="key">B1 &lt;Cancel&gt;</span> leaves it.</p>
 <p><strong>Selecting a pad without playing it:</strong> hold <span class="key">SAMPLE</span> and press the pad. It becomes the selected pad, and nothing else happens: it does not sound, Note Repeat does not start, nothing goes out over MIDI (Local Mode off, or a MIDI track), and no note is recorded, even while the sequence records. Useful for setting a looping pad&rsquo;s volume while it plays, without starting it again. (The first press of SAMPLE also opens this page, or the S600 page on an S600 program.)</p>
 <ul>
-  <li><strong>Trim</strong>: Zone Start, Zone End, and <strong>Do</strong> (on <span class="key">K3</span>): Discard, Normalize, Extract, Silence Zone, Reverse Zone, Delete Zone, Copy Zone&rarr;Temp, Insert Temp at Zone Start or End, Convert 44.1k, Purge Unused. <span class="key">B3</span> does it. <strong>Purge Unused</strong> is not for the zone: it deletes every sound kept in memory that no pad of any program plays (sounds a load or a new sound put on a pad kept), to free memory, and says how many went. Undo brings them back. On Trim the slider steps Zone Start through the hits found in the sound. <span class="key">SHIFT + Pad 13</span> opens Trim from anywhere.</li>
+  <li><strong>Trim</strong>: Zone Start, Zone End, and <strong>Do</strong> (on <span class="key">K3</span>): Discard, Normalize, Extract, Silence Zone, Reverse Zone, Delete Zone, Copy Zone&rarr;Temp, Insert Temp at Zone Start or End, Convert 44.1k, Purge Unused. <span class="key">B3</span> does it. <strong>Purge Unused</strong> is not for the zone: it deletes every sound kept in memory that no pad of any program plays (sounds a load or a new sound put on a pad kept), to free memory, and says how many went. Undo brings them back. On Trim the slider steps Zone Start through the hits found in the sound. <span class="key">SHIFT + Pad 13</span> opens Trim from anywhere. While the pad plays, a solid line moves along the waveform where the sound is (the playhead; the zone&rsquo;s ends are dotted), on Trim, Loop and the Zone Assign page, to set Zone End by eye.</li>
   <li><strong>Vol</strong>: Volume, Pan. <strong>Tune</strong>: Semi, Fine. <strong>Poly</strong>: Poly/Mono, Mute Group, Also Play. <strong>Envel</strong>: Attack, Decay, Decay Mode. <strong>Vel Mod</strong>: velocity to level, attack and start.</li>
   <li><strong>Filter</strong>: Type, Cutoff, Resonance. <strong>Flt Env</strong>: Attack, Decay, Depth.</li>
   <li>Hidden keys: <span class="key">SHIFT + B1</span> Loop Lock (while it is on, the loop point follows the start point, so with the sound&rsquo;s loop on, the whole sound loops from start to end; it is on for every new sound, and turns off by itself when you set Loop St by hand or a loop point is found for you), <span class="key">SHIFT + B2</span> Normalize, <span class="key">SHIFT + B3</span> Edit All Pads (an edit goes to every pad; <span class="lcd">ALL PADS</span> shows on the bottom line while it is on). Hold <span class="key">SAMPLE</span> and press <span class="key">B1</span>/<span class="key">B2</span> to zoom.</li>
@@ -906,9 +906,57 @@
 <p>So the filter is a gentle one. It is flat to about a third of the new rate and &minus;6 dB at 90% of Nyquist. It reaches &minus;60 dB about 18% above Nyquist. Content in that last band (for 26.04 kHz, 13.0&ndash;15.2 kHz) still folds back, much reduced, into the top octave of the sound. A steeper filter would cost more of the top end. This one keeps the top end and lets a trace of aliasing through, as many vintage input filters did. The numbers move with Pitch: the cutoff is set in the pitched-up signal, so with Pitch at +12 the cutoff in the original input is half as high.</p>
 
 <h3>Playing Back</h3>
-<p>Sounds below 44.1 kHz play back by zero-order hold (sample-and-hold). At the 44.1 kHz output, each sample of the sound is held until the next one is due, never blended into it. This keeps the stepped waveform and its images above the sound&rsquo;s Nyquist frequency, as early samplers&rsquo; converters did. The hold&rsquo;s own response is sin(&pi;f/f<sub>s</sub>)/(&pi;f/f<sub>s</sub>): &minus;3.9 dB at the sound&rsquo;s Nyquist frequency. Sounds at 44.1 kHz played at another pitch are interpolated linearly between samples. All voices are mixed in 32-bit float.</p>
+<p>Every sound, at any sample rate and any pitch, plays back by zero-order hold (sample-and-hold), taken from the MPC60: each output sample is the stored sample at or before the play position, never blended with the next. For a sound below 44.1 kHz at its own pitch, the hold&rsquo;s response is sin(&pi;f/f<sub>s</sub>)/(&pi;f/f<sub>s</sub>): &minus;3.9 dB at the sound&rsquo;s Nyquist frequency. All voices are mixed in 32-bit float. <strong>Pitching</strong>, below, explains it in full and compares it with the MPC3000 and with other methods.</p>
 <h3>Pitch</h3>
 <p>Pitch speeds the input up by 0 to 24 semitones before it is sampled, and the pad it lands on is tuned down by the same amount, so it plays at its own pitch. This is the old trick of sampling a record at 45 instead of 33 and tuning it down: more sound fits in the same memory, and the lower effective rate and the tuning down change its character. With Pitch at +12 and a rate of 26.04 kHz, the sound is effectively sampled at 13.02 kHz.</p>
+
+<h2>Pitching: How a Sound Plays at Another Pitch</h2>
+<p>A sound is stored as a list of numbers, one for each moment it was sampled. To play it at its own pitch, the MPC reads them one after another at the rate they were taken. To play it higher, it reads through them faster; lower, slower. Either way the play position soon falls <em>between</em> two stored samples, where there is no number. What a sampler plays at those positions is the biggest single part of how it sounds when pitched. There are two basic answers: take a stored sample as it is (<em>hold</em>), or work out a value between the samples from the ones around it (<em>interpolate</em>). This applies to every pad, S600 and S600 MULTI note, 16 Levels, Note Repeat, the arpeggiator and the sequence. Pitch on Sample New Sound, applied before a sound is stored, is a separate step, described at the end.</p>
+
+<h3>The MPC 600 S: Zero-Order Hold, Taken from the MPC60</h3>
+<p>The MPC 600 S pitches every sound the way the MPC60 does, taken from its sound chip (the L4003) as MAME&rsquo;s reverse engineering of it describes:</p>
+<ul>
+  <li><strong>The step.</strong> Each output sample, the play position moves on by the step: the sound&rsquo;s rate over the output&rsquo;s (44.1 kHz) times 2<sup>semitones/12</sup>, with Semi, Fine, the S600&rsquo;s bend, LFO and glide in the semitones. The step is rounded to a 4096th of a sample (4.12 fixed point), as both the MPC60&rsquo;s and the MPC3000&rsquo;s chips hold it. Whole octaves are exact; between them the rounding is at most 0.11 cents an octave up, 0.21 cents at the sound&rsquo;s own pitch, 0.42 cents an octave down and 0.85 cents two octaves down: far below what an ear can hear.</li>
+  <li><strong>The output.</strong> Each output sample is the stored sample at or before the play position, held. It is never blended with the next.</li>
+</ul>
+<p>What that sounds like:</p>
+<ul>
+  <li><strong>Pitched down</strong>, some stored samples are output twice in a row and some once, in a pattern that repeats with the pitch. The waveform becomes a staircase, and the irregular pattern adds faint tones that are not in the sound: the metallic, stepped edge of late-1980s drum machines. The higher the sound&rsquo;s highs, the more of this there is.</li>
+  <li><strong>Pitched up</strong>, samples are skipped. Nothing filters the sound first, so highs pushed past half the output rate (22.05 kHz) fold back down as aliasing: the crunch of a pitched-up snare or hat.</li>
+  <li><strong>At its own pitch</strong>, a 44.1 kHz sound plays exactly as stored. A sound below 44.1 kHz plays as a stepped waveform, each sample held until the next is due, as an early sampler&rsquo;s converter output it.</li>
+  <li><strong>Cost</strong>: one read per output sample, the least work any method takes, so pitching never limits how many notes can sound.</li>
+</ul>
+
+<h3>The MPC60 Itself</h3>
+<p>The MPC60 (1988) plays 12-bit samples at 40 kHz. Its L4003 chip steps through a sound in the same 4.12 fixed point (there relative to 40 kHz) and outputs the stored sample with no interpolation. MAME also models some processing of each sample (taken from code in the MPC3000 that converts MPC60 sounds, and presumed to model the chip&rsquo;s own). The MPC 600 S takes the pitching only. It runs at 44.1 kHz, so its hold falls on a 44.1 kHz grid rather than 40 kHz; the pattern of repeated and skipped samples differs slightly, the character is the same. For more of the MPC60&rsquo;s sound, also sample at 40 kHz and 12 bits.</p>
+
+<h3>The MPC3000</h3>
+<p>The MPC3000 (1994) uses the L6028 chip (also in the MPC2000 and MPC2000XL and the S2000, S3000 and S3200 samplers, per MAME). It runs at 44.1 kHz and steps in the same 4.12 fixed point, but it interpolates. Per MAME, each output is made from the <strong>eight</strong> stored samples around the position (three before it, the one at it, and four after), weighed by a windowed sinc: tap <em>k</em> at distance <em>d</em> from the position weighs sin(&pi;d)/(&pi;d) &times; (1 + cos(&pi;d/4))/2, the weights of each of the 4096 positions between two samples normalised to sum to 1. (The S1000 before it used four points.) MAME&rsquo;s authors note that these weights are the textbook ones and the chip&rsquo;s own may differ slightly; one forum report describes the MPC3000 as interpolating linearly instead. The chip also has a resonant low-pass filter for each voice.</p>
+<p>Pitched down, the MPC3000 is smooth: almost none of the stepped edge, and a slightly softer top. Pitched up, it still aliases, as the eight weights are not narrowed to filter the sound first, but less harshly than a hold. An eight-point interpolation was built and measured for the MPC 600 S during its development (see the table below); the MPC60&rsquo;s hold was chosen for its character.</p>
+
+<h3>Common Modern Methods</h3>
+<ul>
+  <li><strong>Linear interpolation</strong> (2 points): a straight line between the two stored samples on either side. Cheap; pitched down it leaves a faint haze of images in the highs and dulls the top a little. The MPC 600 S used it for 44.1 kHz sounds up to LA Version 2.0G.</li>
+  <li><strong>Cubic or Hermite interpolation</strong> (4 points): a smooth curve through four samples. Noticeably cleaner than linear for little more work; common in software samplers and trackers.</li>
+  <li><strong>Windowed sinc, polyphase</strong> (8 to 64 or more points): the theoretically right reconstruction, cut short by a window. With more points the result is cleaner; computer audio software&rsquo;s high-quality modes use long kernels. Done properly, the kernel&rsquo;s cutoff is lowered when pitching up, so the sound is filtered before it is sped up and nothing aliases; some engines also oversample.</li>
+  <li><strong>Pitch without speed</strong> (time-stretching, phase vocoder, granular methods) changes pitch while keeping the length. That is a different task: on the MPC 600 S it is Warp and the S-Series Timestretch. Pitching, here, changes the speed and the pitch together, like a turntable.</li>
+</ul>
+
+<h3>The Stock MPC Sample OS</h3>
+<p>Akai does not document how the MPC Sample&rsquo;s own operating system pitches sounds, and its MPC application is not open source (the open-source package Akai publishes holds the Linux system underneath, not the MPC application), so it could not be examined for this manual. To compare by ear: load the same sound in both systems, play it 12 semitones down and 12 up, and listen. A stepped, metallic edge pitched down and crunch pitched up mean a hold; a faint haze and slightly dull highs pitched down mean linear interpolation; a clean, smooth result means a longer interpolation.</p>
+
+<h3>Measured</h3>
+<p>A 5 kHz sine, played 7 semitones down (to 3.34 kHz), at full level with the filter off. A sine at the exact new pitch was fitted to the output over 3072 samples; what remains is everything that is not the tone, given in dB under it. The work is per voice, 32 voices with no filter, as a share of real time on a desktop computer.</p>
+<table>
+  <tr><th>Method</th><th>Points read</th><th>Left over</th><th>Work, 32 voices</th><th>Found in</th></tr>
+  <tr><td>Zero-order hold</td><td>1</td><td>&minus;13.6 dB</td><td>0.6%</td><td>MPC60; MPC 600 S from 2.0H</td></tr>
+  <tr><td>Linear</td><td>2</td><td>&minus;33.9 dB</td><td>0.7%</td><td>MPC 600 S up to 2.0G (44.1 kHz sounds)</td></tr>
+  <tr><td>8-point windowed sinc</td><td>8</td><td>&minus;51.3 dB</td><td>2.0%</td><td>MPC3000, MPC2000, S3000 (per MAME)</td></tr>
+</table>
+<p>The hold&rsquo;s &minus;13.6 dB is not a fault: it is the sound of the method, the tones that give a pitched-down sound its edge. With the S600 ladder filter on, the filter is most of the work (about 10% for 32 voices on the same computer), whatever the method.</p>
+
+<h3>Pitch on Sample New Sound</h3>
+<p>Pitch on the recording pages (0 to +24, above) works before a sound is stored, and is band-limited. The take is sped up and sampled at the chosen rate in one step, by the windowed-sinc interpolation in <strong>Technical Specifications: Sampling</strong> (a Blackman-windowed sinc reaching at least 4/f<sub>c</sub> input samples each side). That is the same as playing a record faster into a sampler: every frequency moves up by the same ratio and nothing digital is added. With Anti-Aliasing ON, highs pushed above the new rate&rsquo;s limit are removed, as by a sampler&rsquo;s input filter; with it OFF they fold back as aliasing, as on samplers without one. The pad the sound lands on is then tuned down by the same amount, and from there on plays by the hold above.</p>
 
 <h2>Guitar and Bass: the INST L Input</h2>
 <p>A guitar or bass can plug straight into the MPC Sample. Plug it into the <strong>left input</strong> (on a stereo jack, a mono cable&rsquo;s tip is the left side) and set Input to <strong>INST L</strong>, on Sample New Sound, Audiotrack Record or Input Effects.</p>
@@ -1011,7 +1059,7 @@
   <tr><td>Indiv Out: Volume</td><td>Its level on the output. (Pads: setting it turns Follow to NO. Tracks: the track&rsquo;s level on its output only, after its fader; the main mix keeps the fader&rsquo;s.)</td></tr>
   <tr><td>Follow</td><td>(Pads) <strong>YES</strong>: the output follows the pad&rsquo;s stereo Volume. <strong>NO</strong>: it has its own.</td></tr>
 </table>
-<p>By pad, the output takes the sound after its envelope and filter, with its track&rsquo;s fader and pan; a pad on an output passes by its track&rsquo;s insert effects. By track, it is the track after its fader, pan, insert effects and EQ. The eight channels are all outputs: the main mix does not go over USB with USB Indiv Out on (for the whole song in stereo, use USB Audio Out with USB Outs OFF). The MPC&rsquo;s own line out and headphones keep the whole mix, outputs or not. Master Effects stay on the main mix. <span class="key">B3 &lt;Set All&gt;</span> puts this pad&rsquo;s Output, Volume and Follow on every pad of the program; <span class="key">B1 &lt;Mixer&gt;</span> goes back. <strong>In use</strong> shows which channels something plays on.</p>
+<p>By pad, the output takes the sound after its envelope and filter, with its track&rsquo;s fader and pan; a pad on an output passes by its track&rsquo;s insert effects. By track, it is the track after its fader, pan, insert effects and EQ. The eight channels are all outputs: the main mix does not go over USB with USB Indiv Out on (for the whole song in stereo, use USB Audio Out with USB Outs OFF). The MPC&rsquo;s own line out and headphones keep the whole mix, outputs or not. Master Effects stay on the main mix. <span class="key">B3 &lt;Set All&gt;</span> puts this pad&rsquo;s Output, Volume and Follow on every pad of the program; <span class="key">B1 &lt;Mixer&gt;</span> goes back. <strong>In use</strong> shows which channels something plays on. <span class="key">K1</span> picks the track (or pad), <span class="key">K2</span> sets its Indiv Out Volume, <span class="key">K3</span> its Output; each turns from where the value is.</p>
 <p>On the computer, MPC Sample then has eight inputs. A DAW on Windows that shows only inputs 1/2 is using MME or DirectX, which give two; ASIO4ALL gives all eight. In Ableton&rsquo;s Input Config, turn on the mono inputs for mono outputs and the pairs for stereo ones. (Eight is the most: Windows stops taking more than eight channels from one USB device after two seconds.)</p>
 {{shot:usb_outs|USB Indiv Out, by pad}}
 
@@ -1347,7 +1395,7 @@
 <p><strong>Layout: 2000XL</strong> (Additional Settings) gives every page the look of the MPC2000XL&rsquo;s screen, at the MPC 600 S&rsquo;s size: the XL&rsquo;s letters, the key labels drawn as tabs, and dotted lines. With <strong>Screen: MPC2000</strong> it takes the XL&rsquo;s colour too. What the pages do stays the same; a few are laid out as on the XL. <strong>DEFAULT</strong> is the MPC 600 S&rsquo;s own look.</p>
 {{shot:prefs_layout|Additional Settings: Layout}}
 <ul>
-  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0G</span> in the middle of the screen, nothing else.</li>
+  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0H</span> in the middle of the screen, nothing else.</li>
   <li><strong>The main page</strong>: the sequence and <span class="lcd">Now:</span> on top; under them tempo, time signature, Timing, Count, Loop and Bars; the track under the dotted line. <span class="key">B1</span>&ndash;<span class="key">B3</span> read TrMUTE, Tr &minus; and Tr + (the same keys as on DEFAULT), and the knobs are listed along the bottom: <span class="lcd">K1:Track K2:BPM K3:Pgm</span>. Pick another sequence while one plays and <span class="lcd">Next:</span> shows beside the counter, with its number and name, until it starts.</li>
   <li><strong>Track Mute</strong>: the XL&rsquo;s grid of track names, 16 at a time. A playing track sits on a bar; a muted one is plain; a track with nothing on it reads <span class="lcd">(Unused)</span>.</li>
   <li><strong>Save and Load</strong>: the XL&rsquo;s pictures. SAVE: the MPC, an arrow marked SAVE, and the card (marked SD). LOAD: the card, an arrow marked LOAD, and the MPC.</li>
@@ -1368,7 +1416,7 @@
   <tr><td>Output sample rate</td><td>44.1 kHz, stereo</td></tr>
   <tr><td>Internal processing</td><td>32-bit floating point throughout: voices, filters, mixer, effects, Master Effects</td></tr>
   <tr><td>Polyphony</td><td>32 voices (an S600 note with two layers uses two); the oldest voice is taken when all are in use</td></tr>
-  <tr><td>Playback interpolation</td><td>Sounds at 44.1 kHz: linear. Sounds below 44.1 kHz: zero-order hold</td></tr>
+  <tr><td>Playback interpolation</td><td>None: zero-order hold for every sound, as the MPC60 (L4003); pitch steps in 4.12 fixed point (1/4096 sample)</td></tr>
   <tr><td>Pad tuning</td><td>Semi &plusmn;36 semitones, Fine &plusmn;100 cents</td></tr>
   <tr><td>Pad filters</td><td>State-variable: 2-pole (12 dB/oct) LPF, HPF, BPF; 4-pole (24 dB/oct) LPF 4, HPF 4, BPF 4; S600 LPF: 4-pole transistor-ladder low-pass, 24 dB/oct, self-oscillating at the top of Resonance</td></tr>
   <tr><td>Glide</td><td>Portamento per S600 pad; step-pattern slides 60 ms (to within 1% of the new pitch), exponential</td></tr>

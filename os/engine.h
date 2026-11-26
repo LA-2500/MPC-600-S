@@ -188,6 +188,7 @@ struct engine {
         uint32_t seq;
     } retired[ENGINE_RETIRE_MAX];
     atomic_uchar playing[ENGINE_SLOTS];
+    atomic_int play_pos[ENGINE_SLOTS]; // each pad's newest voice: where it is in its sound (frames), -1 none (the screens' playhead)
     atomic_int voices;
     _Atomic float peak_l, peak_r;
     // The audio thread's copy of every pad, kept current by EV_SET_PAD and EV_UPDATE,
@@ -265,6 +266,8 @@ int engine_note_on_layers(struct engine *e, int pad, int vel, int key, const str
                           const struct pad_params *p, int track, int level, int pan);
 // The track mixer moved: notes the track is playing follow at once.
 int engine_track_mix(struct engine *e, int track, int level, int pan);
+// Where a pad's sound is playing now, in its frames (its newest note), or -1: for a playhead.
+int engine_play_pos(struct engine *e, int pad);
 // A track's EQ (track is 1 + its number): three biquads (b0 b1 b2 a1 a2, a0 = 1), or off.
 int engine_track_eq(struct engine *e, int track, int on, const float c[3][5]);
 // A track's nine sends to the Track FX, 0..100 each; 0 sends nothing.

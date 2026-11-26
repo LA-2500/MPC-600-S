@@ -3447,6 +3447,59 @@ static void outs_hit(void) { // pad A01, hard, and a block of what it plays
     in = blank(), in.pad_release[0] = 1;
     frame(&in);
 }
+// Pitch as the MPC60: every output a stored sample, held, never blended (a 44.1 kHz sound and a
+// low-rate one alike), stepping in 4096ths of a sample.
+static void test_pitch_mpc60(void) {
+    engine_init(&e);
+    float out[512];
+    for (int lowrate = 0; lowrate < 2; lowrate++) {
+        int rate = lowrate ? 26040 : 44100;
+        struct sample *sm = sample_new(rate, 1, rate);
+        for (int i = 0; i < sm->frames; i++) sm->data[i] = 0.5f * sinf(i * 0.3f) + 0.25f * sinf(i * 1.7f);
+        struct pad_params p;
+        memset(&p, 0, sizeof p);
+        p.end = sm->frames, p.volume = 100, p.cutoff = 100, p.filter = FILTER_OFF, p.semi = -7;
+        engine_kill_all(&e);
+        for (int i = 0; i < 4; i++) engine_render(&e, out, 256);
+        engine_note_on(&e, 0, 127, sm, &p);
+        engine_render(&e, out, 256);
+        double step = floor((double)rate / 44100 * pow(2.0, -7 / 12.0) * 4096 + 0.5) / 4096;
+        float g = out[2 * 50] / sm->data[(int)(50 * step)];
+        int stored = 1;
+        for (int i = 20; i < 250; i++) stored &= fabsf(out[i * 2] - sm->data[(int)(i * step)] * g) < 1e-4f;
+        CHECK(stored);
+        engine_kill_all(&e);
+        sample_free(sm);
+    }
+}
+
+// The playhead: a pad played on the Sample screen shows where its sound is, moving along as it
+// plays, and gone when it stops.
+static void test_playhead(const char *shot_dir) {
+    seq_fresh();
+    os.screen = OS_SAMPLE, os.selected = 0, os.bank = 0;
+    os.page = os.group_page[0] = PAGE_TRIM;
+    os_pad_load(&os, 0, ramp(88200), "Loop");
+    render(16);
+    CHECK(os_playhead(&os) < 0);
+    struct input in = blank();
+    in.pad_hit[0] = 100, in.pad_down[0] = 1;
+    frame(&in);
+    for (int i = 0; i < 40; i++) render(128);
+    int64_t a = os_playhead(&os);
+    for (int i = 0; i < 40; i++) render(128);
+    int64_t b = os_playhead(&os);
+    CHECK(a > 4000 && b > a + 4000 && b < 88200);
+    { struct input idle = blank(); idle.pad_down[0] = 1; frame(&idle); }
+    if (shot_dir) write_shot(shot_dir, "playhead");
+    in = blank(), in.pad_release[0] = 1;
+    frame(&in);
+    engine_kill_all(&e);
+    for (int i = 0; i < 40; i++) render(128);
+    CHECK(os_playhead(&os) < 0);
+    os.screen = OS_MAIN;
+}
+
 static void test_usb_outs(const char *shot_dir) {
     seq_fresh();
     load_pad(0);
@@ -3537,6 +3590,24 @@ static void test_usb_outs(const char *shot_dir) {
     in = blank(), in.encoder = 2, frame(&in);
     CHECK(os.seq.sequence[0].track[3].usb_out == 2); // OFF, 1, 2
     if (shot_dir) write_shot(shot_dir, "usb_outs_tracks");
+    { // the knobs: K1 the track, K2 its Indiv Out Volume, K3 its Output, each from where it is
+        struct seq_track *tk = os.seq.sequence[0].track;
+        os.outs_sel = 0, tk[3].usb_out = 0, tk[3].usb_vol_cut = 0;
+        for (int k = 0; k < 3; k++) os.knob_last[k] = -1;
+        struct input kin = blank();
+        kin.knob_moved[0] = 1, kin.knob[0] = 60, frame(&kin); // where it is: nothing yet
+        CHECK(os.outs_sel == 0);
+        kin = blank(), kin.knob_moved[0] = 1, kin.knob[0] = 63, frame(&kin);
+        CHECK(os.outs_sel == 3 && os.cursor_outs == 2); // Trk (the third field)
+        kin = blank(), kin.knob_moved[1] = 1, kin.knob[1] = 60, frame(&kin);
+        kin = blank(), kin.knob_moved[1] = 1, kin.knob[1] = 50, frame(&kin);
+        CHECK(tk[3].usb_vol_cut == 10);
+        kin = blank(), kin.knob_moved[2] = 1, kin.knob[2] = 60, frame(&kin);
+        kin = blank(), kin.knob_moved[2] = 1, kin.knob[2] = 68, frame(&kin);
+        kin = blank(), kin.knob_moved[2] = 1, kin.knob[2] = 76, frame(&kin);
+        CHECK(tk[3].usb_out == 2); // OFF, 1, 2: a step each 8
+        tk[3].usb_out = 0, tk[3].usb_vol_cut = 0;
+    }
     tap(IN_B1); // <Mixer>
     CHECK(os.screen == OS_MIXER);
     for (int i = 0; i < OS_PADS; i++) os.pads[i].p.usb_out = 0;
@@ -8304,6 +8375,9 @@ static void test_panel_input(void) {
     // SHIFT, the wheel and its push, K2, the slider.
     const unsigned char shift_on[3] = {0x90, 49, 127}, wheel_up[3] = {0xB0, 100, 1}, wheel_down[3] = {0xB0, 100, 127},
                         push[3] = {0x90, 111, 127}, k2[3] = {0xB0, 17, 90}, slider[3] = {0xB0, 20, 33};
+    input_begin(&in, &dev); // where K2 and the slider rest (a first reading is not a move)
+    input_push(&dev, &in, (const unsigned char[3]){0xB0, 17, 80}), input_push(&dev, &in, (const unsigned char[3]){0xB0, 20, 20});
+    CHECK(!in.knob_moved[1] && !in.fader_moved);
     input_begin(&in, &dev);
     input_push(&dev, &in, shift_on);
     input_push(&dev, &in, wheel_up);
@@ -8333,6 +8407,8 @@ static void test_panel_input(void) {
         struct input i2;
         const unsigned char k60[3] = {0xB0, 16, 60}, k62[3] = {0xB0, 16, 62}, k120[3] = {0xB0, 16, 120},
                             k100[3] = {0xB0, 16, 100}, k103[3] = {0xB0, 16, 103}, m90[3] = {0xB0, 19, 90}, m0[3] = {0xB0, 19, 0};
+        input_begin(&i2, &d2); // where K1 and the main volume rest
+        input_push(&d2, &i2, (const unsigned char[3]){0xB0, 16, 58}), input_push(&d2, &i2, (const unsigned char[3]){0xB0, 19, 88});
         input_begin(&i2, &d2), input_push(&d2, &i2, k60);
         CHECK(i2.knob_moved[0] && i2.knob[0] == 60);
         input_begin(&i2, &d2), input_push(&d2, &i2, k120);
@@ -8368,6 +8444,42 @@ static void test_panel_input(void) {
             input_begin(&i2, &d2), input_push(&d2, &i2, m70);
             CHECK(i2.main_moved && i2.main == 70);
         }
+        // A knob at rest flickering between two readings is no turn (a tester's Zone End moved, and
+        // the view jumped to it, with nobody touching the knob); a turn takes single steps; turning
+        // back takes two; after it rests, a flicker is nothing again.
+        {
+            const unsigned char a[3] = {0xB0, 18, 63}, b[3] = {0xB0, 18, 64};
+            input_begin(&i2, &d2), input_push(&d2, &i2, a);
+            int moved = 0;
+            for (int k = 0; k < 50; k++) {
+                input_begin(&i2, &d2), input_push(&d2, &i2, (k & 1) ? a : b);
+                moved |= i2.knob_moved[2];
+            }
+            CHECK(!moved && d2.flicker >= 25); // (every other reading is the one it rests on)
+            input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0xB0, 18, 66}); // turned: 63 -> 66
+            CHECK(i2.knob_moved[2] && i2.knob[2] == 66);
+            input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0xB0, 18, 67}); // on: one step
+            CHECK(i2.knob_moved[2] && i2.knob[2] == 67);
+            input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0xB0, 18, 66}); // one back: flicker
+            CHECK(!i2.knob_moved[2]);
+            input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0xB0, 18, 65}); // two back: a turn back
+            CHECK(i2.knob_moved[2] && i2.knob[2] == 65);
+            d2.ctl_move_ms[2] -= 1000; // at rest
+            input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0xB0, 18, 64});
+            CHECK(!i2.knob_moved[2]);
+            // Turning a knob shakes the panel: B1 "pressed" just after is nothing
+            unsigned g0 = d2.ghosts;
+            d2.pad_hit_ms = 0;
+            input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0xB0, 18, 70});
+            input_push(&d2, &i2, (const unsigned char[3]){0x90, 12, 127});
+            CHECK(i2.knob_moved[2] && !(i2.down & (1u << IN_B1)) && d2.ghosts == g0 + 1);
+            input_push(&d2, &i2, (const unsigned char[3]){0x80, 12, 0});
+            d2.knob_ms = 0; // long after: B1 presses
+            input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0x90, 12, 127});
+            CHECK(i2.down & (1u << IN_B1));
+            input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0x80, 12, 0});
+            d2.ctl_ms = 0;
+        }
         // Pads: under the threshold, and a light hit right after a hard one elsewhere, ignored.
         const unsigned char soft[3] = {0x99, INPUT_PAD_NOTE[0], 8}, hard[3] = {0x99, INPUT_PAD_NOTE[0], 120},
                             ghost[3] = {0x99, INPUT_PAD_NOTE[1], 20}, real[3] = {0x99, INPUT_PAD_NOTE[2], 70};
@@ -8399,6 +8511,7 @@ static void test_panel_input(void) {
         for (int q = 0; q < 16; q++) d2.pad_on_ms[q] = 0;
         before = d2.rejected;
         input_begin(&i2, &d2);
+        input_push(&d2, &i2, (const unsigned char[3]){0xB0, 17, 66});                 // K2 at rest
         input_push(&d2, &i2, (const unsigned char[3]){0xB0, 17, 70});                 // K2 turned
         input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[13], 30}); // shaken
         input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[0], 90});  // pressed
@@ -8419,7 +8532,7 @@ static void test_panel_input(void) {
             d2.wheel_ms = (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;            // a turn under way
             input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 1});
             CHECK(i2.encoder == 1);
-            d2.pad_hit_ms = 0, d2.wheel_ms = 0;                                        // long after the pad
+            d2.pad_hit_ms = 0, d2.wheel_ms = 0, d2.knob_ms = 0;                        // long after the pad and the knob
             before = d2.rejected - 1; // as before this block: the knob's one, counted below from there
         }
         input_begin(&i2, &d2);
@@ -10165,6 +10278,8 @@ int main(int argc, char **argv) {
     test_step_pad_no_ghost();
     test_sample_erase_rename();
     test_mixer_knob_shake();
+    test_pitch_mpc60();
+    test_playhead(argc > 1 ? argv[1] : 0);
     test_usb_outs(argc > 1 ? argv[1] : 0);
     test_usb_outs_effects();
     test_new_project(argc > 1 ? argv[1] : 0);
