@@ -2801,6 +2801,15 @@ static void shutdown_frame(struct ui *u, struct os *s, const struct input *in) {
     lcd_rule(u, BOTTOM_ROW, 0);
 }
 
+// The credit under the title, in the small font, centred, from pixel row y.
+static void title_credit(struct ui *u, int y) {
+    static const char *const LINES[] = {"Original MPC design by Roger Linn,", "Akai Electric Co., Ltd."};
+    for (int i = 0; i < 2; i++) {
+        int w = (int)strlen(LINES[i]) * 6 - 1;
+        lcd_small_text(u, LCD_X + (LCD_COLS * CELL_W - w) / 2, y + i * 10, LINES[i], LCD_FG);
+    }
+}
+
 // Shows the startup screen. 1 while it stays up. Any control skips it.
 static int title_frame(struct ui *u, struct os *s, const struct input *in) {
     int64_t now = now_ms(u);
@@ -2825,6 +2834,7 @@ static int title_frame(struct ui *u, struct os *s, const struct input *in) {
     lcd_center(u, 6, "Copyright 1987-2027");
     lcd_center(u, 7, "Midi Production Center");
     lcd_center(u, 8, OS_VERSION);
+    title_credit(u, 9 * CELL_H + 6);
     lcd_rule(u, BOTTOM_ROW - 1, 0);
     lcd_text(u, 0, BOTTOM_ROW, "Searching for hard disk...");
     update_lights(u, s);

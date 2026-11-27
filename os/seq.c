@@ -340,7 +340,8 @@ static void play_range(struct seq *s, const struct block *b, double start, doubl
             if (n->fresh) n->fresh = 0;
             else if (k->on) {
                 int heard = !k->mute && (!solo || k->solo);
-                if (heard || k->type != TRACK_MIDI) fire(s, b, k, n, n->tick - start, !heard); // muted: silent
+                // muted: silent (AT ONCE), or not played at all (NEXT NOTE, as before 2.0F)
+                if (heard || (k->type != TRACK_MIDI && !s->mute_next)) fire(s, b, k, n, n->tick - start, !heard);
             }
             i++;
         }

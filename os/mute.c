@@ -72,7 +72,7 @@ void mute_pad(struct os *s, struct ui *u, int i) {
         }
         break;
     }
-    if (s->mute_type == MUTE_TRACK || s->mute_type == MUTE_TRACK_SOLO) seq_tracks_heard(s); // at once
+    if ((s->mute_type == MUTE_TRACK || s->mute_type == MUTE_TRACK_SOLO) && !sq->mute_next) seq_tracks_heard(s); // at once
     pthread_mutex_unlock(&sq->lock);
 }
 
@@ -87,7 +87,7 @@ static void clear_type(struct os *s) {
     }
     if (s->mute_type == MUTE_PAD) memset(sq->pad_mute[kit], 0, 128);
     if (s->mute_type == MUTE_PAD_SOLO) memset(sq->pad_solo[kit], 0, 128);
-    seq_tracks_heard(s);
+    if (!sq->mute_next) seq_tracks_heard(s);
 }
 
 // SHIFT + MUTE (UNMUTE ALL), on any page: every track of the sequence playing unmuted.
@@ -96,7 +96,7 @@ void mute_unmute_all(struct os *s, struct ui *u) {
     pthread_mutex_lock(&sq->lock);
     struct seq_sequence *q = &sq->sequence[sq->current];
     for (int t = 0; t < SEQ_TRACKS; t++) q->track[t].mute = 0;
-    seq_tracks_heard(s);
+    if (!sq->mute_next) seq_tracks_heard(s);
     pthread_mutex_unlock(&sq->lock);
     os_toast(s, u, "All tracks unmuted");
 }

@@ -130,6 +130,7 @@ struct seq {
     int count_wait;   // instead of counting in, wait for a pad or a MIDI note to start
     int tc, swing;     // Timing Correct note value and swing percent (50..75; on the SP-1200 one of its six)
     int res;           // SEQ_RES_*
+    int mute_next;     // Track Mute NEXT NOTE (Additional Settings 2): a mute lets the sound end, an unmute waits for the next note
     int shift_later, shift_ticks;
     int mode, count_target;
     double pos;  // ticks into the sequence, negative during the count-in

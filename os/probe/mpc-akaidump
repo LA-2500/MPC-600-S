@@ -1,0 +1,27 @@
+#!/bin/sh
+# Copies the stock MPC Sample app and the panel's firmware to the card (folder akai-dump next
+# to this program), for study on the computer, then records the panel's raw messages for 90 s
+# (pads lit white while recording). Changes nothing on the MPC.
+[ $# -eq 0 ] || exit 0
+D="${MPC_APP_DIR:-.}"
+OUT="$D/akai-dump"
+mkdir -p "$OUT"
+exec >"$OUT/report.txt" 2>&1
+date
+for f in "/usr/bin/MPC Sample" /usr/bin/launch-ac50 /usr/bin/az0x-firmware-tool /usr/share/Akai/AC50/Firmware/AC50/UpdateImage.rbin; do
+  ls -l "$f"; cp "$f" "$OUT/" && echo "copied $f"
+done
+ls -laR /usr/share/Akai 2>&1 | head -n 400
+find /usr/share/Akai -type f -size -4096k \( -iname "*.json" -o -iname "*.xml" -o -iname "*.lua" -o -iname "*.txt" -o -iname "*.cfg" -o -iname "*.ini" \) 2>/dev/null | head -n 200 | while read -r f; do
+  mkdir -p "$OUT/share$(dirname "$f")"; cp "$f" "$OUT/share$f"
+done
+ls /usr/lib | grep -i -E "az0|akai|inmusic"
+for f in /usr/lib/libaz0* /usr/lib/libaz01*; do [ -f "$f" ] && cp "$f" "$OUT/"; done
+ls -la /data/Settings 2>&1 | head -n 50
+sync
+echo "capture start"
+cp "$D/panel-capture" /run/panel-capture && chmod 755 /run/panel-capture
+/run/panel-capture "$OUT/panel-capture.txt" 90; echo "capture exit $?"
+echo "capture done"
+sync
+echo done

@@ -54,10 +54,8 @@ struct input_dev {
     int ctl_last[5], ctl_held[5], ctl_known[5];
     int ctl_confirms[5];   // readings so far that agree with the one held back
     long long ctl_held_ms[5]; // when the one held back first came (the main volume waits MAIN_HOLD_MS)
-    long long ctl_ms;      // the last knob, slider or wheel movement (or wheel push): pads close
-                           // to them shake while they are worked, see CTL_GUARD
-    int pad_on_vel[16];    // the velocity of each pad's last press: a light hit just after it on
-                           // a pad near it is that pad shaking, not a press
+    long long ctl_ms;      // the last knob, slider or wheel movement (or wheel push)
+    int pad_on_vel[16];    // the velocity of each pad's last press
     unsigned rejected;     // readings and pad hits thrown away as noise
     // The page buttons (CONFIRM_BUTTONS in panel.c) count only as a whole press: their note-on
     // waits here until the release comes, at least CONFIRM_MIN_MS later. A stray note-on alone,

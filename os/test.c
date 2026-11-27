@@ -5346,6 +5346,29 @@ static void test_track_eq(const char *shot_dir) {
             if (e.voice[i].stage && e.voice[i].track == 1) cut = e.voice[i].track_cut;
         CHECK(k->mute == 0 && cut >= 0 && cut < 100);
         seq_stop(&os.seq, 1);
+        // Track Mute NEXT NOTE (Additional Settings 2): a mute lets the sound play on, and a muted
+        // track's notes do not play at all (an unmute waits for the next note)
+        os.seq.mute_next = 1;
+        engine_kill_all(&e);
+        for (int i = 0; i < 4; i++) render(128);
+        seq_play(&os.seq, 1);
+        render(128);
+        frame(&pin); // muted mid-note
+        cut = -1;
+        for (int i = 0; i < ENGINE_VOICES; i++)
+            if (e.voice[i].stage && e.voice[i].track == 1) cut = e.voice[i].track_cut;
+        CHECK(k->mute == 1 && cut >= 0 && cut < 100); // still heard
+        seq_stop(&os.seq, 1);
+        engine_kill_all(&e);
+        for (int i = 0; i < 4; i++) render(128);
+        seq_play(&os.seq, 1);
+        render(128);
+        CHECK(voices() == 0); // its note not played
+        frame(&pin); // unmuted: nothing until the next note
+        render(128);
+        CHECK(k->mute == 0 && voices() == 0);
+        seq_stop(&os.seq, 1);
+        os.seq.mute_next = 0;
         os.screen = was;
     }
 
@@ -8494,18 +8517,14 @@ static void test_panel_input(void) {
         input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[5], 8});
         CHECK(i2.pad_hit[5] == 8);
         panel_set_pad_threshold(12);
-        // A moderate hit: its neighbours' light note-ons (side or corner) go, a pad two away still
-        // plays, and a neighbour played nearly as hard is a real press.
+        // Pads played together all count, however hard each (2.0I: no neighbour rule).
         for (int q = 0; q < 16; q++) d2.pad_on_ms[q] = 0;
         before = d2.rejected;
         input_begin(&i2, &d2);
-        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[5], 60});
-        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[6], 30});  // beside it
-        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[10], 25}); // corner
-        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[7], 30});  // two away
-        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[1], 50});  // corner, nearly as hard
-        CHECK(i2.pad_hit[5] == 60 && i2.pad_hit[6] < 0 && i2.pad_hit[10] < 0 && i2.pad_hit[7] == 30 &&
-              i2.pad_hit[1] == 50 && d2.rejected == before + 2);
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[1], 126});
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[5], 39}); // beside it, 1.5 ms later in the capture
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[6], 35}); // corner
+        CHECK(i2.pad_hit[1] == 126 && i2.pad_hit[5] == 39 && i2.pad_hit[6] == 35 && d2.rejected == before);
         // A knob turned, the wheel turned or pushed: light pad hits meanwhile are the panel shaking;
         // a firm press still plays; long after, a light one plays again.
         for (int q = 0; q < 16; q++) d2.pad_on_ms[q] = 0;
@@ -8516,40 +8535,55 @@ static void test_panel_input(void) {
         input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[13], 30}); // shaken
         input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[0], 90});  // pressed
         CHECK(i2.pad_hit[13] < 0 && i2.pad_hit[0] == 90 && d2.rejected == before + 1);
-        // Just after a pad press, a press of the wheel, B1-B3 or -/+, and a lone wheel step, are the
-        // pad shaking the panel: nothing. A turn under way (steps close together) still turns.
+        // Just after a knob turn, a press of the wheel or B1 is the panel shaking: nothing.
         {
-            unsigned g0 = d2.ghosts, r0 = d2.rejected;
+            unsigned g0 = d2.ghosts;
             input_begin(&i2, &d2);
             input_push(&d2, &i2, (const unsigned char[3]){0x90, 111, 127});           // the wheel "pushed"
             input_push(&d2, &i2, (const unsigned char[3]){0x90, 12, 127});            // B1 "pressed"
-            input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 1});             // a lone step
-            CHECK(!i2.encoder_press && !(i2.down & (1u << IN_B1)) && i2.encoder == 0 && d2.ghosts == g0 + 2 && d2.rejected == r0 + 1);
+            CHECK(!i2.encoder_press && !(i2.down & (1u << IN_B1)) && d2.ghosts == g0 + 2);
             input_push(&d2, &i2, (const unsigned char[3]){0x80, 12, 0});              // its release: nothing
             CHECK(!(i2.up & (1u << IN_B1)));
-            struct timespec ts;
-            clock_gettime(CLOCK_MONOTONIC, &ts);
-            d2.wheel_ms = (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;            // a turn under way
-            input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 1});
-            CHECK(i2.encoder == 1);
-            d2.pad_hit_ms = 0, d2.wheel_ms = 0, d2.knob_ms = 0;                        // long after the pad and the knob
-            before = d2.rejected - 1; // as before this block: the knob's one, counted below from there
+            input_push(&d2, &i2, (const unsigned char[3]){0x80, 111, 0});
+            d2.knob_ms = 0, d2.ctl_ms = 0;                                             // long after the knob
         }
-        input_begin(&i2, &d2);
-        input_push(&d2, &i2, (const unsigned char[3]){0x90, 111, 127});               // the wheel pushed, held
-        d2.ctl_ms = 0;
-        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[14], 40});
-        CHECK(i2.pad_hit[14] < 0 && d2.rejected == before + 2);
-        input_begin(&i2, &d2);
-        input_push(&d2, &i2, (const unsigned char[3]){0x80, 111, 0});                  // let go
-        input_begin(&i2, &d2);
-        input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 1});                  // the wheel turned
-        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[15], 20});
-        CHECK(i2.pad_hit[15] < 0 && d2.rejected == before + 3);
-        d2.ctl_ms = 0;                                                                     // long after
+        // From the panel capture (2.0I): a pad press does not shake the wheel or the buttons. Just
+        // after one, a single wheel step, B1 and the wheel push all count.
+        {
+            unsigned r0 = d2.rejected;
+            for (int q = 0; q < 16; q++) d2.pad_on_ms[q] = 0;
+            input_begin(&i2, &d2);
+            input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[0], 127});
+            input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 1});             // one step
+            input_push(&d2, &i2, (const unsigned char[3]){0x90, 12, 127});            // B1
+            CHECK(i2.pad_hit[0] == 127 && i2.encoder == 1 && (i2.down & (1u << IN_B1)) && d2.rejected == r0);
+            input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0x80, 12, 0});
+            input_push(&d2, &i2, (const unsigned char[3]){0x89, INPUT_PAD_NOTE[0], 0});
+            // A fast turn sends bigger steps: 3 on, 126 two back.
+            input_begin(&i2, &d2);
+            input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 3});
+            input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 126});
+            CHECK(i2.encoder == 1);
+            // Turning the wheel: ghost taps (the capture's were velocity 32 to 70) still play.
+            for (int q = 0; q < 16; q++) d2.pad_on_ms[q] = 0; // long after the hard hit above
+            input_begin(&i2, &d2);
+            input_push(&d2, &i2, (const unsigned char[3]){0xB0, 100, 127});
+            input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[15], 35});
+            input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[12], 53});
+            CHECK(i2.pad_hit[15] == 35 && i2.pad_hit[12] == 53 && d2.rejected == r0);
+            input_push(&d2, &i2, (const unsigned char[3]){0x89, INPUT_PAD_NOTE[15], 0});
+            input_push(&d2, &i2, (const unsigned char[3]){0x89, INPUT_PAD_NOTE[12], 0});
+            before = d2.rejected;
+        }
+        // The wheel pushed and held: light pad hits meanwhile are the panel shaking.
         for (int q = 0; q < 16; q++) d2.pad_on_ms[q] = 0;
-        input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[15], 20});
-        CHECK(i2.pad_hit[15] == 20);
+        input_begin(&i2, &d2);
+        input_push(&d2, &i2, (const unsigned char[3]){0x90, 111, 127});
+        input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[14], 40});
+        CHECK(i2.pad_hit[14] < 0 && d2.rejected == before + 1);
+        input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0x80, 111, 0}); // let go
+        input_begin(&i2, &d2), input_push(&d2, &i2, (const unsigned char[3]){0x99, INPUT_PAD_NOTE[14], 40});
+        CHECK(i2.pad_hit[14] == 40);
     }
     // Drawing: lights and a wake ask go into the frame.
     static uint32_t frame_px[UI_W * UI_H];
@@ -10220,6 +10254,122 @@ static int demo_project(const char *dir) {
     return rc;
 }
 
+// Program Config: Clear Pgm on the programs not in use, one after another (the wheel on Pgm picks
+// each), then the wheel back to the program in use: its pads play their own sounds, as before.
+static void test_clear_other_programs(void) {
+    seq_fresh();
+    struct seq_track *t = &os.seq.sequence[0].track[0];
+    struct sample *mine[4], *other[2][4];
+    for (int g = 2; g >= 0; g--) { // programs 3, 2, then 1 (the one in use)
+        t->kit = g;
+        os_set_program(&os, g);
+        for (int i = 0; i < 4; i++) {
+            struct sample *x = ramp(1000 + 100 * g + i);
+            if (g) other[g - 1][i] = x;
+            else mine[i] = x;
+            char nm[16];
+            snprintf(nm, sizeof nm, "P%d S%d", g + 1, i + 1);
+            os_pad_load(&os, i, x, nm);
+        }
+    }
+    render(16);
+    struct input in = blank();
+    in.down = in.held = (1u << IN_SAMPLE) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in);
+    CHECK(os.screen == OS_PROGRAM && os.cursor_program == 0 && os.program == 0);
+    for (int g = 1; g <= 2; g++) {
+        in = blank(), in.encoder = 1; // Pgm: the next program
+        frame(&in);
+        CHECK(t->kit == g && os.program == g);
+        in = blank(), in.down = in.held = (1u << IN_B3) | (1u << IN_SHIFT), in.shift = 1;
+        frame(&in);
+        tap(IN_B3); // <Yes>
+        CHECK(os_program_sounds(&os, g) == 0);
+        { struct input idle = blank(); frame(&idle); }
+    }
+    in = blank(), in.encoder = -2; // back to program 1
+    frame(&in);
+    { struct input idle = blank(); frame(&idle); }
+    render(16);
+    engine_reap(&e);
+    int ok = os.program == 0 && t->kit == 0 && os.pads == os.programs[0].pads;
+    for (int i = 0; i < 4; i++) {
+        ok &= os.pads[i].s == mine[i] && e.pad[i].s == mine[i] && mine[i]->refs >= 1;
+        ok &= mine[i]->frames == 1000 + i;
+        ok &= e.pad[ENGINE_S600 + i].s == mine[i];
+    }
+    CHECK(ok);
+    // pressed: pad 1 plays its own sound
+    engine_kill_all(&e);
+    render(128);
+    in = blank(), in.pad_hit[0] = 100, in.pad_down[0] = 1;
+    frame(&in);
+    CHECK(voice_of(mine[0]) != 0);
+    printf("  clear-other: program %d, pad1 %p engine %p s600 %p\n", os.program, (void *)os.pads[0].s, (void *)e.pad[0].s, (void *)e.pad[ENGINE_S600].s);
+    in = blank();
+    frame(&in);
+    engine_kill_all(&e);
+    for (int i = 0; i < 3; i++) render(128);
+}
+
+// A chopped program (Zone Assign, REGIONS 8, to a new program), then Clear Pgm on two other
+// programs and Undo (a tester's steps): the track stays on the chops, which stay in order. Before
+// 2.0I the Pgm field had to move the track to each program to clear it, and Undo put the track
+// back on the one cleared last.
+static void test_clear_after_chop(void) {
+    seq_fresh();
+    os.seq.metronome = METRO_OFF;
+    os_pad_load(&os, 0, counting(40000), "Loop");
+    os_set_program(&os, 2), os.seq.sequence[0].track[0].kit = 2;
+    os_pad_load(&os, 0, constant(1000), "Other");
+    os_set_program(&os, 0), os.seq.sequence[0].track[0].kit = 0;
+    os.selected = 0;
+    tap(IN_CHOP);
+    struct input in = blank();
+    in.encoder = 1; // REGIONS, 8
+    frame(&in);
+    tap(IN_B3); // <Do It>
+    tap(IN_B3); // to a new program
+    CHECK(os.program == 1);
+    render(16);
+    os.screen = OS_MAIN;
+    in = blank(), in.down = in.held = (1u << IN_SAMPLE) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in);
+    CHECK(os.screen == OS_PROGRAM && os.cursor_program == 0);
+    // Clear Pgm picks the program in its prompt (the wheel, over the empty ones): the track stays.
+    int order[2] = {0, 2};
+    for (int k = 0; k < 2; k++) {
+        in = blank(), in.down = in.held = (1u << IN_B3) | (1u << IN_SHIFT), in.shift = 1;
+        frame(&in);
+        CHECK(os.pgm_ask == 2); // the one shown to start
+        in = blank(), in.encoder = order[k] ? 1 : -1;
+        frame(&in);
+        CHECK(os.pgm_ask == order[k] + 1);
+        tap(IN_B3);
+        CHECK(!os.pgm_ask && os_program_sounds(&os, order[k]) == 0 && os.program == 1 && os.seq.sequence[0].track[0].kit == 1);
+        { struct input idle = blank(); frame(&idle); }
+    }
+    in = blank(), in.down = in.held = (1u << IN_B3) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in);
+    in = blank(), in.encoder = 5; // nothing else has sounds: it stays
+    frame(&in);
+    CHECK(os.pgm_ask == 2);
+    tap(IN_B1); // <No>
+    CHECK(!os.pgm_ask && os_program_sounds(&os, 1) == 8);
+    // Undo (the second clear): the program comes back, and the track still plays the chops
+    in = blank(), in.down = in.held = (1u << IN_MINUS) | (1u << IN_SHIFT), in.shift = 1;
+    frame(&in);
+    { struct input idle = blank(); frame(&idle); }
+    CHECK(os_program_sounds(&os, 2) == 1 && os.seq.sequence[0].track[0].kit == 1 && os.program == 1);
+    render(16);
+    engine_reap(&e);
+    int ok = os.program == 1;
+    for (int i = 0; i < 8; i++)
+        ok &= os.pads[i].p.start == i * 5000 && e.pad[OS_PADS + i].p.start == i * 5000 && e.pad[OS_PADS + i].s == os.pads[i].s;
+    CHECK(ok);
+    os.screen = OS_MAIN;
+}
+
 int main(int argc, char **argv) {
     if (getenv("MPC_TEST_LAYOUT")) forced_layout = atoi(getenv("MPC_TEST_LAYOUT"));
     if (getenv("DEMO_PROJECT")) return demo_project(getenv("DEMO_PROJECT")) != 0 || failures != 0;
@@ -10343,6 +10493,8 @@ int main(int argc, char **argv) {
     test_master_fx(argc > 1 ? argv[1] : 0);
     test_fx_modes(argc > 1 ? argv[1] : 0);
     test_help_and_locate(argc > 1 ? argv[1] : 0);
+    test_clear_after_chop();
+    test_clear_other_programs();
     test_track_mute(argc > 1 ? argv[1] : 0);
     test_layout_xl(argc > 1 ? argv[1] : 0);
     test_unmute_all();

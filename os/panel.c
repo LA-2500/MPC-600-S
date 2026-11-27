@@ -21,6 +21,7 @@
 //   tracks    channel 1 CC 57-64, the lights A-H, 127 on
 //   and channel 16 CC 0 and 1 at 127 power the meter and track lights, 0 turns them off.
 #include "panel.h"
+#include "rawmidi_plain.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -86,26 +87,18 @@ void panel_set_pad_threshold(int velocity) {
     pad_threshold = velocity < 1 ? 1 : velocity > 60 ? 60 : velocity;
 }
 
-// A pad hit shakes the panel, and the pads around it send light note-ons of their own. A note-on
-// within CROSS_MS of a hit on a neighbouring pad (side or corner) and under 60% of its velocity is
-// that; from a pad further off, only one under a third (and light) is, so two hands still play.
-#define CROSS_MS 40
-#define CTL_GUARD_MS 400 // after a knob, slider or wheel movement
+#define CTL_GUARD_MS 400 // after a knob or slider movement
 #define CTL_GUARD_VEL 80 // pad hits lighter than this are taken as the panel shaking
-// A pad hit shakes the panel too: a lone wheel step within WHEEL_SHAKE_MS after one, or a press
-// of the wheel, B1-B3 or -/+ within BUTTON_SHAKE_MS, is that, not a hand (they moved the cursor
-// or changed the page by themselves). A turn under way, steps close together, is let through.
-#define WHEEL_SHAKE_MS 150
+// A knob or the slider being turned shakes the panel: a press of the wheel, B1-B3 or -/+ within
+// BUTTON_SHAKE_MS is that, not a hand.
+//
+// Not filtered (2.0I, from a 90 s capture of the panel's raw messages, Desktop "MPC Sample/
+// akai-dump/panel-capture.txt"): the wheel turned hard back and forth for 45 s sent one pad
+// message (velocity 11, under the threshold), and 189 pad presses sent no wheel step and no
+// button message. The rules that dropped pads under 80 after a wheel step (28 real presses in
+// the capture), wheel steps just after a pad (92 real steps) and buttons just after a pad were
+// taken out.
 #define BUTTON_SHAKE_MS 80
-
-static int crosstalk(const struct input_dev *dev, int p, int value, long long now) {
-    for (int q = 0; q < 16; q++) {
-        if (q == p || dev->pad_on_vel[q] <= 0 || now - dev->pad_on_ms[q] >= CROSS_MS) continue;
-        int dr = p / 4 - q / 4, dc = p % 4 - q % 4, near = dr >= -1 && dr <= 1 && dc >= -1 && dc <= 1;
-        if (near ? value * 10 < dev->pad_on_vel[q] * 6 : value * 3 < dev->pad_on_vel[q] && value < 40) return 1;
-    }
-    return 0;
-}
 
 static void pad_message(struct input_dev *dev, struct input *in, int kind, int note, int value) {
     int p = 0;
@@ -136,13 +129,9 @@ static void pad_message(struct input_dev *dev, struct input *in, int kind, int n
             dev->pad_bounces++;
             return;
         }
-        // Turning a knob, moving the slider, or turning or pushing the wheel presses on the panel too:
-        // light pad hits meanwhile are that, not a press.
-        if (dev && value < CTL_GUARD_VEL && (now - dev->ctl_ms < CTL_GUARD_MS || (dev->held >> IN_ENCODER & 1))) {
-            dev->rejected++;
-            return;
-        }
-        if (dev && crosstalk(dev, p, value, now)) { // another pad's hit shaking this one
+        // Turning a knob, moving the slider, or pushing the wheel presses on the panel too: light pad
+        // hits meanwhile are that, not a press. (Turning the wheel is not: see above.)
+        if (dev && value < CTL_GUARD_VEL && ((dev->knob_ms && now - dev->knob_ms < CTL_GUARD_MS) || (dev->held >> IN_ENCODER & 1))) {
             dev->rejected++;
             return;
         }
@@ -234,12 +223,11 @@ static void button_message(struct input_dev *dev, struct input *in, int kind, in
         return;
     }
     if (kind == 0x90 && value == 127) { // a press (other velocities are not the panel's presses)
-        // The cursor's and the page's buttons, just after a pad press: the panel shaking.
+        // The cursor's and the page's buttons, just after a knob or the slider moved: the panel shaking.
         unsigned shaken = (1u << IN_ENCODER) | (1u << IN_B1) | (1u << IN_B2) | (1u << IN_B3) | (1u << IN_MINUS) | (1u << IN_PLUS);
         long long t = clock_ms();
-        int after_pad = dev && dev->pad_hit_ms && t - dev->pad_hit_ms < BUTTON_SHAKE_MS;
-        int after_knob = dev && dev->knob_ms && t - dev->knob_ms < BUTTON_SHAKE_MS; // a knob or the slider being turned shakes them too
-        if (dev && (bit & shaken) && !(dev->held & bit) && (after_pad || after_knob)) {
+        int after_knob = dev && dev->knob_ms && t - dev->knob_ms < BUTTON_SHAKE_MS;
+        if (dev && (bit & shaken) && !(dev->held & bit) && after_knob) {
             dev->ghosts++;
             return; // and its release, with no press before it, is nothing either
         }
@@ -350,16 +338,8 @@ static int settle(struct input_dev *dev, int c, int value) {
 static void control_message(struct input_dev *dev, struct input *in, int cc, int value) {
     if (dev && (cc == 100)) dev->ctl_ms = clock_ms(); // the wheel being worked (knobs: once a move is taken, below)
     if (cc == 100) {
-        int step = value < 64 ? value : value - 128; // two's complement steps
-        if (dev) {
-            long long now = clock_ms();
-            int lone = step >= -1 && step <= 1 && now - dev->wheel_ms > WHEEL_SHAKE_MS;
-            if (lone && dev->pad_hit_ms && now - dev->pad_hit_ms < WHEEL_SHAKE_MS) { // a pad's shake, not a turn
-                dev->rejected++;
-                return;
-            }
-            dev->wheel_ms = now;
-        }
+        int step = value < 64 ? value : value - 128; // two's complement steps (a fast turn sends 2, 3, -2, -3)
+        if (dev) dev->wheel_ms = clock_ms();
         in->encoder += step;
         return;
     }
@@ -606,6 +586,7 @@ static struct {
     unsigned char button[IN_N];
     int button_known[IN_N];
     int left, right, track, powered;
+    int plain; // rawmidi_plain's answer when the port opened (0: plain bytes)
 } port = {.fd = -1};
 
 void panel_set_bicolour_style(int style) {
@@ -641,7 +622,10 @@ static int port_open(void) {
     char path[40];
     snprintf(path, sizeof path, "/dev/snd/midiC%dD0", atoi(c + 8));
     port.fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
-    return port.fd >= 0 ? 0 : -1;
+    if (port.fd < 0) return -1;
+    port.plain = rawmidi_plain(port.fd); // see rawmidi_plain.h: the stock app may have left it framed
+    snprintf(raw_note, sizeof raw_note, "panel port: %s", port.plain ? "FRAMING NOT SET (kernel refused)" : "plain bytes (framing off)");
+    return 0;
 }
 
 static void lights_power(int on) {

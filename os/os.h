@@ -18,8 +18,8 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM, RENAME_SOUND, RENA
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "2.0H"
-#define OS_VERSION "LA Version " OS_NUMBER " (11/26/26)" // 26 columns: a four-digit year will not fit
+#define OS_NUMBER "2.0I"
+#define OS_VERSION "LA Version " OS_NUMBER " (11/27/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
 #define OS_POWER_FORCE_MS 15000 // if an orderly shutdown has not finished by then, cut the power
@@ -388,7 +388,7 @@ struct os {
     int erase_used;    // a pad was hit with ERASE held, so letting go of ERASE erases nothing more
     int erase_ask;     // the erase prompt for recorded fader moves: 0 closed, else 1 + the AUTO_* value
     int erase_this;    // whether that value itself has recorded moves (else only <All> is offered)
-    int pgm_ask;       // the Program screen's delete prompt is open
+    int pgm_ask;       // the Program screen's Clear Pgm prompt: the program to empty + 1, or 0 closed
     int pgm_mode;      // PGM_*: a pad command waiting for its other pad, or a pad delete to confirm
     int pgm_target;    // Copy and Swap: the program the other pad is in (the wheel picks it)
     int toast_unused;  // Snd: SHIFT + wheel found no unused sound: said on the next frame

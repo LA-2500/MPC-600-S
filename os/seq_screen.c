@@ -1185,12 +1185,24 @@ void seq_program_frame(struct os *s, struct ui *u, const struct input *in) {
     char name[8], line[LCD_COLS + 8];
     pad_name(s->selected, name, sizeof name);
     int has = s->pads[s->selected].s != 0;
-    if (s->pgm_ask) { // emptying the whole program
+    if (s->pgm_ask) { // emptying a whole program: pgm_ask - 1, the one shown to start, the wheel picks
+        int g = s->pgm_ask - 1;    // any with sounds. The tracks stay on their programs (so Undo
+        if (in->encoder) {         // cannot move them either: it puts back the sequences as they were).
+            int step = in->encoder > 0 ? 1 : -1;
+            for (int n = in->encoder * step; n > 0; n--)
+                for (int x = g + step; x >= 0 && x < OS_PROGRAMS; x += step)
+                    if (os_program_sounds(s, x)) {
+                        g = x;
+                        break;
+                    }
+            s->pgm_ask = g + 1;
+        }
         if (input_down(in, IN_B1)) s->pgm_ask = 0;
         if (input_down(in, IN_B3)) {
             os_undo_save(s, "Empty Pgm");
-            os_program_clear(s, s->program);
-            os_toast(s, u, "Program emptied");
+            os_program_clear(s, g);
+            snprintf(line, sizeof line, "Program %02d emptied", g + 1);
+            os_toast(s, u, line);
             s->pgm_ask = 0;
         }
     } else if (s->pgm_mode == PGM_DELETE) {
@@ -1206,7 +1218,11 @@ void seq_program_frame(struct os *s, struct ui *u, const struct input *in) {
         if (input_down(in, IN_B1)) s->pgm_mode = PGM_NONE;
         if (in->encoder) s->pgm_target = clampi(s->pgm_target + in->encoder, 0, OS_PROGRAMS - 1);
     } else if (in->shift && input_down(in, IN_B3)) {
-        if (os_program_sounds(s, s->program)) s->pgm_ask = 1;
+        int g = os_program_sounds(s, s->program) ? s->program : -1;
+        for (int x = 0; x < OS_PROGRAMS && g < 0; x++)
+            if (os_program_sounds(s, x)) g = x;
+        if (g >= 0) s->pgm_ask = g + 1;
+        else os_toast(s, u, "Every program is empty");
     } else if (in->shift && input_down(in, IN_B1)) { // the whole program into the first empty one
         int to = -1;
         for (int p = 0; p < OS_PROGRAMS && to < 0; p++)
@@ -1284,7 +1300,8 @@ void seq_program_frame(struct os *s, struct ui *u, const struct input *in) {
         const char *q1 = " Empty every pad in", *q2 = 0;
         char l2[LCD_COLS + 8];
         if (s->pgm_ask) {
-            snprintf(l2, sizeof l2, " Program %02d?", kit + 1);
+            int g = s->pgm_ask - 1;
+            snprintf(l2, sizeof l2, " Pgm %02d %.8s? (wheel)", g + 1, s->programs[g].name);
         } else if (s->pgm_mode == PGM_DELETE) {
             q1 = " Delete the sound on";
             snprintf(l2, sizeof l2, " pad %s?", name);

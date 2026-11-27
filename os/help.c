@@ -300,7 +300,7 @@ static const struct {
      "Inst (S600 and S600 MULTI): the Instrument, the pad MIDI keys play. A01 to start; turn "
      "the wheel, or with the cursor here press a pad. LAST PAD (S600): the pad pressed last.\f"
      "Copy, Swap, Delete work on single pads: choose, then press the other pad.\f"
-     "Hidden keys: <Copy Pgm>, <Clear Pgm> with Shift.\n"
+     "Hidden keys: <Copy Pgm>, <Clear Pgm> with Shift. Clear Pgm asks which program (the wheel).\n"
      "Snd: gives the selected pad any sound in memory."},
     {OS_TC, -1, "Timing Correct",
      "Note value and Swing for recording, Shift timing to push notes early or late.\n"
@@ -526,7 +526,9 @@ static const struct {
      "CATCH (to start): nothing moves until the knob reaches the value.\n"
      "JUMP: the value goes to where the knob is, at once.\n"
      "SCALE: the value moves from where it is, in step with the knob, so the two meet at the "
-     "ends of its travel."},
+     "ends of its travel.\n"
+     "Track Mute: AT ONCE (to start): a mute or unmute is heard at once. NEXT NOTE: a mute lets "
+     "the sound end, an unmute waits for the track's next note."},
     {OS_DISK, -1, "Save/Load",
      "SAVE, LOAD or EXPORT. Types: project (everything), program, sample, settings, autoload "
      "(loaded at power-on), FX chain (the input chain), arp pattern (a USER step pattern), "

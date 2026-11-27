@@ -1,3 +1,4 @@
+#include "rawmidi_plain.h"
 #include "midi_out.h"
 #include <fcntl.h>
 #include <stdio.h>
@@ -37,6 +38,7 @@ int midi_port_open(int which) {
     if (which < 0 || which >= MIDI_PORTS) return -1;
     port[which].out = open_port(which, O_WRONLY);
     port[which].in = open_port(which, O_RDONLY);
+    rawmidi_plain(port[which].in); // see rawmidi_plain.h
     return port[which].out >= 0 || port[which].in >= 0 ? 0 : -1;
 }
 
