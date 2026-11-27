@@ -8108,6 +8108,13 @@ static void test_prefs_start(void) {
     prefs_startup(&os);
     CHECK(os.start_bpm10 == 935 && os.seq.sequence[0].tempo10 == 935 && os.seq.sequence[98].tempo10 == 935);
     CHECK(os.seq.tc == TC_8 && os.seq.swing == 62 && os.seq.sequence[0].bars == 4 && os.seq.sequence[50].bars == 4);
+    CHECK(os.seq.rep_rate == REP_8); // Note Repeat starts at Start TC
+    os.start_tc = TC_16T, prefs_startup(&os);
+    CHECK(os.seq.rep_rate == REP_16T);
+    os.start_tc = TC_64T, prefs_startup(&os);
+    CHECK(os.seq.rep_rate == REP_32T); // no 1/64 on Repeat: the nearest
+    os.start_tc = TC_OFF, prefs_startup(&os);
+    CHECK(os.seq.rep_rate == REP_16);
     seq_fresh();
     prefs_load_line(&os, "1,2,0,3");
     CHECK(os.button_lights == 1 && os.pad_lights == 2 && os.start_bpm10 == 1200 && os.start_tc == TC_16 && os.start_bars == 2);

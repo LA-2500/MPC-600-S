@@ -277,12 +277,16 @@ void prefs_load_line(struct os *s, const char *line) {
 }
 
 // At power-on: every sequence at Start BPM and Start Bars (all empty then), and Timing Correct
-// and swing as set.
+// (and Note Repeat's rate with it) and swing as set.
 void prefs_startup(struct os *s) {
     struct seq *sq = &s->seq;
     pthread_mutex_lock(&sq->lock);
     for (int i = 0; i < SEQ_COUNT; i++) sq->sequence[i].tempo10 = s->start_bpm10, sq->sequence[i].bars = s->start_bars;
     sq->tc = s->start_tc;
+    // Note Repeat starts at the same value: 1/4 to 1/32T as they are; Repeat has no 1/64, so
+    // 1/64 and 1/64T start at 1/32 and 1/32T, and OFF at 1/16.
+    sq->rep_rate = s->start_tc < REP_RATES ? s->start_tc : s->start_tc == TC_OFF ? REP_16 : s->start_tc - 2;
+    sq->rep_alt = -1;
     sq->swing = seq_swing_step(sq, s->start_swing, 0);
     pthread_mutex_unlock(&sq->lock);
 }
