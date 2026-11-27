@@ -184,6 +184,7 @@ int main(int argc, char **argv) {
     if (ext || usb) {
         os.midi_in_read = midi_in_read;
         os.seq.midi_send = midi_out_send;
+        os.midi_usb_send = midi_out_send_usb;
         os.midi_ports = midi_ports_enable;
     }
     os.set_led_style = panel_set_bicolour_style;

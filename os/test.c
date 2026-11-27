@@ -3497,6 +3497,19 @@ static void test_playhead(const char *shot_dir) {
     engine_kill_all(&e);
     for (int i = 0; i < 40; i++) render(128);
     CHECK(os_playhead(&os) < 0);
+    // In another program too: its pads are other engine slots
+    os_set_program(&os, 1);
+    os.screen = OS_SAMPLE, os.selected = 0;
+    os_pad_load(&os, 0, ramp(88200), "Loop2");
+    in = blank(), in.pad_hit[0] = 100, in.pad_down[0] = 1;
+    frame(&in);
+    for (int i = 0; i < 40; i++) render(128);
+    CHECK(os_playhead(&os) > 0);
+    in = blank(), in.pad_release[0] = 1;
+    frame(&in);
+    engine_kill_all(&e);
+    render(128);
+    os_set_program(&os, 0);
     os.screen = OS_MAIN;
 }
 
@@ -5624,6 +5637,36 @@ static void test_midi_settings(const char *shot_dir) {
     struct ui fu = {.px = px, .now_ms = 1000, .track_led = -1};
     looper_service(&os, &fu);
     CHECK(os.lp_state == LP_IDLE);
+
+    // Footswitch LOOP NEXT, from any page: the first press a take on the selected empty pad,
+    // each press after arms the next empty pad; only STOP ends it.
+    os.midi.foot = FOOT_LOOP_NEXT;
+    os.screen = OS_MAIN, os.record_page = 0, os.selected = 120;
+    CHECK(!os.pads[120].s && !os.pads[121].s && !os.pads[122].s);
+    midi_send_in(0xb0, 64, 127);
+    midi_send_in(0xb0, 64, 0);
+    CHECK(os.lp_state == LP_COUNT && os.lp_slot == 120 && os.seq.mode == SEQ_COUNT_IN);
+    midi_send_in(0xb0, 64, 127); // during the take: the next empty pad armed, the take goes on
+    midi_send_in(0xb0, 64, 0);
+    CHECK(os.lp_state == LP_COUNT && os.lp_next == 122 && strncmp(os.toast, "Next take: Pad H10", 18) == 0);
+    midi_send_in(0xb0, 64, 127); // again: still that pad
+    midi_send_in(0xb0, 64, 0);
+    CHECK(os.lp_next == 122);
+    recorder_stop(&os.rec); // as if the take had dropped in
+    recorder_input(&os.rec, quiet, 128, 0);
+    recorder_discard(&os.rec);
+    os.lp_state = LP_IDLE;
+    looper_service(&os, &fu); // the armed pad's take, on the next bar 1
+    CHECK(os.lp_state == LP_WAIT && os.lp_slot == 121 && os.selected == 121 && os.lp_next == 0);
+    midi_send_in(0xb0, 64, 127);
+    midi_send_in(0xb0, 64, 0);
+    CHECK(os.lp_next == 123);
+    seq_stop(&os.seq, 1); // STOP: the take and the armed pad go
+    looper_service(&os, &fu);
+    recorder_input(&os.rec, quiet, 128, 0);
+    looper_service(&os, &fu);
+    looper_service(&os, &fu);
+    CHECK(os.lp_state == LP_IDLE && os.lp_next == 0 && os.seq.mode == SEQ_STOPPED);
     os.lp_session = 0, os.selected = sel_was, os.screen = screen_was, os.record_page = 0;
     atomic_store(&os.rec.present, 0);
     os.midi.foot = FOOT_PLAY;
@@ -9162,6 +9205,22 @@ static void test_prefs(const char *shot_dir) {
     CHECK(os.start_mode == REC_MONO_L && os.rec_set[4].mode == REC_MONO_L && os.rec_set[2].mode == REC_MONO_LR);
     in.encoder = -1;
     frame(&in);
+    tap(IN_B3); // <Page 3>: Outs to DAW, ON to start
+    CHECK(os.cursor_prefs == 21 && os.outs_daw == 1);
+    { struct input idle = blank(); frame(&idle); }
+    if (shot_dir) write_shot(shot_dir, "prefs3");
+    in = blank(), in.encoder = -1;
+    frame(&in);
+    CHECK(os.outs_daw == 0);
+    {
+        char line[200];
+        prefs_save_line(&os, line, sizeof line);
+        os.outs_daw = 1;
+        prefs_load_line(&os, line);
+        CHECK(os.outs_daw == 0); // kept with the settings
+    }
+    in.encoder = 1;
+    frame(&in);
     tap(IN_B3); // <Page 1>
     CHECK(os.cursor_prefs == 0);
     // SP-1200 swing: a 16th at 58% lands 4 ticks late; the six settings only.
@@ -10370,6 +10429,100 @@ static void test_clear_after_chop(void) {
     os.screen = OS_MAIN;
 }
 
+// USB Indiv Out by track: a pad pressed live comes out where its part is assigned. The active
+// track (1) plays pad 1; track 2 (same program) plays pad 2 and is on output 3: pressing pad 2
+// on the active track plays through track 2. A pad no track plays: the active track, as before.
+static void test_live_pad_outs(void) {
+    seq_fresh();
+    load_pad(0), load_pad(1), load_pad(2);
+    struct seq *sq = &os.seq;
+    seq_add_note(sq, 0, 0, 0, 0, 100, 24);
+    seq_add_note(sq, 0, 1, 96, 1, 100, 24);
+    sq->sequence[0].track[1].kit = 0, sq->sequence[0].track[1].usb_out = 3;
+    os.usb_outs = 1, os.outs_by_track = 1;
+    sq->track = 0;
+    int got[3];
+    for (int p = 0; p < 3; p++) {
+        engine_kill_all(&e);
+        render(128);
+        struct input in = blank();
+        in.pad_hit[p] = 100, in.pad_down[p] = 1;
+        frame(&in);
+        got[p] = -1;
+        for (int i = 0; i < ENGINE_VOICES; i++)
+            if (e.voice[i].stage) got[p] = e.voice[i].track;
+        in = blank();
+        frame(&in);
+    }
+    CHECK(got[0] == 1 && got[1] == 2 && got[2] == 1);
+    os.outs_by_track = 0; // by pad: the active track, as ever
+    engine_kill_all(&e);
+    render(128);
+    struct input in = blank();
+    in.pad_hit[1] = 100, in.pad_down[1] = 1;
+    frame(&in);
+    int tr = -1;
+    for (int i = 0; i < ENGINE_VOICES; i++)
+        if (e.voice[i].stage) tr = e.voice[i].track;
+    CHECK(tr == 1);
+    in = blank();
+    frame(&in);
+    os.usb_outs = 0;
+    engine_kill_all(&e);
+    for (int i = 0; i < 3; i++) render(128);
+}
+
+// The outputs' message to LA DAW: what is on each output (kind and name), sent over USB MIDI when
+// it changes and at each Start, not every frame.
+static unsigned char daw_msg[200];
+static int daw_n, daw_sends;
+static void fake_usb_send(const unsigned char *m, int n) {
+    memcpy(daw_msg, m, (size_t)(n < 200 ? n : 200)), daw_n = n, daw_sends++;
+}
+static void test_outs_to_daw(void) {
+    seq_fresh();
+    struct seq_sequence *q = &os.seq.sequence[0];
+    snprintf(q->track[0].name, sizeof q->track[0].name, "DRUMS");
+    snprintf(q->track[1].name, sizeof q->track[1].name, "BASS");
+    snprintf(q->track[2].name, sizeof q->track[2].name, "KEYS");
+    q->track[0].usb_out = ENGINE_OUTS + 1; // the pair 1-2
+    q->track[1].usb_out = 3, q->track[2].usb_out = 3; // both on 3
+    q->track[3].usb_out = 8;                           // unnamed, on 8
+    os.usb_outs = 1, os.outs_by_track = 1;
+    os.midi_usb_send = fake_usb_send;
+    daw_sends = 0;
+    struct input idle = blank();
+    frame(&idle);
+    CHECK(daw_sends == 1 && daw_n == 6 + 8 * 17 + 1 && daw_msg[0] == 0xF0 && daw_msg[1] == 0x7D && daw_msg[4] == 1 &&
+          daw_msg[5] == 1 && daw_msg[daw_n - 1] == 0xF7);
+    const unsigned char *o = daw_msg + 6;
+    CHECK(o[0] == 2 && !memcmp(o + 1, "DRUMS           ", 16) && o[17] == 3 && !memcmp(o + 18, "DRUMS", 5));
+    CHECK(o[2 * 17] == 1 && !memcmp(o + 2 * 17 + 1, "BASS+           ", 16)); // output 3: two tracks
+    CHECK(o[3 * 17] == 0 && o[7 * 17] == 1 && !memcmp(o + 7 * 17 + 1, "Track04", 7));
+    frame(&idle);
+    CHECK(daw_sends == 1); // unchanged: not sent again
+    os.outs_daw = 0; // Outs to DAW OFF: nothing sent, even when it changes
+    snprintf(q->track[2].name, sizeof q->track[2].name, "PIANO");
+    frame(&idle);
+    CHECK(daw_sends == 1);
+    os.outs_daw = 1;
+    frame(&idle);
+    CHECK(daw_sends == 2); // ON again: sent at once
+    daw_sends = 1;
+    snprintf(q->track[1].name, sizeof q->track[1].name, "SUB");
+    frame(&idle);
+    CHECK(daw_sends == 2 && !memcmp(daw_msg + 6 + 2 * 17 + 1, "SUB+", 4));
+    seq_play(&os.seq, 1);
+    frame(&idle);
+    CHECK(daw_sends == 3); // at Start, again
+    seq_stop(&os.seq, 1);
+    frame(&idle);
+    os.usb_outs = 0;
+    os.midi_usb_send = 0;
+    engine_kill_all(&e);
+    for (int i = 0; i < 3; i++) render(128);
+}
+
 int main(int argc, char **argv) {
     if (getenv("MPC_TEST_LAYOUT")) forced_layout = atoi(getenv("MPC_TEST_LAYOUT"));
     if (getenv("DEMO_PROJECT")) return demo_project(getenv("DEMO_PROJECT")) != 0 || failures != 0;
@@ -10493,6 +10646,8 @@ int main(int argc, char **argv) {
     test_master_fx(argc > 1 ? argv[1] : 0);
     test_fx_modes(argc > 1 ? argv[1] : 0);
     test_help_and_locate(argc > 1 ? argv[1] : 0);
+    test_outs_to_daw();
+    test_live_pad_outs();
     test_clear_after_chop();
     test_clear_other_programs();
     test_track_mute(argc > 1 ? argv[1] : 0);

@@ -90,7 +90,7 @@ static void m_value(const struct midi_settings *m, int f, char *b, size_t n) {
     case M_LOCAL: snprintf(b, n, " %s ", m->local ? "ON" : "OFF"); break;
     case M_THRU: snprintf(b, n, " %s ", m->thru ? "ON" : "OFF"); break;
     case M_SUS: snprintf(b, n, " %s ", sus[m->sustain]); break;
-    case M_FOOT: snprintf(b, n, " %s ", m->foot == FOOT_AUDIO ? "AUDIO REC" : m->foot == FOOT_REC ? "REC/OVERDUB" : "PLAY/STOP"); break;
+    case M_FOOT: snprintf(b, n, " %s ", m->foot == FOOT_LOOP_NEXT ? "LOOP NEXT" : m->foot == FOOT_AUDIO ? "AUDIO REC" : m->foot == FOOT_REC ? "REC/OVERDUB" : "PLAY/STOP"); break;
     case M_FCHN:
         if (m->foot_chn) snprintf(b, n, " %d ", m->foot_chn);
         else snprintf(b, n, " ANY ");

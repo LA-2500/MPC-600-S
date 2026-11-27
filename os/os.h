@@ -18,7 +18,7 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM, RENAME_SOUND, RENA
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "2.0I"
+#define OS_NUMBER "2.0J"
 #define OS_VERSION "LA Version " OS_NUMBER " (11/27/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
@@ -73,7 +73,7 @@ struct master {
 enum { SEQ_ASK_NONE, SEQ_ASK_BARS, SEQ_ASK_BPM_DOUBLE, SEQ_ASK_BPM_HALF };
 enum { SYNC_OFF, SYNC_SEND, SYNC_RECEIVE };
 enum { SUS_NORMAL, SUS_DURATION, SUS_FOOT };
-enum { FOOT_PLAY, FOOT_REC, FOOT_AUDIO, FOOT_MODES };
+enum { FOOT_PLAY, FOOT_REC, FOOT_AUDIO, FOOT_LOOP_NEXT, FOOT_MODES }; // FOOT_LOOP_NEXT: Live Looper, each press the next empty pad
 enum { FPOL_AUTO, FPOL_NORMAL, FPOL_INVERTED, FPOL_COUNT }; // the footswitch's polarity // FOOT_AUDIO: <Rec>/<Stop> on Audiotrack Record or Live Looper
 enum { MCC_LEVEL, MCC_PAN, MCC_LOW, MCC_MID, MCC_HIGH, MCC_MUTE, MCC_SOLO, MCC_COUNT };
 enum { CCT_BANK, CCT_SELECTED };
@@ -276,6 +276,7 @@ struct os {
     int lp_state;                // LP_*
     int lp_slot, lp_track, lp_wraps, lp_latency, lp_pitch;
     int lp_session;              // a take was started since the sequence last started: After Loop applies
+    int lp_next;                 // footswitch LOOP NEXT: the pad (+1) armed for the take after this one, or 0
     long long lp_zero;           // the engine clock frame the take's pass begins
     long lp_length;              // the pass in frames
     struct lp_job *lp_job;       // IMMEDIATE: the take made into a sound while it is recorded
@@ -301,6 +302,10 @@ struct os {
     // MIDI in, a message at a time from either port: 1 with it in m and its port (MIDI_PORT_*)
     // in *from. NULL without a port.
     int (*midi_in_read)(unsigned char m[3], int *from);
+    void (*midi_usb_send)(const unsigned char *m, int n); // USB MIDI only (the outputs' message to LA DAW), or NULL
+    unsigned char outs_sent[160]; // that message as last sent, to send again only when it changes
+    int outs_sent_n, outs_sent_playing;
+    int outs_daw; // Additional Settings 3, Outs to DAW: that message sent (ON to start)
     void (*midi_ports)(int ext, int usb); // which ports are switched on, or NULL
     int midi_held[128]; // engine slot + 1 a MIDI note is sounding on, or 0
     int midi_key[128], midi_rec[128]; // its key, and the pad it was recorded as (or -1)
@@ -576,6 +581,7 @@ void record_open_resample(struct os *s); // Shift + Pad 11: Resample
 void record_frame(struct os *s, struct ui *u, const struct input *in);
 void looper_service(struct os *s, struct ui *u); // every frame, on any page: the Live Looper's take
 void record_foot(struct os *s, struct ui *u);    // the footswitch as AUDIO REC: <Rec> or <Stop> there
+void record_foot_next(struct os *s, struct ui *u); // the footswitch as LOOP NEXT: a take on the next empty pad
 int record_pad(struct os *s, struct ui *u, int slot); // 1 when the pad took the finished take
 
 // Undo and Redo, in undo.c. Call os_undo_save just before an audio command or a change to

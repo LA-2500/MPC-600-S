@@ -407,7 +407,7 @@ void os_init(struct os *s, struct engine *e) {
     s->button_lights = BUTTON_RED, s->pad_lights = PAD_LIGHT_OFF, s->screen_scheme = SCREEN_MPC3000;
     s->pads_lit = 1; // whatever the stock app left lit goes dark on the first frame
     s->start_bpm10 = 1200, s->start_bars = 2, s->start_tc = TC_16, s->start_swing = 50;
-    s->inst_gain = 12, s->inst_bright = 50, s->pad_threshold = 30, s->usb_out = 0;
+    s->inst_gain = 12, s->inst_bright = 50, s->pad_threshold = 30, s->usb_out = 0, s->outs_daw = 1;
     s->usb_outs = 0, s->outs_by_track = 1, s->outs_keep = 1; // by track, to start
     s->padtpl_oct = 2; // pad note templates from C2
     s->led_style = 1; // colour A alone: red on the two-colour buttons
@@ -1011,6 +1011,27 @@ int os_track_type(struct os *s) {
     return type;
 }
 
+// The track a pad pressed live plays through: the active track; but with USB Indiv Out by track,
+// when the active track has no notes of this pad, a track of the sequence on the same program that
+// has some and has an output, so the pad comes out where its part is assigned (not on the active
+// track's output). Caller holds the sequencer's lock.
+static int live_track(const struct os *s, int pad) {
+    const struct seq_sequence *q = &s->seq.sequence[s->seq.current];
+    int active = s->seq.track;
+    if (!s->usb_outs || !s->outs_by_track) return active;
+    const struct seq_track *a = &q->track[active];
+    if (a->type == TRACK_MIDI) return active;
+    for (int i = 0; i < a->count; i++)
+        if (a->notes[i].note == pad) return active;
+    for (int t = 0; t < SEQ_TRACKS; t++) {
+        const struct seq_track *k = &q->track[t];
+        if (t == active || k->type == TRACK_MIDI || k->kit != a->kit || k->usb_out <= 0) continue;
+        for (int i = 0; i < k->count; i++)
+            if (k->notes[i].note == pad) return t;
+    }
+    return active;
+}
+
 // Plays a pad of the current program `tune` semitones from its pitch, as a track of `type`
 // would: an S600 track through the pad's S600 settings. The engine slot, or -1.
 static int play_sound(struct os *s, int pad, int tune, int vel, int type) {
@@ -1024,7 +1045,7 @@ static int play_sound(struct os *s, int pad, int tune, int vel, int type) {
         id += ENGINE_S600;
     }
     pthread_mutex_lock(&s->seq.lock); // through the active track's mixer channel
-    int track = s->seq.track;
+    int track = live_track(s, pad);
     const struct seq_track *k = &s->seq.sequence[s->seq.current].track[track];
     int level = k->level, pan = k->pan;
     pthread_mutex_unlock(&s->seq.lock);
@@ -1073,13 +1094,18 @@ static void sustain_up(struct os *s) {
 }
 
 // The pedal as a footswitch: PLAY/STOP, REC/OVERDUB (stopped, it starts an overdub;
-// playing, it punches in and out), or AUDIO REC (an audio track or Live Looper take).
+// playing, it punches in and out), AUDIO REC (an audio track or Live Looper take), or LOOP NEXT
+// (a Live Looper take on the next empty pad each press; STOP ends it).
 static void footswitch(struct os *s, struct ui *u) {
     pthread_mutex_lock(&s->seq.lock);
     int stopped = s->seq.mode == SEQ_STOPPED;
     pthread_mutex_unlock(&s->seq.lock);
     if (s->midi.foot == FOOT_AUDIO) { // <Rec> or <Stop> on Audiotrack Record or Live Looper
         record_foot(s, u);
+        return;
+    }
+    if (s->midi.foot == FOOT_LOOP_NEXT) {
+        record_foot_next(s, u);
         return;
     }
     if (s->midi.foot == FOOT_PLAY) {
@@ -1847,9 +1873,10 @@ static int64_t follow_point(int64_t a, int64_t b, int cursor_on_b) {
 
 // Where the selected pad's sound is playing now (its drum or its S600 note), or -1.
 int64_t os_playhead(const struct os *s) {
-    if (!s->engine || s->selected < 0 || s->selected >= ENGINE_PADS) return -1;
-    int at = engine_play_pos(s->engine, s->selected);
-    if (at < 0) at = engine_play_pos(s->engine, ENGINE_S600 + s->selected);
+    if (!s->engine || s->selected < 0 || s->selected >= OS_PADS) return -1;
+    int slot = os_pad_slot(s, s->selected); // the pad in this program (its engine slot)
+    int at = engine_play_pos(s->engine, slot);
+    if (at < 0) at = engine_play_pos(s->engine, ENGINE_S600 + slot);
     return at;
 }
 
@@ -2810,6 +2837,23 @@ static void title_credit(struct ui *u, int y) {
     }
 }
 
+// USB Indiv Out on: what is on each output, to LA DAW over USB MIDI (outs_message), when it
+// changes and each time the sequence starts.
+static void outs_to_daw(struct os *s) {
+    int playing = s->seq.mode != SEQ_STOPPED;
+    int started = playing && !s->outs_sent_playing;
+    s->outs_sent_playing = playing;
+    if (!s->usb_outs || !s->midi_usb_send || !s->outs_daw) {
+        s->outs_sent_n = 0; // turned on again: sent at once
+        return;
+    }
+    unsigned char m[sizeof s->outs_sent];
+    int n = outs_message(s, m, sizeof m);
+    if (n <= 0 || (!started && n == s->outs_sent_n && !memcmp(m, s->outs_sent, (size_t)n))) return;
+    s->midi_usb_send(m, n);
+    memcpy(s->outs_sent, m, (size_t)n), s->outs_sent_n = n;
+}
+
 // Shows the startup screen. 1 while it stays up. Any control skips it.
 static int title_frame(struct ui *u, struct os *s, const struct input *in) {
     int64_t now = now_ms(u);
@@ -3026,6 +3070,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         midi_in(s, u, midi_msg, midi_from);
     s->seq.midi_off = !s->midi.ext && !s->midi.usb;
     s->seq.sync_send = s->midi.sync == SYNC_SEND;
+    outs_to_daw(s);
     if (s->screen == OS_SAMPLE || s->screen == OS_MAIN || s->screen == OS_TC || s->screen == OS_METRO ||
         s->screen == OS_PROGRAM || s->screen == OS_ERASE || s->screen == OS_LOOP || s->screen == OS_S600 ||
         s->screen == OS_LEVELS || s->screen == OS_MIXER || s->screen == OS_RECORD ||

@@ -163,7 +163,10 @@ static const struct {
      "<Stop> lets a take go. <Back>: Audiotrack Record.\n"
      "SAMPLE + pad: select a loop to edit without retriggering it.\n"
      "Footswitch AUDIO REC (MIDI Settings): the pedal is <Rec>/<Stop>, here or on any page "
-     "once takes have started.\n"
+     "once takes have started.\f"
+     "Footswitch LOOP NEXT: from any page, the first press a take on the selected pad (or "
+     "the next empty one), each press after the next empty pad, on the next bar 1. STOP ends "
+     "it.\n"
      "How a take is converted: Loop Conv on Additional Settings."},
     {OS_RECORD, 2, "Convert Sample",
      "The selected pad's sound sampled again at a new rate, bits and pitch, as an old sampler "
@@ -365,8 +368,9 @@ static const struct {
     {OS_MIDI, -1, "MIDI Settings",
      "Ports (Ext, USB), Base and Receive channels, Sync send or receive, Local Mode, Soft "
      "Thru, Sustain pedal.\n"
-     "Sustain FOOTSWITCH: the pedal is a Footswitch: PLAY/STOP, REC/OVERDUB, or AUDIO REC, "
-     "which is <Rec> and <Stop> on Audiotrack Record and Live Looper.\f"
+     "Sustain FOOTSWITCH: the pedal is a Footswitch: PLAY/STOP, REC/OVERDUB, AUDIO REC "
+     "(<Rec> and <Stop> on Audiotrack Record and Live Looper), or LOOP NEXT (Live Looper "
+     "takes, each on the next empty pad).\f"
      "Foot Chn: ANY (to start) or 1-16. Foot CC: 64 (to start). Polarity: AUTO (to start) "
      "works out a pedal that rests 'down' from its first press; NORMAL or INVERTED.\n"
      "On those fields B2 is <Learn>: press it, then the pedal. Its channel, CC and polarity "
@@ -528,7 +532,10 @@ static const struct {
      "SCALE: the value moves from where it is, in step with the knob, so the two meet at the "
      "ends of its travel.\n"
      "Track Mute: AT ONCE (to start): a mute or unmute is heard at once. NEXT NOTE: a mute lets "
-     "the sound end, an unmute waits for the track's next note."},
+     "the sound end, an unmute waits for the track's next note.\f"
+     "Page 3. Outs to DAW: ON (to start): with USB Indiv Out on, what is on each output (mono or a "
+     "pair, and its name) goes to the computer over USB MIDI, when it changes and at each Start. "
+     "LA DAW names its tracks from it. OFF: nothing extra is sent."},
     {OS_DISK, -1, "Save/Load",
      "SAVE, LOAD or EXPORT. Types: project (everything), program, sample, settings, autoload "
      "(loaded at power-on), FX chain (the input chain), arp pattern (a USER step pattern), "

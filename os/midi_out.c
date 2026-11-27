@@ -61,6 +61,10 @@ void midi_out_send(const unsigned char *m, int n) {
         if (port[p].out >= 0 && port[p].on) (void)!write(port[p].out, m, (size_t)n);
 }
 
+void midi_out_send_usb(const unsigned char *m, int n) {
+    if (port[MIDI_PORT_USB].out >= 0 && port[MIDI_PORT_USB].on) (void)!write(port[MIDI_PORT_USB].out, m, (size_t)n);
+}
+
 // The next message from one port, or 0.
 static int read_port(int p, unsigned char m[3]) {
     for (;;) {

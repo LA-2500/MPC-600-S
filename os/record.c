@@ -983,6 +983,7 @@ static void looper_start(struct os *s, struct ui *u) {
 
 // <Stop>, or the sequence stopped: the take is let go; the sequence plays on.
 static void looper_abort(struct os *s) {
+    s->lp_next = 0; // the pad armed after it goes too
     if (s->lp_state == LP_IDLE) return;
     if (s->lp_job) atomic_store(&s->lp_job->cancel, 1);
     recorder_stop(&s->rec);
@@ -1067,10 +1068,13 @@ static void looper_delete(struct os *s, struct ui *u) {
     os_toast(s, u, "No take to delete");
 }
 
+static void looper_next(struct os *s, struct ui *u);
+
 void looper_service(struct os *s, struct ui *u) {
     autosampler_service(s, u);
     if (s->lp_conv && atomic_load(&s->lp_conv->done)) looper_swap(s, u);
     if (s->lp_conv) ui_wake(u, 20);
+    if (s->lp_state == LP_IDLE && s->lp_next) looper_next(s, u); // LOOP NEXT: the armed pad's take
     if (s->lp_state == LP_IDLE) return;
     struct recorder *r = &s->rec;
     int state = atomic_load(&r->state);
@@ -1147,6 +1151,70 @@ void looper_service(struct os *s, struct ui *u) {
     raw->refs++; // held while it is converted, even if the pad lets go
     s->lp_conv = lp_start(lp_convert_thread, j);
     if (!s->lp_conv) os_sample_release(s, raw);
+}
+
+// The first empty pad from `from` on, round all the pads; `skip` (the pad a take is under way
+// for) counts as filled. -1 when every pad has a sound.
+static int next_empty(const struct os *s, int from, int skip) {
+    for (int i = 0; i < OS_PADS; i++) {
+        int p = ((from % OS_PADS) + OS_PADS + i) % OS_PADS;
+        if (!s->pads[p].s && p != skip) return p;
+    }
+    return -1;
+}
+
+// LOOP NEXT: the take just finished; the armed pad's take starts, on the next bar 1.
+static void looper_next(struct os *s, struct ui *u) {
+    int slot = s->lp_next - 1;
+    s->lp_next = 0;
+    pthread_mutex_lock(&s->seq.lock);
+    int stopped = s->seq.mode == SEQ_STOPPED;
+    pthread_mutex_unlock(&s->seq.lock);
+    if (stopped) return; // STOP ended it
+    if (s->pads[slot].s) slot = next_empty(s, slot, -1); // filled meanwhile
+    if (slot < 0) {
+        os_toast(s, u, "No empty pad");
+        return;
+    }
+    s->selected = slot;
+    looper_start(s, u);
+    ui_wake(u, 1);
+}
+
+// The footswitch as LOOP NEXT, on any page: the first press starts a take on the selected pad
+// (or the next empty one after it); each press after arms the next empty pad, its take starting
+// on the next bar 1 (pressed during a take: the bar 1 after that take). Only STOP (or <Stop>)
+// ends it.
+void record_foot_next(struct os *s, struct ui *u) {
+    char msg[40];
+    if (s->lp_state == LP_ABORT) return;
+    if (s->lp_state == LP_IDLE) {
+        int slot = next_empty(s, s->selected, -1);
+        if (slot < 0) {
+            os_toast(s, u, "No empty pad");
+            return;
+        }
+        s->selected = slot;
+        looper_start(s, u);
+        if (s->lp_state != LP_IDLE) {
+            snprintf(msg, sizeof msg, "Loop take: Pad %c%02d", 'A' + slot / 16, slot % 16 + 1);
+            os_toast(s, u, msg);
+        }
+        ui_wake(u, 1);
+        return;
+    }
+    if (!s->lp_next) {
+        int slot = next_empty(s, s->lp_slot + 1, s->lp_slot);
+        if (slot < 0) {
+            os_toast(s, u, "No empty pad");
+            return;
+        }
+        s->lp_next = slot + 1;
+    }
+    int slot = s->lp_next - 1;
+    snprintf(msg, sizeof msg, "Next take: Pad %c%02d", 'A' + slot / 16, slot % 16 + 1);
+    os_toast(s, u, msg);
+    ui_wake(u, 1);
 }
 
 // The footswitch as AUDIO REC: what <Rec> or <Stop> does on Audiotrack Record or Live Looper.
@@ -1227,7 +1295,10 @@ static void looper_frame(struct os *s, struct ui *u, const struct input *in) {
         long left = s->lp_length - (atomic_load(&s->rec.frames) - (long)(s->lp_zero - s->rec.first_clock) - s->lp_latency);
         if (left < 0) left = 0;
         long tenths = left * 10 / ENGINE_RATE;
-        snprintf(line, sizeof line, "Loop Rec  %ld.%lds to go", tenths / 10, tenths % 10);
+        if (s->lp_next)
+            snprintf(line, sizeof line, "Loop Rec %ld.%lds  Next %c%02d", tenths / 10, tenths % 10,
+                     'A' + (s->lp_next - 1) / 16, (s->lp_next - 1) % 16 + 1);
+        else snprintf(line, sizeof line, "Loop Rec  %ld.%lds to go", tenths / 10, tenths % 10);
         lcd_rule(u, METER_ROW, line);
         draw_wave(u, s, 0);
     } else {

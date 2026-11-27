@@ -1362,6 +1362,62 @@ static int audible(const struct seq_sequence *q, int t) {
 
 // Every track's notes heard or silenced as its mute and solo now say (the Track Mute page, UNMUTE
 // ALL): the engine only, no MIDI out. Caller holds the lock.
+// What is on each of the 8 USB outputs, for LA DAW, as one SysEx (sent on USB MIDI only, when it
+// changes and at each Start, so the DAW names its tracks and makes the pairs stereo):
+//   F0 7D 4C 41 01 <1 by track / 0 by pad> then for each output 1..8: <kind> <16 name letters> F7
+//   kind: 0 nothing, 1 mono, 2 the left of a pair, 3 its right. The name: the track's (or the
+//   pad's sound's) on it, "+" at the end when more than one share it; spaces after.
+int outs_message(const struct os *s, unsigned char *m, int max) {
+    if (max < 6 + ENGINE_OUTS * 17 + 1) return 0;
+    char names[ENGINE_OUTS][17];
+    int kind[ENGINE_OUTS] = {0}, count[ENGINE_OUTS] = {0};
+    memset(names, 0, sizeof names);
+    const struct seq_sequence *q = &s->seq.sequence[s->seq.current];
+    int n = s->outs_by_track ? SEQ_TRACKS : OS_PADS;
+    for (int i = 0; i < n; i++) {
+        int a;
+        const char *name;
+        char own[24];
+        if (s->outs_by_track) {
+            const struct seq_track *k = &q->track[i];
+            a = k->usb_out;
+            if (k->name[0]) name = k->name;
+            else snprintf(own, sizeof own, "Track %02d", i + 1), name = own;
+        } else {
+            if (!s->pads[i].s) continue;
+            a = s->pads[i].p.usb_out, name = s->pads[i].name;
+        }
+        if (a <= 0 || a >= ENGINE_OUT_CODES) continue;
+        int pair = a > ENGINE_OUTS, c = pair ? a - ENGINE_OUTS - 1 : a - 1;
+        if (c < 0 || c + pair >= ENGINE_OUTS) continue;
+        for (int h = 0; h <= pair; h++) {
+            int ch = c + h;
+            if (!count[ch]++) {
+                snprintf(names[ch], sizeof names[ch], "%.16s", name);
+            } else if (count[ch] == 2) { // shared: "+" at the end
+                size_t len = strlen(names[ch]);
+                if (len > 15) len = 15;
+                names[ch][len] = '+', names[ch][len + 1] = 0;
+            }
+            kind[ch] = pair ? 2 + h : 1;
+        }
+    }
+    static const unsigned char HEAD[] = {0xF0, 0x7D, 0x4C, 0x41, 0x01};
+    int at = sizeof HEAD;
+    memcpy(m, HEAD, sizeof HEAD);
+    m[at++] = (unsigned char)(s->outs_by_track != 0);
+    for (int ch = 0; ch < ENGINE_OUTS; ch++) {
+        m[at++] = (unsigned char)kind[ch];
+        size_t len = strlen(names[ch]);
+        for (size_t i = 0; i < 16; i++) {
+            unsigned char l = i < len ? (unsigned char)names[ch][i] : ' ';
+            m[at++] = l < 32 || l > 126 ? ' ' : l;
+        }
+    }
+    m[at++] = 0xF7;
+    return at;
+}
+
 void seq_tracks_heard(struct os *s) {
     const struct seq_sequence *q = current(s);
     for (int t = 0; t < SEQ_TRACKS; t++)

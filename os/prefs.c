@@ -17,8 +17,10 @@ static const int RES_ORDER[SEQ_RES_COUNT] = {SEQ_RES_MPC3000, SEQ_RES_MPC60, SEQ
 // Page 1: lights, pads, screen, timing and the Start sequencer values. Page 2: Live Loop
 // Conversion and the Start recording values.
 enum { PF_BUTTONS, PF_PADS, PF_THRESH, PF_SCREEN, PF_LAYOUT, PF_RES, PF_USBOUT, PF_BPM, PF_BARS, PF_TC, PF_SWING, // page 1
-       PF_LOOPCONV, PF_AUTOROOT, PF_RATE, PF_BITS, PF_AA, PF_NORM, PF_THRU, PF_MODE, PF_KNOB, PF_MUTE, PF_FIELDS }; // page 2
+       PF_LOOPCONV, PF_AUTOROOT, PF_RATE, PF_BITS, PF_AA, PF_NORM, PF_THRU, PF_MODE, PF_KNOB, PF_MUTE, // page 2
+       PF_OUTSDAW, PF_FIELDS }; // page 3
 #define PF_PAGE2 PF_LOOPCONV
+#define PF_PAGE3 PF_OUTSDAW
 static const char *const MODES[REC_MODES] = {"STEREO", "MONO LFT", "MONO RGT", "MONO LR"};
 static const int BITS[] = {4, 8, 12, 16};
 static const char *const KNOB_NAMES[KNOB_MODES] = {"CATCH", "JUMP", "SCALE"};
@@ -109,6 +111,7 @@ static void change(struct os *s, int f, int d, int shift) {
     case PF_THRU: s->start_thru = d > 0; break;
     case PF_MODE: s->start_mode = clampi(s->start_mode + d, 0, REC_MODES - 1); break;
     case PF_KNOB: s->knob_mode = clampi(s->knob_mode + d, 0, KNOB_MODES - 1); return;
+    case PF_OUTSDAW: s->outs_daw = d > 0; return; // ON (to start): USB Indiv Out's outputs reported to the DAW
     case PF_MUTE: // AT ONCE (to start) or NEXT NOTE (as before 2.0F)
         pthread_mutex_lock(&s->seq.lock);
         s->seq.mute_next = d > 0;
@@ -119,21 +122,27 @@ static void change(struct os *s, int f, int d, int shift) {
     if (f >= PF_RATE) record_apply_start(s); // every recording page, now
 }
 
+// The page a field is on: 0, 1 or 2 (Additional Settings, 2, 3).
+static int page_of(int f) {
+    return f >= PF_PAGE3 ? 2 : f >= PF_PAGE2 ? 1 : 0;
+}
+
 void prefs_frame(struct os *s, struct ui *u, const struct input *in) {
-    int page = s->cursor_prefs >= PF_PAGE2;
+    static const int FIRST[3] = {0, PF_PAGE2, PF_PAGE3}, COUNT[3] = {PF_PAGE2, PF_PAGE3 - PF_PAGE2, PF_FIELDS - PF_PAGE3};
+    int page = page_of(s->cursor_prefs);
     if (input_down(in, IN_B1)) { // <MIDI>: back to MIDI Settings
         s->screen = OS_MIDI;
         s->rate_edit = 0;
         ui_wake(u, 1);
         return;
     }
-    if (input_down(in, IN_B3)) { // <Page 2> / <Page 1>
-        page = !page;
-        s->cursor_prefs = page ? PF_PAGE2 : 0;
+    if (input_down(in, IN_B3)) { // <Page 2>, <Page 3>, <Page 1>
+        page = (page + 1) % 3;
+        s->cursor_prefs = FIRST[page];
         s->rate_edit = 0;
         ui_wake(u, 1);
     }
-    int first = page ? PF_PAGE2 : 0, count = page ? PF_FIELDS - PF_PAGE2 : PF_PAGE2;
+    int first = FIRST[page], count = COUNT[page];
     if (in->encoder_press) {
         if (s->cursor_prefs == PF_RATE && s->start_rate_set && !in->shift) {
             s->rate_edit = !s->rate_edit; // SET: the number, and back
@@ -151,11 +160,14 @@ void prefs_frame(struct os *s, struct ui *u, const struct input *in) {
     }
     char v[32];
     lcd_text(u, 0, KEY_ROW, "<MIDI>");
-    lcd_text(u, 18, KEY_ROW, page ? "<Page 1>" : "<Page 2>");
-    lcd_rule(u, TITLE_ROW, page ? "Additional Settings 2" : "Additional Settings");
+    static const char *const NEXT[3] = {"<Page 2>", "<Page 3>", "<Page 1>"};
+    static const char *const TITLE[3] = {"Additional Settings", "Additional Settings 2", "Additional Settings 3"};
+    lcd_text(u, 18, KEY_ROW, NEXT[page]);
+    lcd_rule(u, TITLE_ROW, TITLE[page]);
     const char *labels[PF_FIELDS] = {"Button Lights:", "Pad Lights:", "Pad Thresh:", "Screen:", "Layout:", "", "USB Audio Out:", "Start BPM:", "Start Bars:",
                                      "Start TC:", "Start Swing:", "Loop Conv:", "Root Auto-Detect:", "Sample Rate:", "Bit Rate:", "Anti-Aliasing:",
-                                     "Normalize:", "Input Thru:", "Rec Mode:", "Knob Mode:", "Track Mute:"};
+                                     "Normalize:", "Input Thru:", "Rec Mode:", "Knob Mode:", "Track Mute:",
+                                     "Outs to DAW:"};
     char bpm[12], sw[8], bars[8], thresh[8], rate[16], bits[8];
     snprintf(thresh, sizeof thresh, "%d", s->pad_threshold);
     snprintf(bars, sizeof bars, "%d", s->start_bars);
@@ -170,21 +182,29 @@ void prefs_frame(struct os *s, struct ui *u, const struct input *in) {
                                      lcd_layout_name(s->layout), RES[s->seq.res], s->usb_out ? "ON" : "OFF", bpm, bars, seq_tc_name(s->start_tc), sw, LOOP_CONV[s->loop_conv], s->auto_root ? "ON" : "OFF", rate, bits,
                                      s->start_aa ? "ON" : "OFF", s->start_norm ? "ON" : "OFF",
                                      s->start_thru ? "ALWAYS ON" : "OFF", MODES[s->start_mode], KNOB_NAMES[s->knob_mode],
-                                     s->seq.mute_next ? "NEXT NOTE" : "AT ONCE"};
-    const int rows[PF_FIELDS] = {3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 3, 4, 6, 7, 8, 9, 10, 11, 13, 14};
-    const int cols[PF_FIELDS] = {14, 14, 14, 7, 7, 14, 14, 12, 12, 12, 12, 10, 17, 14, 14, 14, 14, 14, 14, 11, 12};
+                                     s->seq.mute_next ? "NEXT NOTE" : "AT ONCE", s->outs_daw ? "ON" : "OFF"};
+    const int rows[PF_FIELDS] = {3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 3, 4, 6, 7, 8, 9, 10, 11, 13, 14, 4};
+    const int cols[PF_FIELDS] = {14, 14, 14, 7, 7, 14, 14, 12, 12, 12, 12, 10, 17, 14, 14, 14, 14, 14, 14, 11, 12, 13};
     for (int i = first; i < first + count; i++) {
         lcd_text(u, 0, rows[i], labels[i]);
         snprintf(v, sizeof v, " %s ", values[i]);
         if (s->cursor_prefs == i) lcd_inverse(u, cols[i], rows[i], v);
         else lcd_text(u, cols[i], rows[i], v);
     }
-    if (!page) { // the resolution, and under it the machine whose timing and swing it is taken from (the setting)
+    if (page == 0) { // the resolution, and under it the machine whose timing and swing it is taken from (the setting)
         snprintf(v, sizeof v, "Sequencer Res: %dPPQN", PPQN[s->seq.res]);
         lcd_text(u, 0, 8, v);
-    } else {
+    } else if (page == 1) {
         lcd_rule(u, 5, "Recording Starts With");
         lcd_rule(u, 12, "Knobs, Slider and Mutes");
+    } else {
+        lcd_rule(u, 3, "USB Indiv Out");
+        lcd_text(u, 0, 6, "ON: what is on each output");
+        lcd_text(u, 0, 7, "goes to the DAW over USB");
+        lcd_text(u, 0, 8, "MIDI (LA DAW names its");
+        lcd_text(u, 0, 9, "tracks from it).");
+        lcd_text(u, 0, 10, "OFF: nothing is sent.");
+        lcd_rule(u, BOTTOM_ROW, 0);
     }
 }
 
@@ -208,18 +228,19 @@ void prefs_pad_lights(struct os *s, struct ui *u) {
 }
 
 void prefs_save_line(const struct os *s, char *b, size_t n) {
-    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res,
+    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res,
              s->screen_scheme, s->start_bpm10, s->start_tc, s->start_swing, s->start_bars, s->inst_gain, s->inst_bright,
              s->pad_threshold, s->loop_conv, s->start_rate, s->start_bits, s->start_aa, s->start_norm, s->start_thru, s->start_mode,
-             s->auto_root, s->knob_mode, s->usb_out, s->layout, s->usb_outs, s->outs_by_track, s->outs_keep, s->outs_layout, s->seq.mute_next);
+             s->auto_root, s->knob_mode, s->usb_out, s->layout, s->usb_outs, s->outs_by_track, s->outs_keep, s->outs_layout, s->seq.mute_next, s->outs_daw);
 }
 
 void prefs_load_line(struct os *s, const char *line) {
-    int v[27];
-    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3],
+    int v[28];
+    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3],
                      &v[4], &v[5], &v[6], &v[7], &v[8], &v[9], &v[10], &v[11], &v[12], &v[13], &v[14], &v[15], &v[16], &v[17], &v[18],
-                     &v[19], &v[20], &v[21], &v[22], &v[23], &v[24], &v[25], &v[26]);
+                     &v[19], &v[20], &v[21], &v[22], &v[23], &v[24], &v[25], &v[26], &v[27]);
     if (got >= 27) s->seq.mute_next = v[26] != 0;
+    if (got >= 28) s->outs_daw = v[27] != 0;
     if (got >= 26) s->outs_layout = v[25] != 0;
     if (got >= 25) s->usb_outs = v[22] != 0, s->outs_by_track = v[23] != 0, s->outs_keep = v[24] != 0;
     if (got >= 22) s->layout = clampi(v[21], 0, LAYOUTS - 1);

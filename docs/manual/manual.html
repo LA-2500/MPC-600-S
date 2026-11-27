@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 2.0I &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 2.0J &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -106,7 +106,7 @@
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
-<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0I.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0J.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
 <ol>
   <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
   <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
@@ -322,7 +322,7 @@
   <li>The take is always one pass: the sequence&rsquo;s length, lined up with its first tick, with the input&rsquo;s delay taken out as on Audiotrack Record.</li>
   <li>The conversion runs on its own thread, away from the audio, the pads and the screen: playing never stalls while a take is made.</li>
   <li>The metronome during a take follows Audio Rec, and after it After Loop, on the metronome page.</li>
-  <li>A MIDI footswitch set to <strong>AUDIO REC</strong> (MIDI Settings, Chapter 16) is <span class="key">&lt;Rec&gt;</span> and <span class="key">&lt;Stop&gt;</span>, here and on any page once takes have started.</li>
+  <li>A MIDI footswitch set to <strong>AUDIO REC</strong> (MIDI Settings, Chapter 16) is <span class="key">&lt;Rec&gt;</span> and <span class="key">&lt;Stop&gt;</span>, here and on any page once takes have started. Set to <strong>LOOP NEXT</strong>, it starts a take and then fills one empty pad after another, without touching the MPC (below).</li>
   <li>To set a loop&rsquo;s volume (or anything else) while it plays, hold <span class="key">SAMPLE</span> and press its pad: it is selected without sounding or retriggering (Chapter 8).</li>
 </ul>
 {{shot:livelooper_done|A take dropped in, the sequence still looping}}
@@ -1061,6 +1061,7 @@
 </table>
 <p>By pad, the output takes the sound after its envelope and filter, with its track&rsquo;s fader and pan; a pad on an output passes by its track&rsquo;s insert effects. By track, it is the track after its fader, pan, insert effects and EQ. The eight channels are all outputs: the main mix does not go over USB with USB Indiv Out on (for the whole song in stereo, use USB Audio Out with USB Outs OFF). The MPC&rsquo;s own line out and headphones keep the whole mix, outputs or not. Master Effects stay on the main mix. <span class="key">B3 &lt;Set All&gt;</span> puts this pad&rsquo;s Output, Volume and Follow on every pad of the program; <span class="key">B1 &lt;Mixer&gt;</span> goes back. <strong>In use</strong> shows which channels something plays on. <span class="key">K1</span> picks the track (or pad), <span class="key">K2</span> sets its Indiv Out Volume, <span class="key">K3</span> its Output; each turns from where the value is.</p>
 <p>On the computer, MPC Sample then has eight inputs. A DAW on Windows that shows only inputs 1/2 is using MME or DirectX, which give two; ASIO4ALL gives all eight. In Ableton&rsquo;s Input Config, turn on the mono inputs for mono outputs and the pairs for stereo ones. (Eight is the most: Windows stops taking more than eight channels from one USB device after two seconds.)</p>
+<p>With USB Indiv Out on, the MPC 600 S also tells the computer what is on each output, over USB MIDI: whether it is mono or one side of a stereo pair, and the name of the track (or, by pad, the sound) on it. It sends this when anything changes and each time the sequence starts (Additional Settings 3, Outs to DAW, turns it off). LA DAW uses it to name its tracks and make the pairs stereo; other programs ignore it. A pad pressed by hand comes out on its part&rsquo;s output: by track, when the active track does not play that pad, it plays through the track of the sequence that does (on the same program) and has an output.</p>
 {{shot:usb_outs|USB Indiv Out, by pad}}
 
 <h2>Input Effects</h2>
@@ -1328,7 +1329,7 @@
 <p><strong>Footswitch</strong>: with Sustain set to FOOTSWITCH, a pedal works the transport instead of holding notes. Most footswitches reach the MPC through a MIDI keyboard or controller, which sends the pedal as a MIDI CC (usually 64, the sustain pedal) on its own channel. Four more fields, under Footswitch, make it work with whatever is sending it:</p>
 <table>
   <tr><th>Field</th><th>What it does</th><th>Default</th></tr>
-  <tr><td>Footswitch</td><td>What the pedal does: PLAY/STOP, REC/OVERDUB or AUDIO REC (below).</td><td>PLAY/STOP</td></tr>
+  <tr><td>Footswitch</td><td>What the pedal does: PLAY/STOP, REC/OVERDUB, AUDIO REC or LOOP NEXT (below).</td><td>PLAY/STOP</td></tr>
   <tr><td>Foot Chn</td><td><strong>ANY</strong> takes the pedal on any MIDI channel, so it works whatever channel the keyboard sends on. Set a channel (1&ndash;16) only if two devices both send a pedal.</td><td>ANY</td></tr>
   <tr><td>Foot CC</td><td>The CC the pedal comes as. Some controllers send their pedal jack as CC 66, 67 or 4, or a button as a CC: set it here, or use &lt;Learn&gt;.</td><td>64</td></tr>
   <tr><td>Polarity</td><td>Pedals are wired two ways: plugged into some keyboards, a pedal reads &ldquo;down&rdquo; while it is up. <strong>AUTO</strong> works it out: a pedal rests far longer than it is pressed, so the level that lasts longer is &ldquo;up&rdquo;. A pedal that rests &ldquo;down&rdquo; is known from its first press and release and works from the next press; nothing happens on the first. (The first thing heard being &ldquo;up&rdquo; is never acted on, since a keyboard may send that by itself as it connects.) <strong>NORMAL</strong> or <strong>INVERTED</strong> fix it.</td><td>AUTO</td></tr>
@@ -1342,6 +1343,7 @@
   <tr><td>PLAY/STOP</td><td>Starts the sequence from the top, or stops it.</td></tr>
   <tr><td>REC/OVERDUB</td><td>Stopped: starts an overdub. Playing: punches recording in and out.</td></tr>
   <tr><td>AUDIO REC</td><td>Is <span class="key">&lt;Rec&gt;</span> and <span class="key">&lt;Stop&gt;</span> on Audiotrack Record and Live Looper, so takes can be started with the hands on the instrument. On Audiotrack Record it starts a take (count-in and all) or stops one. On Live Looper it starts a take on the selected empty pad, or lets one go. Once Live Looper takes have started, it works from any page: select the next empty pad with <span class="key">SAMPLE</span> + pad, and press the pedal for the next layer. Anywhere else it does nothing but say where to go.</td></tr>
+  <tr><td>LOOP NEXT</td><td>Live Looper takes from any page, one after another, each on the next empty pad. The first press starts a take on the selected pad (or, if it has a sound, the next empty pad after it): a count-in when stopped, or the next bar 1 when playing, as <span class="key">&lt;Rec&gt;</span> on Live Looper. Each press after that arms the next empty pad, and a message names it, for example <span class="lcd">Next take: Pad A03</span>. Pressed after a take has dropped in, the next take starts on the next bar 1. Pressed while a take is still recording, the next pad waits for that take to drop in, then starts on the bar 1 after (Live Looper&rsquo;s bottom line shows it as <span class="lcd">Next A03</span>); pressing again while a pad is armed changes nothing. The pedal never stops a take: <span class="key">STOP</span> ends it, and the armed pad with it (or <span class="key">&lt;Stop&gt;</span> on Live Looper, which lets the take go and keeps the sequence playing).</td></tr>
 </table>
 <p> <span class="key">&lt;CC&gt;</span> opens the Mixer CC page: <strong>Mixer CC</strong> on or off, its Target (the bank&rsquo;s 16 strips, or the selected track), and each control&rsquo;s CC (Level, Pan, EQ Low, Mid and High, Mute, Solo), all off by default.</p>
 <p><strong>Learning CCs.</strong> Press <span class="key">B2 &lt;Learn&gt;</span> and move a knob, fader or button on your controller. The selected control takes that CC, Mixer CC turns on so it answers at once, and the cursor moves to the next control. Press &lt;Learn&gt; again and move the next knob, and so on down the list. Pressed while the cursor is on Mixer CC or Target, &lt;Learn&gt; starts at Level. Press it again before moving anything to cancel. A CC can also be set with the wheel; below 0 is OFF. <span class="key">B3 &lt;Default&gt;</span> sets every CC back to OFF.</p>
@@ -1388,6 +1390,7 @@
   <tr><td>Rec Mode</td><td>STEREO, MONO LFT, MONO RGT or MONO LR. Not for Convert Sample, which always starts in MONO LR. An INST L input records mono whatever this says.</td><td>STEREO</td></tr>
   <tr><td>Knob Mode</td><td>How K1&ndash;K3 and the slider take over a value, on every page. <strong>CATCH</strong>: nothing moves until the knob reaches the value (or passes it), so nothing jumps. <strong>JUMP</strong>: the value goes to where the knob is at once. <strong>SCALE</strong>: the value moves from where it is, in step with the knob, faster or slower so that the two meet at the ends of the knob&rsquo;s travel.</td><td>CATCH</td></tr>
   <tr><td>Track Mute</td><td>When a track mute or solo is heard (the Track Mute page, the Track Mixer, UNMUTE ALL). <strong>AT ONCE</strong>: a muted track goes on playing its notes unheard, so a loop cut by a mute comes back where it is. <strong>NEXT NOTE</strong>: a mute lets the sound playing end, and an unmute waits for the track&rsquo;s next note. (On the Track Mixer, a mute cuts the sound at once either way.)</td><td>AT ONCE</td></tr>
+  <tr><td>Outs to DAW</td><td>(Page 3) With USB Indiv Out on, the MPC 600 S tells the computer what is on each output over USB MIDI: one short message (SysEx), when anything changes and at each Start. LA DAW names its tracks and makes the pairs stereo from it; other programs ignore it (one recording SysEx from the MPC&rsquo;s port may keep it in a MIDI part). <strong>OFF</strong>: nothing extra is sent.</td><td>ON</td></tr>
 </table>
 {{shot:prefs2|Additional Settings, page 2: a Sample Rate being SET}}
 <p>These and everything else here are kept on the card and come back at the next power-on. A first install starts with red button lights, pad lights off, MPC 3000 timing, the MPC3000 Blue screen, 120 BPM, 2 bars and 1/16 Timing Correct, and records at 29.76 kHz and 12 bits in stereo.</p>
@@ -1396,7 +1399,7 @@
 <p><strong>Layout: 2000XL</strong> (Additional Settings) gives every page the look of the MPC2000XL&rsquo;s screen, at the MPC 600 S&rsquo;s size: the XL&rsquo;s letters, the key labels drawn as tabs, and dotted lines. With <strong>Screen: MPC2000</strong> it takes the XL&rsquo;s colour too. What the pages do stays the same; a few are laid out as on the XL. <strong>DEFAULT</strong> is the MPC 600 S&rsquo;s own look.</p>
 {{shot:prefs_layout|Additional Settings: Layout}}
 <ul>
-  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0I</span> in the middle of the screen, nothing else.</li>
+  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0J</span> in the middle of the screen, nothing else.</li>
   <li><strong>The main page</strong>: the sequence and <span class="lcd">Now:</span> on top; under them tempo, time signature, Timing, Count, Loop and Bars; the track under the dotted line. <span class="key">B1</span>&ndash;<span class="key">B3</span> read TrMUTE, Tr &minus; and Tr + (the same keys as on DEFAULT), and the knobs are listed along the bottom: <span class="lcd">K1:Track K2:BPM K3:Pgm</span>. Pick another sequence while one plays and <span class="lcd">Next:</span> shows beside the counter, with its number and name, until it starts.</li>
   <li><strong>Track Mute</strong>: the XL&rsquo;s grid of track names, 16 at a time. A playing track sits on a bar; a muted one is plain; a track with nothing on it reads <span class="lcd">(Unused)</span>.</li>
   <li><strong>Save and Load</strong>: the XL&rsquo;s pictures. SAVE: the MPC, an arrow marked SAVE, and the card (marked SD). LOAD: the card, an arrow marked LOAD, and the MPC.</li>

@@ -9,6 +9,7 @@ void midi_port_close(int which); // USB mode: the USB MIDI port let go of, opene
 // and what comes in on it is dropped.
 void midi_ports_enable(int ext, int usb);
 void midi_out_send(const unsigned char *m, int n); // to every port switched on. Never blocks.
+void midi_out_send_usb(const unsigned char *m, int n); // to USB MIDI only (switched on), as midi_out_send
 // The next message in: 1 with it in m (two-byte ones end in 0) and its port in *from, or 0.
 // Clock, start, continue and stop come through too, alone in m[0].
 int midi_in_read(unsigned char m[3], int *from);
