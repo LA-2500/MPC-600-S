@@ -5308,6 +5308,7 @@ static void test_track_eq(const char *shot_dir) {
     CHECK(boosted > flat * 3.0f); // about +14 dB at 80 Hz under a 110 Hz shelf
     for (int i = 0; i < 20; i++) render(128);
 
+    os.seq.mute_next = 0; // Track Mute AT ONCE (NEXT NOTE is the default, below)
     tap(IN_B1); // <Mute>: its notes play silently (so an unmute is heard at once)
     CHECK(k->mute == 1);
     engine_kill_all(&e);
@@ -5544,6 +5545,37 @@ static void test_midi_settings(const char *shot_dir) {
     CHECK(os.seq.mode == SEQ_PLAYING);
     midi_send_in(0xfc, 0, 0);
     CHECK(os.seq.mode == SEQ_STOPPED);
+    { // RECEIVE follows the clocks: a 120 BPM clock, the sequence at 90, locked within a beat
+        os.seq.sequence[os.seq.current].tempo10 = 900;
+        os.seq.sequence[os.seq.current].bars = 8;
+        midi_send_in(0xfa, 0, 0);
+        double frames = 0, at = 0;
+        int64_t ms = 5000;
+        for (int c = 1; c <= 192; c++) { // two bars of clocks, 24 a beat
+            midi_qn = midi_qat = 0;
+            midi_push(0xf8, 0, 0);
+            struct ui cu = {.px = px, .now_ms = ms + (int64_t)(c * 500.0 / 24), .track_led = -1};
+            struct input idle = blank();
+            os_frame(&cu, &idle, &os);
+            frames += 44100.0 * 0.5 / 24; // 120 BPM: a clock every 1/48 s
+            while (at + 128 <= frames) render(128), at += 128;
+            if (c == 96) CHECK(fabs(os.seq.pos - 384) < 12); // a bar in: where the clocks say
+        }
+        CHECK(fabs(os.seq.pos - 768) < 12);
+        CHECK(abs(os.seq.sequence[os.seq.current].tempo10 - 1200) <= 10); // and the tempo shown
+        double held = os.seq.pos; // the clocks stop (a pause at the master): it waits for them
+        for (int i = 0; i < 100; i++) render(128);
+        CHECK(os.seq.pos - held < 8);
+        midi_send_in(0xfc, 0, 0);
+        CHECK(os.seq.mode == SEQ_STOPPED);
+        os.seq.sequence[os.seq.current].bars = 2;
+    }
+    { // PLAY on the MPC with RECEIVE and no clock coming: it plays on its own
+        seq_play(&os.seq, 1);
+        render_until_tick(96);
+        CHECK(os.seq.pos >= 96);
+        seq_stop(&os.seq, 1);
+    }
     os.midi.sync = SYNC_OFF;
 
     // Footswitch PLAY/STOP on Base Chn.
@@ -8101,7 +8133,7 @@ static void test_prefs_start(void) {
     CHECK(os.start_bpm10 == 1200 && os.start_tc == TC_16 && os.start_swing == 50 && os.button_lights == BUTTON_RED &&
           os.pad_lights == PAD_LIGHT_OFF && os.seq.res == 0 && os.screen_scheme == SCREEN_MPC3000);
     os.start_bpm10 = 935, os.start_tc = TC_8, os.start_swing = 62, os.start_bars = 4;
-    char line[64];
+    char line[200];
     prefs_save_line(&os, line, sizeof line);
     seq_fresh();
     prefs_load_line(&os, line);
@@ -8118,7 +8150,40 @@ static void test_prefs_start(void) {
     seq_fresh();
     prefs_load_line(&os, "1,2,0,3");
     CHECK(os.button_lights == 1 && os.pad_lights == 2 && os.start_bpm10 == 1200 && os.start_tc == TC_16 && os.start_bars == 2);
+    // Track Mute starts at NEXT NOTE; AT ONCE chosen is kept, but a line from before 2.0K (which
+    // saved AT ONCE whether chosen or not) starts at NEXT NOTE.
     seq_fresh();
+    CHECK(os.seq.mute_next == 1);
+    os.seq.mute_next = 0;
+    prefs_save_line(&os, line, sizeof line);
+    seq_fresh();
+    prefs_load_line(&os, line);
+    CHECK(os.seq.mute_next == 0);
+    seq_fresh();
+    prefs_load_line(&os, "0,0,0,0,1200,2,50,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1");
+    CHECK(os.seq.mute_next == 1 && os.outs_daw == 1);
+    seq_fresh();
+    // The main volume: all the way down is silence, even a reading or two short of 0; the top is full
+    for (int v = 0; v <= 3; v++) {
+        struct input in = blank();
+        in.main_moved = 1, in.main = v;
+        frame(&in);
+        CHECK(atomic_load(&os.main_gain) == 0.0f);
+    }
+    struct input top = blank();
+    top.main_moved = 1, top.main = 127;
+    frame(&top);
+    CHECK(atomic_load(&os.main_gain) == 1.0f);
+    top.main = 4; // just above: very quiet, not off
+    frame(&top);
+    CHECK(atomic_load(&os.main_gain) > 0.0f && atomic_load(&os.main_gain) < 0.001f);
+    // At power-on: silent until the panel's reply says where the knob is; if it never does, half way
+    os.main_known = 0, atomic_store(&os.main_gain, 0.0f);
+    { struct input idle = blank(); frame(&idle); }
+    CHECK(atomic_load(&os.main_gain) == 0.0f || os.frame_ms > os.start_ms + 1500);
+    os.start_ms = os.frame_ms - 2000;
+    { struct input idle = blank(); frame(&idle); }
+    CHECK(os.main_known && atomic_load(&os.main_gain) == 0.5f);
 }
 
 // The guards: a sound gone to NaN (a blown-up filter, say) is silenced and counted, and the
@@ -8516,6 +8581,18 @@ static void test_panel_input(void) {
             CHECK(i2.main_moved && i2.main == 80);
             input_begin(&i2, &d2), input_push(&d2, &i2, m70);
             CHECK(i2.main_moved && i2.main == 70);
+            // A fast turn all the way down, in big jumps with nothing after the last: it ends at 0
+            // (a tester heard the MPC with the volume all the way down)
+            d2.ctl_move_ms[3] -= 1000; // at rest first
+            input_begin(&i2, &d2);
+            for (int v = 50; v >= 0; v -= 25) input_push(&d2, &i2, (const unsigned char[3]){0xB0, 19, (unsigned char)v});
+            CHECK(i2.main_moved && i2.main == 0);
+        }
+        { // the main volume's first reading after power-on sets it, even all the way down
+            struct input_dev d3 = {0};
+            struct input i3;
+            input_begin(&i3, &d3), input_push(&d3, &i3, (const unsigned char[3]){0xB0, 19, 0});
+            CHECK(i3.main_moved && i3.main == 0);
         }
         // A knob at rest flickering between two readings is no turn (a tester's Zone End moved, and
         // the view jumped to it, with nobody touching the knob); a turn takes single steps; turning

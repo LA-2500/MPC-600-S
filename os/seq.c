@@ -70,6 +70,7 @@ void seq_init(struct seq *s) {
     s->click_rate = CLICK_4;
     s->click_volume = 100;
     s->erase_note = -1;
+    s->mute_next = 1; // Track Mute NEXT NOTE to start (Additional Settings 2)
     for (int i = 0; i < SEQ_COUNT; i++) seq_sequence_reset(&s->sequence[i], i);
 }
 
@@ -942,6 +943,17 @@ void seq_audio_block(void *ctx, struct engine *e, int frames) {
     b.tpf = q->tempo10 / 10.0 / 60.0 * SEQ_PPQ / ENGINE_RATE;
     double span = (frames + s->missed) * b.tpf;
     s->missed = 0;
+    int follow = s->sync_follow && s->sync_clocks > 0 && (s->mode == SEQ_PLAYING || s->mode == SEQ_RECORDING || s->mode == SEQ_OVERDUB);
+    if (s->sync_follow && !follow && s->mode != SEQ_STOPPED) s->sync_played += span; // before the first clock: free
+    if (follow) { // Sync RECEIVE: where the clocks say it should be (half a clock on, the middle of one)
+        double err = s->sync_clocks * 4.0 + 2.0 - s->sync_played;
+        double k = err < -6.0 ? 0.0                       // clocks stopped or late: wait for them
+                 : err > 48.0 ? 1.0 + err / (span > 1e-9 ? span : 1.0) // half a beat behind: catch up now
+                 : 1.0 + (err * 0.05 < -0.5 ? -0.5 : err * 0.05 > 0.5 ? 0.5 : err * 0.05); // a little faster or slower
+        if (k > 0) b.tpf *= k; // the notes in the block placed at the speed it plays at
+        span *= k;
+        s->sync_played += span;
+    }
 
     // Note lengths run out whether or not the sequence is still playing.
     for (int i = 0; i < s->npending;) {
@@ -1041,6 +1053,7 @@ void seq_play(struct seq *s, int from_start) {
     pthread_mutex_lock(&s->lock);
     if (s->mode == SEQ_STOPPED) {
         const struct seq_sequence *q = &s->sequence[s->current];
+        s->sync_clocks = 0, s->sync_played = 0; // Sync RECEIVE: counted from here
         if (from_start || s->pos < 0 || s->pos >= seq_length(q)) s->pos = 0;
         int target = s->rec_arm == REC_ARM_REC ? SEQ_RECORDING
                    : s->rec_arm == REC_ARM_OVERDUB ? SEQ_OVERDUB : SEQ_PLAYING;

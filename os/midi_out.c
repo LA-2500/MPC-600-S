@@ -50,6 +50,13 @@ void midi_port_close(int which) {
     port[which].len = port[which].at = port[which].count = 0, port[which].status = 0;
 }
 
+int midi_in_fds(int *fds, int max) {
+    int n = 0;
+    for (int p = 0; p < MIDI_PORTS && n < max; p++)
+        if (port[p].in >= 0) fds[n++] = port[p].in;
+    return n;
+}
+
 void midi_ports_enable(int ext, int usb) {
     port[MIDI_PORT_EXT].on = ext;
     port[MIDI_PORT_USB].on = usb;

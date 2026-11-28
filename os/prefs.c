@@ -112,7 +112,7 @@ static void change(struct os *s, int f, int d, int shift) {
     case PF_MODE: s->start_mode = clampi(s->start_mode + d, 0, REC_MODES - 1); break;
     case PF_KNOB: s->knob_mode = clampi(s->knob_mode + d, 0, KNOB_MODES - 1); return;
     case PF_OUTSDAW: s->outs_daw = d > 0; return; // ON (to start): USB Indiv Out's outputs reported to the DAW
-    case PF_MUTE: // AT ONCE (to start) or NEXT NOTE (as before 2.0F)
+    case PF_MUTE: // NEXT NOTE (to start) or AT ONCE
         pthread_mutex_lock(&s->seq.lock);
         s->seq.mute_next = d > 0;
         if (!s->seq.mute_next) seq_tracks_heard(s); // a muted track's sounds still playing go silent now
@@ -228,18 +228,20 @@ void prefs_pad_lights(struct os *s, struct ui *u) {
 }
 
 void prefs_save_line(const struct os *s, char *b, size_t n) {
-    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", s->button_lights, s->pad_lights, s->seq.res,
+    snprintf(b, n, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,1", s->button_lights, s->pad_lights, s->seq.res,
              s->screen_scheme, s->start_bpm10, s->start_tc, s->start_swing, s->start_bars, s->inst_gain, s->inst_bright,
              s->pad_threshold, s->loop_conv, s->start_rate, s->start_bits, s->start_aa, s->start_norm, s->start_thru, s->start_mode,
              s->auto_root, s->knob_mode, s->usb_out, s->layout, s->usb_outs, s->outs_by_track, s->outs_keep, s->outs_layout, s->seq.mute_next, s->outs_daw);
 }
 
 void prefs_load_line(struct os *s, const char *line) {
-    int v[28];
-    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3],
+    int v[29];
+    int got = sscanf(line, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3],
                      &v[4], &v[5], &v[6], &v[7], &v[8], &v[9], &v[10], &v[11], &v[12], &v[13], &v[14], &v[15], &v[16], &v[17], &v[18],
-                     &v[19], &v[20], &v[21], &v[22], &v[23], &v[24], &v[25], &v[26], &v[27]);
-    if (got >= 27) s->seq.mute_next = v[26] != 0;
+                     &v[19], &v[20], &v[21], &v[22], &v[23], &v[24], &v[25], &v[26], &v[27], &v[28]);
+    // Track Mute: as saved from 2.0K on (the ,1 at the end). Before, AT ONCE was saved whether
+    // chosen or not, so those start at NEXT NOTE, the new default.
+    if (got >= 29 && v[28] == 1) s->seq.mute_next = v[26] != 0;
     if (got >= 28) s->outs_daw = v[27] != 0;
     if (got >= 26) s->outs_layout = v[25] != 0;
     if (got >= 25) s->usb_outs = v[22] != 0, s->outs_by_track = v[23] != 0, s->outs_keep = v[24] != 0;

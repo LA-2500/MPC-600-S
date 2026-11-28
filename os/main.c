@@ -33,6 +33,12 @@ static void log_line(const char *text) {
     fclose(f);
 }
 
+// What the panel's wait watches besides the panel: the MIDI inputs, so MIDI in (Sync's clock
+// above all) is taken as it comes, not at the next frame.
+static int wait_fds(int *out, int max) {
+    return midi_in_fds(out, max);
+}
+
 // Each frame: the speaker switch, and a line in the log whenever the audio drops out (an xrun),
 // a guard silences a blown-up filter or mix, a pad bounce is ignored, or the speaker goes on or off, with the time since
 // power-on, so a cut-out can be traced afterwards. At most a line a second.
@@ -181,6 +187,7 @@ int main(int argc, char **argv) {
     int ext = midi_port_open(MIDI_PORT_EXT) == 0, usb = midi_port_open(MIDI_PORT_USB) == 0;
     log_line(ext ? "MIDI jacks: open" : "MIDI jacks: not found");
     log_line(usb ? "USB MIDI: open" : "USB MIDI: not found");
+    panel_set_extra_fds(wait_fds);
     if (ext || usb) {
         os.midi_in_read = midi_in_read;
         os.seq.midi_send = midi_out_send;

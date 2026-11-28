@@ -65,6 +65,9 @@ static int group_of(int page) {
     return 0;
 }
 
+#define MAIN_OFF 3 // the main volume's readings heard as silence
+#define MAIN_GUESS_MS 1500 // no word of the main volume's knob by then: half way
+
 static int64_t now_ms(const struct ui *u) {
     if (u->now_ms) return u->now_ms;
     struct timespec t;
@@ -387,7 +390,7 @@ void os_init(struct os *s, struct engine *e) {
     s->pads = s->programs[0].pads;
     s->screen = OS_TITLE;
     s->preview_on = 1;
-    atomic_init(&s->main_gain, 0.5f); // the panel does not report the knob until it moves
+    atomic_init(&s->main_gain, 0.0f); // silent until the panel says where the knob is (MAIN_GUESS_MS)
     for (int i = 0; i < 3; i++) s->knob_last[i] = -1;
     for (int i = 0; i < 16; i++) s->sounding[i] = s->rec_note[i] = s->live_midi[i] = -1;
     for (int i = 0; i < 128; i++) s->midi_rec[i] = -1;
@@ -1129,14 +1132,29 @@ static void footswitch(struct os *s, struct ui *u) {
 // two seconds or so (read once a frame, so it settles rather than locks).
 static void sync_in(struct os *s, struct ui *u, int byte) {
     int64_t now = now_ms(u);
-    if (byte == 0xfa) seq_play(&s->seq, 1), s->clk_t0 = now, s->clk_n = 0;
-    else if (byte == 0xfb) seq_play(&s->seq, 0);
-    else if (byte == 0xfc) seq_stop(&s->seq, 0);
+    if (byte == 0xfa || byte == 0xfb) { // Start, Continue: the clocks counted from here
+        if (s->seq.mode != SEQ_STOPPED) seq_stop(&s->seq, 0); // a Start while playing: from the top again
+        seq_play(&s->seq, byte == 0xfa); // the clocks counted from here
+        s->clk_t0 = 0, s->clk_n = 0, s->clk_quick = 1; // timed from its first clock
+    } else if (byte == 0xfc) {
+        seq_stop(&s->seq, 0);
+    }
     if (byte != 0xf8) return;
-    if (!s->clk_t0) s->clk_t0 = now, s->clk_n = 0;
+    pthread_mutex_lock(&s->seq.lock);
+    int mode = s->seq.mode;
+    if (mode == SEQ_PLAYING || mode == SEQ_RECORDING || mode == SEQ_OVERDUB)
+        s->seq.sync_clocks++; // the sequence follows these (seq_audio_block)
+    pthread_mutex_unlock(&s->seq.lock);
+    if (!s->clk_t0) { // the first: the clocks' intervals timed from it
+        s->clk_t0 = now, s->clk_n = 0;
+        return;
+    }
     s->clk_n++;
     int64_t span = now - s->clk_t0;
-    if (span < 2000) return;
+    // The tempo: from the first beat after a start (near enough to follow), then every two seconds.
+    if (span < 2000 && !(s->clk_quick && s->clk_n >= 24)) return;
+    s->clk_quick = 0;
+    if (span <= 0) return;
     int tempo10 = (int)((double)s->clk_n / 24.0 * 60000.0 / (double)span * 10.0 + 0.5);
     pthread_mutex_lock(&s->seq.lock);
     int *t = &s->seq.sequence[s->seq.current].tempo10;
@@ -3006,8 +3024,13 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
     }
     seq_drain(&s->seq);
     follow_track(s);
-    if (in->main_moved) {
-        float v = (float)in->main / 127.0f;
+    if (!in->main_moved && !s->main_known && s->frame_ms > s->start_ms + MAIN_GUESS_MS) {
+        s->main_known = 1; // the panel never said: half way, as before
+        atomic_store_explicit(&s->main_gain, 0.5f, memory_order_relaxed);
+    }
+    if (in->main_moved) s->main_known = 1;
+    if (in->main_moved) { // the bottom of its travel is silence (a knob may stop a reading or two short of 0)
+        float v = in->main <= MAIN_OFF ? 0.0f : (float)(in->main - MAIN_OFF) / (127.0f - MAIN_OFF);
         atomic_store_explicit(&s->main_gain, v * v, memory_order_relaxed);
     }
     if (s->audio_poll) {
@@ -3070,6 +3093,7 @@ int os_frame(struct ui *u, const struct input *in, void *state) {
         midi_in(s, u, midi_msg, midi_from);
     s->seq.midi_off = !s->midi.ext && !s->midi.usb;
     s->seq.sync_send = s->midi.sync == SYNC_SEND;
+    s->seq.sync_follow = s->midi.sync == SYNC_RECEIVE;
     outs_to_daw(s);
     if (s->screen == OS_SAMPLE || s->screen == OS_MAIN || s->screen == OS_TC || s->screen == OS_METRO ||
         s->screen == OS_PROGRAM || s->screen == OS_ERASE || s->screen == OS_LOOP || s->screen == OS_S600 ||

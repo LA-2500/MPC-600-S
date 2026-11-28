@@ -13,3 +13,5 @@ void midi_out_send_usb(const unsigned char *m, int n); // to USB MIDI only (swit
 // The next message in: 1 with it in m (two-byte ones end in 0) and its port in *from, or 0.
 // Clock, start, continue and stop come through too, alone in m[0].
 int midi_in_read(unsigned char m[3], int *from);
+// The inputs open now, for the panel's wait: up to max of them into fds, and how many.
+int midi_in_fds(int *fds, int max);

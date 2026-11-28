@@ -14,16 +14,16 @@ The full video manual on YouTube (53 min, in chapters): installation, sequencing
 
 | | |
 |---|---|
-| **[⬇ OS v2.0J (MPC-600-S-OS-v2.0J.zip)](../../releases/latest/download/MPC-600-S-OS-v2.0J.zip)** | SD-card package |
+| **[⬇ OS v2.0K (MPC-600-S-OS-v2.0K.zip)](../../releases/latest/download/MPC-600-S-OS-v2.0K.zip)** | SD-card package |
 | **[⬇ Quick Start (PDF)](../../releases/latest/download/MPC-600-S-Quick-Start.pdf)** | Installation, 3 pages |
-| **[⬇ Operator's Manual v2.0J (PDF)](../../releases/latest/download/MPC-600-S-Manual-v2.0J.pdf)** | Full reference |
+| **[⬇ Operator's Manual v2.0K (PDF)](../../releases/latest/download/MPC-600-S-Manual-v2.0K.pdf)** | Full reference |
 | [⬇ Stems models (107 MB, optional)](../../releases/latest/download/MPC600S-stems.zip) | Required only by the Stems page |
 
 Links resolve to the latest release. Earlier versions: [Releases](../../releases).
 
 ## Install
 
-1. Extract **MPC-600-S-OS-v2.0J.zip**. Copy the `autorun` folder to the SD card root (FAT32 or exFAT). Do not rename or edit its files: the stock runner verifies `autorun.check` (SHA-256) before execution.
+1. Extract **MPC-600-S-OS-v2.0K.zip**. Copy the `autorun` folder to the SD card root (FAT32 or exFAT). Do not rename or edit its files: the stock runner verifies `autorun.check` (SHA-256) before execution.
 2. Power on with the card inserted. The stock OS boots; the MPC 600 S stops it and takes over the display and panel within 45 s of power-on.
 3. Stock OS: power off, remove the card. Update: replace the `autorun` folder. User data in `MPC600S/` is not touched.
 

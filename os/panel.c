@@ -284,12 +284,23 @@ int input_late_releases(struct input_dev *dev, struct input *in) {
 // three more readings, before it is taken. A real turn, however quick, comes in small steps (each
 // taken at once); a stray reading repeated (0, 0, 0) silenced the MPC until the knob was touched.
 #define MAIN_HOLD_MS 100
+#define TURN_MS 150 // a move taken this recently: the control is still turning
 static int control_value(struct input_dev *dev, int c, int value) {
     if (!dev) return value;
     int need = c == 3 ? 3 : 1;
     long long now = clock_ms();
     if (!dev->ctl_known[c] || abs(value - dev->ctl_last[c]) <= CTL_JUMP) {
         dev->ctl_known[c] = 1, dev->ctl_last[c] = value, dev->ctl_held[c] = -1, dev->ctl_confirms[c] = 0;
+        return value;
+    }
+    // A fast turn: the jump goes the way the control is already turning (a move taken just now), or
+    // on past the reading held back from where it was (90, 60, 30). Taken at once: a quick turn to
+    // the end of its travel ends there, with no reading after to confirm it. A stray comes at rest.
+    int way = value > dev->ctl_last[c] ? 1 : -1;
+    int turning = dev->ctl_dir[c] == way && now - dev->ctl_move_ms[c] <= TURN_MS;
+    int onward = dev->ctl_held[c] >= 0 && (dev->ctl_held[c] - dev->ctl_last[c]) * way > 0 && (value - dev->ctl_held[c]) * way > 6;
+    if (c == 3 && (turning || onward)) { // the main volume (the knobs: a stray matters more there)
+        dev->ctl_last[c] = value, dev->ctl_held[c] = -1, dev->ctl_confirms[c] = 0;
         return value;
     }
     if (dev->ctl_held[c] >= 0 && abs(value - dev->ctl_held[c]) <= 6) {
@@ -321,7 +332,7 @@ static int settle(struct input_dev *dev, int c, int value) {
     long long now = clock_ms();
     if (!dev->ctl_out_known[c]) { // the first reading: where it is, not a move
         dev->ctl_out_known[c] = 1, dev->ctl_out[c] = value, dev->ctl_dir[c] = 0;
-        return -1;
+        return c == 3 ? value : -1; // but the main volume is set from it: it may be all the way down
     }
     if (dev->ctl_dir[c] && now - dev->ctl_move_ms[c] > CTL_REST_MS) dev->ctl_dir[c] = 0; // at rest again
     int d = value - dev->ctl_out[c];
@@ -674,6 +685,11 @@ static void lights_off(void) {
 // ---- The frame loop ----
 
 static struct input_dev *running_dev;
+static int (*extra_fds)(int *out, int max);
+
+void panel_set_extra_fds(int (*fds)(int *out, int max)) {
+    extra_fds = fds;
+}
 
 unsigned panel_pad_bounces(void) {
     return running_dev ? running_dev->pad_bounces : 0;
@@ -696,6 +712,10 @@ int panel_run(ui_frame frame, void *state) {
     struct input in;
     running_dev = &dev;
     lights_off();
+    // The stock app's hello: the panel answers with where K1-K3, the main volume and the slider
+    // sit (CC 16-20, then CC 100 0), so the volume starts where its knob is (see the capture notes).
+    static const unsigned char hello[8] = {0xF0, 0x47, 0x7F, 0x5C, 0x42, 0x00, 0x00, 0xF7};
+    port_send(hello, 8);
     input_begin(&in, &dev);
     int stop = 0, wake = 0;
     long long drawn = clock_ms();
@@ -715,13 +735,28 @@ int panel_run(ui_frame frame, void *state) {
                 long long left = drawn + wake - clock_ms();
                 wait = left < 0 ? 0 : (int)left;
             }
-            struct pollfd pfd = {.fd = port.fd, .events = POLLIN};
-            int r = poll(&pfd, 1, wait);
+            // The MIDI inputs too: what they have is read by the frame, so one with
+            // something runs a frame, but not sooner than PANEL_EXTRA_MS after the last (a port the
+            // frame does not read, as on the title page, must not spin).
+            struct pollfd pfd[9] = {{.fd = port.fd, .events = POLLIN}};
+            int npfd = 1;
+            if (extra_fds) {
+                long long since = clock_ms() - drawn;
+                if (since >= PANEL_EXTRA_MS) {
+                    int fds[8], n = extra_fds(fds, 8);
+                    for (int i = 0; i < n; i++) pfd[npfd].fd = fds[i], pfd[npfd].events = POLLIN, pfd[npfd].revents = 0, npfd++;
+                } else if (wait > PANEL_EXTRA_MS - since) {
+                    wait = (int)(PANEL_EXTRA_MS - since); // look at them again then
+                }
+            }
+            int r = poll(pfd, (nfds_t)npfd, wait);
             if (r < 0 && errno != EINTR) {
                 stop = 1;
                 break;
             }
-            if (r > 0) { // everything waiting, into this frame
+            for (int i = 1; r > 0 && i < npfd; i++)
+                if (pfd[i].revents) got = 1; // a frame now, to read it
+            if (r > 0 && pfd[0].revents) { // everything waiting, into this frame
                 unsigned char buf[256], msg[3];
                 ssize_t n;
                 while ((n = read(port.fd, buf, sizeof buf)) > 0)

@@ -18,7 +18,7 @@ enum { RENAME_NONE, RENAME_SEQ, RENAME_TRACK, RENAME_PROGRAM, RENAME_SOUND, RENA
 enum { PADTPL_DEFAULT, PADTPL_CHROMATIC, PADTPL_SCALE, PADTPL_KINDS }; // Pad Notes templates
 enum { INPUT_LINE, INPUT_MIC, INPUT_USB, INPUT_INST, INPUT_SOURCES }; // where sampling and Input Effects take their audio
 // (INST, a guitar or bass in the left input, mono through the instrument stage, added last: saved numbers stay)
-#define OS_NUMBER "2.0J"
+#define OS_NUMBER "2.0K"
 #define OS_VERSION "LA Version " OS_NUMBER " (11/27/26)" // 26 columns: a four-digit year will not fit
 #define OS_TITLE_MS 7500
 
@@ -235,7 +235,7 @@ struct os {
     struct { int id, key; } sus_snd[64];
     struct { int note, tune; } sus_rec[64];
     int64_t clk_t0;             // Sync RECEIVE: MIDI clocks counted since then, for the tempo
-    int clk_n;
+    int clk_n, clk_quick;        // clk_quick: a start just came; the tempo after its first beat
     int eq_return, cursor_eq;   // the EQ page
     int eq_seq;                 // the sequence whose track EQs the engine has, or -1 to send them again
     // Sample New Sound (SAMPLE REC).
@@ -316,6 +316,7 @@ struct os {
     int64_t toast_until;
     float meter_l, meter_r;
     _Atomic float main_gain;
+    int main_known; // the main volume's knob reported (the panel's hello reply, or a turn)
     const char *audio_status;
     unsigned (*xruns)(void);
     struct files browser;          // Sample Select's folder

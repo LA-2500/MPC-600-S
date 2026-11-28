@@ -531,8 +531,8 @@ static const struct {
      "JUMP: the value goes to where the knob is, at once.\n"
      "SCALE: the value moves from where it is, in step with the knob, so the two meet at the "
      "ends of its travel.\n"
-     "Track Mute: AT ONCE (to start): a mute or unmute is heard at once. NEXT NOTE: a mute lets "
-     "the sound end, an unmute waits for the track's next note.\f"
+     "Track Mute: NEXT NOTE (to start): a mute lets the sound end, an unmute waits for the "
+     "track's next note. AT ONCE: a mute or unmute is heard at once.\f"
      "Page 3. Outs to DAW: ON (to start): with USB Indiv Out on, what is on each output (mono or a "
      "pair, and its name) goes to the computer over USB MIDI, when it changes and at each Start. "
      "LA DAW names its tracks from it. OFF: nothing extra is sent."},

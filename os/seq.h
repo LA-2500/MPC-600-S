@@ -192,6 +192,12 @@ struct seq {
     void (*midi_send)(const unsigned char *m, int n);
     int midi_off;  // Ext MIDI off: nothing goes out
     int sync_send; // Sync SEND: MIDI clock, start and stop go out with the sequence
+    // Sync RECEIVE: the sequence follows the clocks that come in (4 ticks each) rather than
+    // running free at its tempo: sync_clocks counted since its start, sync_played the ticks
+    // played since then. Ahead, it slows or waits; behind, it hurries, so it stays locked.
+    int sync_follow;
+    long sync_clocks;
+    double sync_played;
     struct seq_song song[SEQ_SONGS];
     int song_on;              // playing a song: each sequence's end goes on to the next step
     int song_cur, song_step;  // which song, and the step playing

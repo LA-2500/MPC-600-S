@@ -113,6 +113,10 @@ typedef int (*ui_frame)(struct ui *u, const struct input *in, void *state);
 // Opens the display and the panel, and runs frames until one says stop. 0, or 1 when the
 // display or panel could not be opened.
 int panel_run(ui_frame frame, void *state);
+// More to wait on besides the panel (the MIDI inputs): a frame runs when one has
+// something, at most every PANEL_EXTRA_MS. fds fills out with up to max and returns how many.
+#define PANEL_EXTRA_MS 4
+void panel_set_extra_fds(int (*fds)(int *out, int max));
 // The two-colour buttons' lights: 0 both colours, 1 the first only, 2 the second only.
 void panel_set_bicolour_style(int style);
 unsigned panel_pad_bounces(void); // pad bounces ignored so far, for the log

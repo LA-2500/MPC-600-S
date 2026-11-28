@@ -70,7 +70,7 @@
   <div class="line">MIDI PRODUCTION CENTER</div>
   <div class="rule"></div>
   <div class="model">MPC 600 S</div>
-  <div class="ver">LA Version 2.0J &middot; for the Akai MPC Sample</div>
+  <div class="ver">LA Version 2.0K &middot; for the Akai MPC Sample</div>
   <div class="book">Operator&rsquo;s Manual</div>
   <div class="by">Copyright 1987&ndash;2027</div>
 </section>
@@ -106,7 +106,7 @@
 <p>It runs from the SD card. Nothing is flashed to the MPC Sample, and the original Akai software is left untouched: remove the card and the MPC Sample starts as it came.</p>
 
 <h2>Installing and Starting</h2>
-<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0J.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
+<p>The MPC 600 S comes as a zip named with its version (for example <strong>MPC-600-S-OS-v2.0K.zip</strong>; <strong>mpc-os.zip</strong> when built from the source), an autorun package for the MPC Sample&rsquo;s SD card:</p>
 <ol>
   <li>Unzip it. Copy the <span class="lcd">autorun</span> folder inside to the top level of an SD card (FAT32 or exFAT), its name and files unchanged.</li>
   <li>With the MPC Sample off, put the card in and turn it on. The MPC Sample starts as usual; a few seconds later the MPC 600 S takes over the screen. The title screen shows the version, then the main sequence page.</li>
@@ -564,7 +564,7 @@
 
 <h2>Track Mute</h2>
 <p><span class="key">MUTE</span> opens Track Mute: the 16 pads become a 4 &times; 4 grid. <strong>Type</strong> chooses what they do: TRACK MUTE, TRACK SOLO, PAD MUTE, PAD SOLO, or SEQUENCE (a pad queues that sequence to play next). <span class="key">B2 &lt;All Off&gt;</span> clears the type shown. <span class="key">SHIFT + MUTE</span> (UNMUTE ALL, as printed on the panel) unmutes every track of the sequence, on any page. <strong>Next Seq</strong> is on every type, set with the wheel.</p>
-<p>A track mute (or solo) is heard at once, not at the track&rsquo;s next note: a muted track goes on playing its notes unheard, so a loop or long sound cut by a mute comes back where it is when unmuted. The Track Mixer&rsquo;s mute and solo work the same. A muted MIDI track sends nothing. <strong>Track Mute: NEXT NOTE</strong> (Additional Settings 2) brings back the older way: a mute lets the sound end, and an unmute waits for the track&rsquo;s next note.</p>
+<p>To start, a track mute (or solo) waits for the track&rsquo;s next note: a mute lets the sound playing end, and an unmute is heard from the track&rsquo;s next note. A muted MIDI track sends nothing. <strong>Track Mute: AT ONCE</strong> (Additional Settings 2) makes a mute or unmute heard at once: a muted track goes on playing its notes unheard, so a loop or long sound cut by a mute comes back where it is when unmuted. The Track Mixer&rsquo;s mute and solo work the same.</p>
 {{shot:track_mute|Track Mute}}
 
 <!-- ===================================================================================== -->
@@ -1326,6 +1326,7 @@
 <h1 class="chapter" id="ch16"><small>Chapter 16</small>MIDI and Additional Settings</h1>
 <h2>MIDI Settings</h2>
 <p><span class="key">SHIFT + Pad 8</span>: Ext and USB MIDI, Base and Receive channels, Sync (send or receive MIDI clock), Local Mode, Soft Thru, and the sustain pedal (normal, to duration, or footswitch).</p>
+<p><strong>Sync: RECEIVE</strong> follows the MIDI clock from the port set in <strong>Sync In</strong> (EXT for the MIDI IN jack, USB for a computer): its Start, Continue and Stop work the sequence, and the sequence is kept locked to the clocks as they come, a little faster or slower as needed, waiting when they stop. The tempo shown follows within a beat of a start. PLAY on the MPC still plays on its own until a clock comes. <strong>SEND</strong> sends Start, clocks and Stop with the sequence.</p>
 <p><strong>Footswitch</strong>: with Sustain set to FOOTSWITCH, a pedal works the transport instead of holding notes. Most footswitches reach the MPC through a MIDI keyboard or controller, which sends the pedal as a MIDI CC (usually 64, the sustain pedal) on its own channel. Four more fields, under Footswitch, make it work with whatever is sending it:</p>
 <table>
   <tr><th>Field</th><th>What it does</th><th>Default</th></tr>
@@ -1389,7 +1390,7 @@
   <tr><td>Input Thru</td><td><strong>ALWAYS ON</strong>: the input is heard through the outputs from power-on. <strong>OFF</strong>: it starts off, to be turned on by hand (Monitor on Sample New Sound) when wanted.</td><td>ALWAYS ON</td></tr>
   <tr><td>Rec Mode</td><td>STEREO, MONO LFT, MONO RGT or MONO LR. Not for Convert Sample, which always starts in MONO LR. An INST L input records mono whatever this says.</td><td>STEREO</td></tr>
   <tr><td>Knob Mode</td><td>How K1&ndash;K3 and the slider take over a value, on every page. <strong>CATCH</strong>: nothing moves until the knob reaches the value (or passes it), so nothing jumps. <strong>JUMP</strong>: the value goes to where the knob is at once. <strong>SCALE</strong>: the value moves from where it is, in step with the knob, faster or slower so that the two meet at the ends of the knob&rsquo;s travel.</td><td>CATCH</td></tr>
-  <tr><td>Track Mute</td><td>When a track mute or solo is heard (the Track Mute page, the Track Mixer, UNMUTE ALL). <strong>AT ONCE</strong>: a muted track goes on playing its notes unheard, so a loop cut by a mute comes back where it is. <strong>NEXT NOTE</strong>: a mute lets the sound playing end, and an unmute waits for the track&rsquo;s next note. (On the Track Mixer, a mute cuts the sound at once either way.)</td><td>AT ONCE</td></tr>
+  <tr><td>Track Mute</td><td>When a track mute or solo is heard (the Track Mute page, the Track Mixer, UNMUTE ALL). <strong>AT ONCE</strong>: a muted track goes on playing its notes unheard, so a loop cut by a mute comes back where it is. <strong>NEXT NOTE</strong>: a mute lets the sound playing end, and an unmute waits for the track&rsquo;s next note. (On the Track Mixer, a mute cuts the sound at once either way.)</td><td>NEXT NOTE</td></tr>
   <tr><td>Outs to DAW</td><td>(Page 3) With USB Indiv Out on, the MPC 600 S tells the computer what is on each output over USB MIDI: one short message (SysEx), when anything changes and at each Start. LA DAW names its tracks and makes the pairs stereo from it; other programs ignore it (one recording SysEx from the MPC&rsquo;s port may keep it in a MIDI part). <strong>OFF</strong>: nothing extra is sent.</td><td>ON</td></tr>
 </table>
 {{shot:prefs2|Additional Settings, page 2: a Sample Rate being SET}}
@@ -1399,7 +1400,7 @@
 <p><strong>Layout: 2000XL</strong> (Additional Settings) gives every page the look of the MPC2000XL&rsquo;s screen, at the MPC 600 S&rsquo;s size: the XL&rsquo;s letters, the key labels drawn as tabs, and dotted lines. With <strong>Screen: MPC2000</strong> it takes the XL&rsquo;s colour too. What the pages do stays the same; a few are laid out as on the XL. <strong>DEFAULT</strong> is the MPC 600 S&rsquo;s own look.</p>
 {{shot:prefs_layout|Additional Settings: Layout}}
 <ul>
-  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0J</span> in the middle of the screen, nothing else.</li>
+  <li><strong>Start-up</strong>: <span class="lcd">MPC 600 S Version 2.0K</span> in the middle of the screen, nothing else.</li>
   <li><strong>The main page</strong>: the sequence and <span class="lcd">Now:</span> on top; under them tempo, time signature, Timing, Count, Loop and Bars; the track under the dotted line. <span class="key">B1</span>&ndash;<span class="key">B3</span> read TrMUTE, Tr &minus; and Tr + (the same keys as on DEFAULT), and the knobs are listed along the bottom: <span class="lcd">K1:Track K2:BPM K3:Pgm</span>. Pick another sequence while one plays and <span class="lcd">Next:</span> shows beside the counter, with its number and name, until it starts.</li>
   <li><strong>Track Mute</strong>: the XL&rsquo;s grid of track names, 16 at a time. A playing track sits on a bar; a muted one is plain; a track with nothing on it reads <span class="lcd">(Unused)</span>.</li>
   <li><strong>Save and Load</strong>: the XL&rsquo;s pictures. SAVE: the MPC, an arrow marked SAVE, and the card (marked SD). LOAD: the card, an arrow marked LOAD, and the MPC.</li>
